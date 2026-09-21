@@ -1,0 +1,22 @@
+# Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+
+# Node modules
+node_modules/
+package-lock.json
+
+# Python cache & bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Streamlit config cache
+.streamlit/secrets.toml
+
+# OS generated files
+.DS_Store
+Thumbs.db
