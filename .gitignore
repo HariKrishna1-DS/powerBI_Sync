@@ -16,6 +16,15 @@ __pycache__/
 
 # Streamlit config cache
 .streamlit/secrets.toml
+.env
+service_account.json
+*service-account*.json
+gsheet_dashboard/sync_status.json
+gsheet_dashboard/queue_data.json
+gsheet_dashboard/previews/
+gsheet_dashboard/frontend/dist/
+gsheet_dashboard/frontend/test-results/
+gsheet_dashboard/frontend/playwright-report/
 
 # OS generated files
 .DS_Store

@@ -1,343 +1,203 @@
+"""DataTrace extraction, local exports and authenticated Google Sheets sync."""
+import datetime as dt
+import json
 import os
-import sys
-import time
-import re
-import datetime
+from pathlib import Path
+import subprocess
+import tempfile
+
 import pandas as pd
-import requests
-from bs4 import BeautifulSoup
+from openpyxl.worksheet.table import Table, TableStyleInfo
+from sync_config import BASE_DIR, SPREADSHEET_ID, WORKSHEET_GID, TARGET_GSHEET_URL
 
-# -----------------------------------------------------------------------------
-# DATATRACE QUEUE AUTOMATION & GOOGLE SHEETS SYNC SCRIPT
-# -----------------------------------------------------------------------------
-# Configured parameters for target portal & Google Sheets
-PORTAL_URL = "https://tv.datatracetitle.com/Queues.aspx?qid=23656"
-LOGIN_URL = "https://tv.datatracetitle.com/Login.aspx"
-DEFAULT_USER = "KishoreK_ADS"
-DEFAULT_PASS = "Kishore@2025"
-TARGET_GSHEET_URL = "https://docs.google.com/spreadsheets/d/1YkbMfgQhnXz3amkZTB76h8_5I7PBeWUoh6j9gS51BsE/edit?gid=0#gid=0"
-SHEET_NAME = "Sheet2"
 
-def fetch_datatrace_queue(username=DEFAULT_USER, password=DEFAULT_PASS):
-    """
-    Logs into DataTrace portal and retrieves queue table data sorted by Arrival Time.
-    """
-    print(f"[*] Initializing session to DataTrace Portal: {PORTAL_URL}")
-    session = requests.Session()
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Language": "en-US,en;q=0.9",
-    }
-    session.headers.update(headers)
-
+def target_worksheet():
+    import gspread
+    from google.oauth2.service_account import Credentials
+    value = os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON', 'service_account.json').strip()
     try:
-        # Step 1: GET Login page to capture ASP.NET ViewState parameters
-        login_req = session.get(LOGIN_URL, timeout=15)
-        soup = BeautifulSoup(login_req.text, 'html.parser')
-        
-        viewstate = soup.find('input', {'name': '__VIEWSTATE'})
-        viewstate_val = viewstate['value'] if viewstate else ""
-        
-        eventvalidation = soup.find('input', {'name': '__EVENTVALIDATION'})
-        eventval_val = eventvalidation['value'] if eventvalidation else ""
-
-        viewstate_generator = soup.find('input', {'name': '__VIEWSTATEGENERATOR'})
-        vs_gen_val = viewstate_generator['value'] if viewstate_generator else ""
-
-        # Find exact login input fields
-        user_field = "txtUserName"
-        pass_field = "txtPassword"
-        btn_field = "btnSignIn"
-
-        # Check for ASP.NET form controls
-        for inp in soup.find_all('input'):
-            inp_id = inp.get('id', '')
-            inp_name = inp.get('name', '')
-            if 'user' in inp_id.lower() or 'user' in inp_name.lower():
-                user_field = inp_name or inp_id
-            elif 'pass' in inp_id.lower() or 'pass' in inp_name.lower():
-                pass_field = inp_name or inp_id
-            elif 'sign' in inp_id.lower() or 'login' in inp_id.lower() or 'btn' in inp_id.lower():
-                btn_field = inp_name or inp_id
-
-        payload = {
-            '__VIEWSTATE': viewstate_val,
-            '__EVENTVALIDATION': eventval_val,
-            '__VIEWSTATEGENERATOR': vs_gen_val,
-            user_field: username,
-            pass_field: password,
-            btn_field: 'Sign In'
-        }
-
-        print(f"[*] Submitting login credentials for user: {username}")
-        post_resp = session.post(LOGIN_URL, data=payload, timeout=20)
-        
-        # Step 2: Navigate to target queue page
-        queue_resp = session.get(PORTAL_URL, timeout=20)
-        q_soup = BeautifulSoup(queue_resp.text, 'html.parser')
-
-        # Find Queue Table
-        tables = q_soup.find_all('table')
-        target_table = None
-        for tbl in tables:
-            text = tbl.get_text()
-            if 'Arrival Time' in text or 'Parcel ID' in text or 'SLA Expiration' in text:
-                target_table = tbl
-                break
-
-        if not target_table and tables:
-            target_table = max(tables, key=lambda t: len(t.find_all('tr')))
-
-        if target_table:
-            # Parse table into DataFrame
-            df = pd.read_html(str(target_table))[0]
-            print(f"[+] Successfully extracted {len(df)} rows from DataTrace queue table!")
-            
-            # Clean column names
-            df.columns = [str(c).strip() for c in df.columns]
-            
-            # Parse Arrival Time column if available
-            arrival_cols = [c for c in df.columns if 'arrival' in c.lower()]
-            if arrival_cols:
-                arr_col = arrival_cols[0]
-                df[arr_col] = pd.to_datetime(df[arr_col], errors='coerce')
-                df = df.sort_values(by=arr_col, ascending=False)
-
-            return df
+        if value.startswith('{'):
+            info = json.loads(value)
         else:
-            print("[!] Queue table not directly detected via HTTP session. Web page may render via JavaScript/Ajax.")
-            return None
+            path = Path(value)
+            if not path.is_absolute():
+                path = BASE_DIR / path
+            info = json.loads(path.read_text(encoding='utf-8'))
+    except (OSError, ValueError) as exc:
+        raise RuntimeError('Set GOOGLE_SERVICE_ACCOUNT_JSON to a valid service account JSON file or JSON object.') from exc
+    email = info.get('client_email', 'the client_email in your service account JSON')
+    try:
+        credentials = Credentials.from_service_account_info(
+            info, scopes=['https://www.googleapis.com/auth/spreadsheets'])
+        client = gspread.authorize(credentials)
+        client.set_timeout(30)
+        book = client.open_by_key(SPREADSHEET_ID)
+        return book, book.get_worksheet_by_id(WORKSHEET_GID)
+    except Exception as exc:
+        raise RuntimeError(
+            f'Google Sheets access failed ({type(exc).__name__}). Enable the Google Sheets API, '
+            f'check credentials and worksheet gid={WORKSHEET_GID}, and share '
+            f'{TARGET_GSHEET_URL} with {email} as Editor.') from exc
 
-    except Exception as e:
-        print(f"[!] Error during HTTP session scrape: {e}")
-        return None
+
+def validate_queue(df):
+    if df.empty:
+        raise ValueError('No queue records extracted. Existing exports and Google Sheet were retained.')
+    if not {'Arrival Time', 'Task Status'}.issubset(df.columns):
+        raise ValueError('Extracted data is not a recognized DataTrace queue table.')
+    if df.columns.duplicated().any():
+        raise ValueError('Queue column names must be unique.')
 
 
-def export_to_excel_and_csv(df, output_prefix="queue_data_sheet2"):
-    """
-    Saves extracted queue data to Excel format (matching Google Sheet Sheet 2 structure) and CSV.
-    """
-    if df is None or df.empty:
-        print("[!] No data available to export.")
-        return None, None
+def powerbi_table(df, timestamp):
+    result = df.copy()
+    # Portal dates have no timezone. Do not invent a year for partial SLA dates.
+    arrival = pd.to_datetime(result['Arrival Time'], format='%m/%d/%Y %I:%M %p', errors='coerce')
+    result['Arrival Date'] = arrival.dt.strftime('%Y-%m-%d').fillna('')
+    duration = result.get('Time Since Arrival', pd.Series('', index=df.index)).str.extract(
+        r'^(?:(\d+)d\s*)?(?:(\d+)h\s*)?(?:(\d+)m\s*)?$')
+    hours = duration.apply(pd.to_numeric, errors='coerce')
+    result['Queue Age Hours'] = (hours[0].fillna(0) * 24 + hours[1].fillna(0)
+                                 + hours[2].fillna(0) / 60).where(hours.notna().any(axis=1)).round(2)
+    status = result['Task Status'].str.lower()
+    result['Is Available'] = status.eq('available')
+    result['Is Suspended'] = status.str.contains('suspended', na=False)
+    sla = result.get('SLA Expiration*', result.get('SLA Expiration', pd.Series('', index=df.index)))
+    result['SLA Status'] = sla.map(lambda v: 'Overdue' if str(v).startswith('-') else 'Unknown')
+    result['Sync Timestamp'] = timestamp
+    return result
 
-    excel_path = f"{output_prefix}.xlsx"
-    csv_path = f"{output_prefix}.csv"
 
-    # Export to Excel with Sheet2 tab name
+def export_to_excel_and_csv(df, output_prefix=None):
+    prefix = Path(output_prefix) if output_prefix else BASE_DIR / 'queue_data_sheet2'
+    csv_path, excel_path = prefix.with_suffix('.csv'), prefix.with_suffix('.xlsx')
+    df.to_csv(csv_path, index=False, encoding='utf-8-sig')
     with pd.ExcelWriter(excel_path, engine='openpyxl') as writer:
-        df.to_excel(writer, sheet_name=SHEET_NAME, index=False)
-    
-    df.to_csv(csv_path, index=False)
+        df.to_excel(writer, sheet_name='DataTraceQueue', index=False)
+        ws = writer.sheets['DataTraceQueue']
+        for row in ws:
+            for cell in row:
+                if isinstance(cell.value, str):
+                    cell.data_type = 's'
+        table = Table(displayName='DataTraceQueue', ref=ws.dimensions)
+        table.tableStyleInfo = TableStyleInfo(name='TableStyleMedium2', showRowStripes=True)
+        ws.add_table(table)
+        ws.freeze_panes = 'A2'
+    return str(excel_path), str(csv_path)
 
-    print(f"[+] Saved Excel file: {excel_path} (Sheet: {SHEET_NAME})")
-    print(f"[+] Saved CSV file: {csv_path}")
-    return excel_path, csv_path
 
-
-if __name__ == "__main__":
-    print("==========================================================")
-    print(" DataTrace Queue Extractor & Google Sheet Sync Engine")
-    print("==========================================================")
-    df = fetch_datatrace_queue()
-    if df is not None:
-        export_to_excel_and_csv(df)
+def sheet_cell(value):
+    if pd.isna(value):
+        return {}
+    if isinstance(value, bool):
+        key = 'boolValue'
+    elif isinstance(value, (int, float)):
+        key = 'numberValue'
     else:
-        print("[*] Creating sample template dataframe with exact DataTrace columns for preview...")
-        sample_data = [
-            {
-                "SLA Expiration*": "10/15 01:00 PM",
-                "Orig": "TPS-AD-",
-                "Online/Ground": "Online",
-                "Client": "CODLIS",
-                "Product": "Update Two Own..",
-                "Last User": "",
-                "Skill Grade": 0,
-                "St": "IL",
-                "County": "Ogle",
-                "Municipality": "Rochelle",
-                "Parcel ID": "",
-                "Task Name": "UpdateSearch",
-                "Task Status": "Available",
-                "Comment": "REQUESTED E DATE NOT YET MET...",
-                "ETA": "10/14 05:00 PM",
-                "ETA Comments": "ETA:ON HOLD - Waiting for plant date...",
-                "Time Since Arrival": "20d 4h 32m",
-                "Task Time in Queue": "20d 4h 32m",
-                "Arrival Time": "08/20/2026 12:27 PM",
-                "Completed Time": "",
-                "Vendor": "",
-                "OPON": ""
-            },
-            {
-                "SLA Expiration*": "10/09 12:34 PM",
-                "Orig": "TPS-AD-",
-                "Online/Ground": "Online",
-                "Client": "DATATREE",
-                "Product": "Legal & Vestin..",
-                "Last User": "",
-                "Skill Grade": 0,
-                "St": "CA",
-                "County": "Santa Cruz",
-                "Municipality": "WATSONVILLE",
-                "Parcel ID": "017-241-04-000",
-                "Task Name": "Search",
-                "Task Status": "Available",
-                "Comment": "Continue - Please proceed...",
-                "ETA": "08/27 01:00 PM",
-                "ETA Comments": "ON HOLD - Awaiting response...",
-                "Time Since Arrival": "17d 5h 13m",
-                "Task Time in Queue": "17d 5h 12m",
-                "Arrival Time": "08/25/2026 11:46 AM",
-                "Completed Time": "",
-                "Vendor": "",
-                "OPON": ""
-            },
-            {
-                "SLA Expiration*": "-0m",
-                "Orig": "TPS-AD-",
-                "Online/Ground": "Ground",
-                "Client": "INFOTRACK",
-                "Product": "Legal & Vestin..",
-                "Last User": "KishoreK ADSSearchType",
-                "Skill Grade": 0,
-                "St": "UT",
-                "County": "Emery",
-                "Municipality": "Cleveland",
-                "Parcel ID": "",
-                "Task Name": "Search",
-                "Task Status": "Task Suspended",
-                "Comment": "[Int] - Suspended for further review...",
-                "ETA": "09/25 05:00 PM",
-                "ETA Comments": "ETA: Hello, We have utilized for this order...",
-                "Time Since Arrival": "16d 3h 51m",
-                "Task Time in Queue": "16d 3h 50m",
-                "Arrival Time": "08/26/2026 01:08 PM",
-                "Completed Time": "",
-                "Vendor": "",
-                "OPON": ""
-            },
-            {
-                "SLA Expiration*": "-0m",
-                "Orig": "TPS-AD-",
-                "Online/Ground": "Ground",
-                "Client": "INFOTRACK",
-                "Product": "Legal & Vestin..",
-                "Last User": "",
-                "Skill Grade": 0,
-                "St": "UT",
-                "County": "Emery",
-                "Municipality": "Cleveland",
-                "Parcel ID": "",
-                "Task Name": "Search",
-                "Task Status": "Available",
-                "Comment": "Continue - Fee approved please proceed.",
-                "ETA": "09/22 05:00 PM",
-                "ETA Comments": "ETA: Hello, We have utilized contact man..",
-                "Time Since Arrival": "16d 3h 49m",
-                "Task Time in Queue": "16d 3h 49m",
-                "Arrival Time": "08/26/2026 01:10 PM",
-                "Completed Time": "",
-                "Vendor": "",
-                "OPON": ""
-            },
-            {
-                "SLA Expiration*": "10/05 12:07 PM",
-                "Orig": "TPS-AD-",
-                "Online/Ground": "Online",
-                "Client": "SIRAVNNWCB",
-                "Product": "Update Current..",
-                "Last User": "",
-                "Skill Grade": 0,
-                "St": "CT",
-                "County": "Hartford",
-                "Municipality": "East Hartland",
-                "Parcel ID": "",
-                "Task Name": "UpdateSearch",
-                "Task Status": "Available",
-                "Comment": "ETA accepted by mosborne on 9/17/2026",
-                "ETA": "10/02 05:00 PM",
-                "ETA Comments": "ETA: Hello, As per the Hartland Town Rec..",
-                "Time Since Arrival": "12d 4h 52m",
-                "Task Time in Queue": "12d 4h 52m",
-                "Arrival Time": "09/01/2026 12:07 PM",
-                "Completed Time": "",
-                "Vendor": "",
-                "OPON": ""
-            },
-            {
-                "SLA Expiration*": "-7d 4h 0m",
-                "Orig": "TPS-AD-",
-                "Online/Ground": "Ground",
-                "Client": "TELSIX",
-                "Product": "Full Title",
-                "Last User": "",
-                "Skill Grade": 0,
-                "St": "GA",
-                "County": "Muscogee",
-                "Municipality": "Columbus",
-                "Parcel ID": "",
-                "Task Name": "Search",
-                "Task Status": "Available",
-                "Comment": "[Int] - Suspended for further review...",
-                "ETA": "09/22 05:00 PM",
-                "ETA Comments": "ETA: Hello, We received an incomplete p..",
-                "Time Since Arrival": "12d 1h 1m",
-                "Task Time in Queue": "12d 1h 1m",
-                "Arrival Time": "09/01/2026 03:58 PM",
-                "Completed Time": "",
-                "Vendor": "",
-                "OPON": ""
-            },
-            {
-                "SLA Expiration*": "-3d 5h 48m",
-                "Orig": "TPS-AD-",
-                "Online/Ground": "Ground",
-                "Client": "TELSIX",
-                "Product": "Full Title",
-                "Last User": "",
-                "Skill Grade": 0,
-                "St": "GA",
-                "County": "Glynn",
-                "Municipality": "Brunswick",
-                "Parcel ID": "",
-                "Task Name": "Search",
-                "Task Status": "Available",
-                "Comment": "Message Note added: *Client: foreclosur..",
-                "ETA": "09/25 01:00 PM",
-                "ETA Comments": "ETA: Hello Team, Please be informed th..",
-                "Time Since Arrival": "9d 4h 40m",
-                "Task Time in Queue": "9d 4h 40m",
-                "Arrival Time": "09/04/2026 12:19 PM",
-                "Completed Time": "",
-                "Vendor": "",
-                "OPON": ""
-            },
-            {
-                "SLA Expiration*": "2d 4h 0m",
-                "Orig": "TPS-AD-",
-                "Online/Ground": "Ground",
-                "Client": "TELSIX",
-                "Product": "Full Title",
-                "Last User": "KishoreK ADSSearchType",
-                "Skill Grade": 0,
-                "St": "GA",
-                "County": "Muscogee",
-                "Municipality": "Columbus",
-                "Parcel ID": "",
-                "Task Name": "Search",
-                "Task Status": "Workflow Suspended",
-                "Comment": "[Int] - Suspended for further review...",
-                "ETA": "09/22 05:00 PM",
-                "ETA Comments": "ETA: Hello, The order has been declined",
-                "Time Since Arrival": "8d 1h 34m",
-                "Task Time in Queue": "8d 1h 34m",
-                "Arrival Time": "09/08/2026 03:25 PM",
-                "Completed Time": "",
-                "Vendor": "",
-                "OPON": ""
-            }
-        ]
-        sample_df = pd.DataFrame(sample_data)
-        export_to_excel_and_csv(sample_df, output_prefix="gsheet_dashboard/queue_data_sheet2")
+        key, value = 'stringValue', str(value)
+    return {'userEnteredValue': {key: value}}
+
+
+def sync_dataframe(df, target=None):
+    validate_queue(df)
+    book, sheet = target or target_worksheet()
+    values = [list(df.columns)] + df.astype(object).values.tolist()
+    requests = []
+    for dimension, required, existing in [('ROWS', len(values), sheet.row_count),
+                                           ('COLUMNS', len(df.columns), sheet.col_count)]:
+        if required > existing:
+            requests.append({'appendDimension': {'sheetId': sheet.id, 'dimension': dimension,
+                                                 'length': required - existing}})
+    # Full-sheet range clears trailing values in the same atomic request.
+    requests.append({'updateCells': {'range': {'sheetId': sheet.id},
+                     'rows': [{'values': [sheet_cell(v) for v in row]} for row in values],
+                     'fields': 'userEnteredValue'}})
+    try:
+        book.batch_update({'requests': requests})
+    except Exception as exc:
+        email = getattr(book.client.auth, 'service_account_email', 'the service account client_email')
+        raise RuntimeError(f'Google Sheets write failed. Share the target with {email} as Editor. Check '
+                           'worksheet protection, API quota and connectivity. Local exports are retained.') from exc
+    received = sheet.get_all_values()
+    if (len(received) != len(values) or not received or received[0] != list(df.columns)
+            or any(len(row) != len(df.columns) for row in received)):
+        raise RuntimeError('Google Sheets write returned, but row/column verification failed. Check the worksheet before retrying.')
+    return sheet.title
+
+
+def read_target(gid=None, title=None):
+    book, sheet = target_worksheet()
+    if gid is not None and int(gid) != sheet.id:
+        sheet = book.get_worksheet_by_id(int(gid))
+    elif gid is None and title:
+        sheet = book.worksheet(title)
+    values = sheet.get_all_values()
+    if not values:
+        return pd.DataFrame()
+    return pd.DataFrame(values[1:], columns=values[0]).fillna('')
+
+
+def run_sync(on_progress=None):
+    from dotenv import load_dotenv
+    from preview_store import PreviewStore
+    load_dotenv(BASE_DIR / '.env', override=True)
+    status = {'started_at': dt.datetime.now(dt.timezone.utc).isoformat(), 'scrape': 'pending',
+              'google_sheet': 'pending', 'rows': 0, 'error': None}
+    def progress(stage):
+        status['stage'] = stage
+        if on_progress:
+            on_progress(dict(status))
+    try:
+        progress('Connecting to DataTrace')
+        if not os.getenv('DATATRACE_USERNAME') or not os.getenv('DATATRACE_PASSWORD'):
+            raise RuntimeError('Set DATATRACE_USERNAME and DATATRACE_PASSWORD in gsheet_dashboard/.env or the environment.')
+        # Per-run output prevents old exports from being uploaded after a failed scrape.
+        with tempfile.TemporaryDirectory(prefix='datatrace-') as folder:
+            output = Path(folder) / 'queue.json'
+            env = dict(os.environ, DATATRACE_OUTPUT_JSON=str(output))
+            process = subprocess.run(['node', str(BASE_DIR / 'scrape_datatrace.js')],
+                                     cwd=BASE_DIR, env=env, capture_output=True, text=True, timeout=300)
+            if process.returncode:
+                details = process.stderr if isinstance(process.stderr, str) else ''
+                lines = [line.strip() for line in details.splitlines() if line.strip()]
+                reason = next((line for line in lines if '[!] Puppeteer Automation Error:' in line),
+                              lines[0] if lines else 'Check portal login/MFA and Node dependencies.')
+                for key in ('DATATRACE_USERNAME', 'DATATRACE_PASSWORD'):
+                    secret = os.getenv(key)
+                    if secret:
+                        reason = reason.replace(secret, '[redacted]')
+                raise RuntimeError(f'DataTrace extraction failed: {reason[:600]}')
+            df = pd.DataFrame(json.loads(output.read_text(encoding='utf-8')))
+        validate_queue(df)
+        status.update(scrape='success', rows=len(df))
+        df = powerbi_table(df, status['started_at'])
+        progress('Saving preview')
+        preview = PreviewStore(BASE_DIR / 'previews').save(df)
+        status['preview_id'] = preview['id']
+        status['preview_name'] = preview['name']
+        export_to_excel_and_csv(df)
+        status['local_export'] = 'success'
+        progress('Syncing Google Sheets')
+        status['worksheet'] = sync_dataframe(df)
+        status.update(google_sheet='success', last_success_at=dt.datetime.now(dt.timezone.utc).isoformat())
+    except Exception as exc:
+        status['error'] = str(exc)
+        status['google_sheet' if status['scrape'] == 'success' else 'scrape'] = 'failed'
+    previous = load_status()
+    status.setdefault('last_success_at', previous.get('last_success_at'))
+    progress('Finished' if not status['error'] else 'Finished with errors')
+    (BASE_DIR / 'sync_status.json').write_text(json.dumps(status, indent=2), encoding='utf-8')
+    return status
+
+
+def load_status():
+    try:
+        return json.loads((BASE_DIR / 'sync_status.json').read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return {}
+
+
+if __name__ == '__main__':
+    result = run_sync()
+    print(json.dumps(result, indent=2))
+    raise SystemExit(1 if result['error'] else 0)

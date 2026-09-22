@@ -1,561 +1,326 @@
-Limit results to orders updated:,"Within
-                        the last
-                        
-                        weekdays.",Column_3,Column_4,Column_5,Column_6,Column_7,Column_8,Column_9,Column_10,Column_11,Column_12,Column_13,Column_14,Column_15,Column_16,Column_17,Column_18,Column_19,Column_20,Column_21,Column_22,Column_23,Column_24,Column_25,Column_26,Column_27,Column_28,Column_29,Column_30,Column_31,Column_32,Column_33,Column_34,Column_35,Column_36,Column_37,Column_38,Column_39,Column_40,Column_41,Column_42,Column_43,Column_44,Column_45,Column_46,Column_47,Column_48,Column_49,Column_50,Column_51,Column_52,Column_53,Column_54,Column_55,Column_56,Column_57,Column_58,Column_59,Column_60,Column_61,Column_62,Column_63,Column_64,Column_65,Column_66,Column_67
-,"Between
-                        
-                        
-                        To",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-,"You must narrow down the date range. The date range may not be more than 32 calendar days.
-                        TO
-                        Please enter a weekday value from 1 to 30, or leave blank for no limit.",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-View By:,"Orders(WorkFlows)Tasks
-                        
-                            Expand Panel To Edit Criteria",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-"Task Status:
-                                                    Order Status:
-                                                
-							
-                                                    
-								<Any>
-								Active
-								Available
-								In Progress
-								Completed
-
-							
-                                                    
-								<Any>
-								Active Only
-								Completed Only
-								Cancelled
-
-							
-                                                
-							 
-                                                
-							
-                                                    SLA Filter:
-                                                
-							
-                                                    
-								<Any>
-								Early
-								Late And Due Today
-
-							
-                                                
-						
-						
-							
-                                                    Task Category:
-                                                
-							
-                                                    
-
-							<None>Filter:AnyNoneSelect All (Filtered)
-                                                    *
-                                                
-							 
-                                                
-							
-                                                    Task Type:
-                                                
-							
-                                                    
-
-							<None>Filter:AnyNoneSelect All (Filtered)
-                                                    *
-                                                
-						
-						
-							
-                                                    Priority: 
-                                                
-							
-                                                    
-								<Any>
-								Normal
-								High
-
-							
-                                                
-							 
-                                                
-							 
-                                                
-							 
-                                                
-						
-						
-							
-                                                    Team:
-                                                
-							
-                                                    
-
-							<None>Filter:AnyNoneSelect All (Filtered)
-                                                    *
-                                                
-							 
-                                                
-							
-                                                    Username:
-                                                
-							
-                                                    
-
-							
-                                                    *
-                                                
-						
-						
-							
-                                                    Business Unit:
-                                                
-							
-                                                    
-
-							<None>Filter:AnyNoneSelect All (Filtered)
-                                                    *
-                                                
-							 
-                                                
-							
-                                                    Vendor Type:
-                                                
-							
-                                                    
-								<All>
-								Offshore
-								Onshore
-								Unassigned
-
-							
-                                                
-						
-						
-							
-                                                    Originator:
-                                                
-							
-                                                    
-
-							<None>Filter:AnyNoneSelect All (Filtered)
-                                                    *
-                                                
-							 
-                                                
-							
-                                                    Order Type:
-                                                
-							
-                                                    
-
-							<None>Filter:AnyNoneSelect All (Filtered)
-                                                
-						
-						
-							
-                                                    Originator Client:
-                                                
-							
-                                                    
-
-							<None>Filter:AnyNoneSelect All (Filtered)
-                                                
-							 
-                                                
-							
-                                                    County Data:
-                                                
-							
-                                                    
-								<Any>
-								External
-								TV Only
-
-							
-                                                
-						
-						
-							
-                                                    State:
-                                                
-							
-                                                    
-
-							<None>Filter:AnyNoneSelect All (Filtered)
-                                                
-							 
-                                                
-							
-                                                    
-                                                
-							
-                                                    
-                                                    *
-                                                
-						
-						
-							
-                                                    Suspend Type:
-                                                
-							
-                                                    
-
-							<None>Filter:AnyNoneSelect All (Filtered)
-                                                
-							 
-                                                
-							
-                                                    Suspend Reason:
-                                                
-							
-                                                    
-
-							<None>Filter:AnyNoneSelect All (Filtered)
-                                                
-						
-						
-							
-                                                    Skill Grade (Begin/End):
-                                                
-							
-                                                    
-								<Any>
-								0
-								1
-								2
-								3
-								4
-								5
-								6
-								7
-								8
-								9
-
-							
-                                                    /
-								<Any>
-								0
-								1
-								2
-								3
-								4
-								5
-								6
-								7
-								8
-								9
-
-							
-                                                
-							 
-                                                
-							
-                                                    Online/Ground:
-                                                
-							
-                                                    
-
-							<None>Filter:AnyNoneSelect All (Filtered)
-                                                
-						
-						
-							
-                                                    Product:
-                                                
-							
-                                                    
-                                                        
-
-							<None>Filter:AnyNoneSelect All (Filtered)
-                                                        *
-                                                    
-                                                
-							 
-                                                
-							
-                                                    County Searches Only:
-                                                
-							
-                                                    
-                                                
-						
-						
-							
-                                                    Sort By:
-                                                
-							
-                                                    
-								Priority/SLA
-								Borrower
-								County
-								Municipality
-								Last Task
-								Last User
-								Current Task
-								Order Number
-								Originator
-								Online/Ground
-								Originator Client
-								Skill Grade
-								Product
-								Vendor
-								Arrival Time
-								Completed Time
-								Parcel ID
-
-							
-                                                    
-								Priority/SLA
-								Borrower
-								County
-								Municipality
-								Task Name
-								Task Status
-								Last User
-								Order Number
-								Originator
-								Online/Ground
-								Originator Client
-								Skill Grade
-								Product
-								Vendor
-								Task Time In Queue
-								Arrival Time
-								Completed Time
-								Parcel ID
-
-							
-                                                
-							 
-                                                
-							
-                                                    
-								Ascending
-								Descending
-
-							
-                                                
-							 
-                                                
-						
-						
-							
-                                                    Display Columns:
-                                                
-							
-                                                    
-                                                        
-
-							<None>Filter:AnyNoneSelect All (Filtered)
-                                                    
-                                                    
-                                                        
-
-							<None>Filter:AnyNoneSelect All (Filtered)",,"Task Status:
-                                                    Order Status:","<Any>
-								Active
-								Available
-								In Progress
-								Completed
-
-							
-                                                    
-								<Any>
-								Active Only
-								Completed Only
-								Cancelled",,SLA Filter:,"<Any>
-								Early
-								Late And Due Today",Task Category:,"<None>Filter:AnyNoneSelect All (Filtered)
-                                                    *",,Task Type:,"<None>Filter:AnyNoneSelect All (Filtered)
-                                                    *",Priority:,"<Any>
-								Normal
-								High",,,,Team:,"<None>Filter:AnyNoneSelect All (Filtered)
-                                                    *",,Username:,*,Business Unit:,"<None>Filter:AnyNoneSelect All (Filtered)
-                                                    *",,Vendor Type:,"<All>
-								Offshore
-								Onshore
-								Unassigned",Originator:,"<None>Filter:AnyNoneSelect All (Filtered)
-                                                    *",,Order Type:,<None>Filter:AnyNoneSelect All (Filtered),Originator Client:,<None>Filter:AnyNoneSelect All (Filtered),,County Data:,"<Any>
-								External
-								TV Only",State:,<None>Filter:AnyNoneSelect All (Filtered),,,*,Suspend Type:,<None>Filter:AnyNoneSelect All (Filtered),,Suspend Reason:,<None>Filter:AnyNoneSelect All (Filtered),Skill Grade (Begin/End):,"<Any>
-								0
-								1
-								2
-								3
-								4
-								5
-								6
-								7
-								8
-								9
-
-							
-                                                    /
-								<Any>
-								0
-								1
-								2
-								3
-								4
-								5
-								6
-								7
-								8
-								9",,Online/Ground:,<None>Filter:AnyNoneSelect All (Filtered),Product:,"<None>Filter:AnyNoneSelect All (Filtered)
-                                                        *",,County Searches Only:,,Sort By:,"Priority/SLA
-								Borrower
-								County
-								Municipality
-								Last Task
-								Last User
-								Current Task
-								Order Number
-								Originator
-								Online/Ground
-								Originator Client
-								Skill Grade
-								Product
-								Vendor
-								Arrival Time
-								Completed Time
-								Parcel ID
-
-							
-                                                    
-								Priority/SLA
-								Borrower
-								County
-								Municipality
-								Task Name
-								Task Status
-								Last User
-								Order Number
-								Originator
-								Online/Ground
-								Originator Client
-								Skill Grade
-								Product
-								Vendor
-								Task Time In Queue
-								Arrival Time
-								Completed Time
-								Parcel ID",,"Ascending
-								Descending",,Display Columns:,"<None>Filter:AnyNoneSelect All (Filtered)
-                                                    
-                                                    
-                                                        
-
-							<None>Filter:AnyNoneSelect All (Filtered)",,,
-,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-"Task Status:
-                                                    Order Status:","<Any>
-								Active
-								Available
-								In Progress
-								Completed
-
-							
-                                                    
-								<Any>
-								Active Only
-								Completed Only
-								Cancelled",,SLA Filter:,"<Any>
-								Early
-								Late And Due Today",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Task Category:,"<None>Filter:AnyNoneSelect All (Filtered)
-                                                    *",,Task Type:,"<None>Filter:AnyNoneSelect All (Filtered)
-                                                    *",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Priority:,"<Any>
-								Normal
-								High",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Team:,"<None>Filter:AnyNoneSelect All (Filtered)
-                                                    *",,Username:,*,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Business Unit:,"<None>Filter:AnyNoneSelect All (Filtered)
-                                                    *",,Vendor Type:,"<All>
-								Offshore
-								Onshore
-								Unassigned",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Originator:,"<None>Filter:AnyNoneSelect All (Filtered)
-                                                    *",,Order Type:,<None>Filter:AnyNoneSelect All (Filtered),,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Originator Client:,<None>Filter:AnyNoneSelect All (Filtered),,County Data:,"<Any>
-								External
-								TV Only",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-State:,<None>Filter:AnyNoneSelect All (Filtered),,,*,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Suspend Type:,<None>Filter:AnyNoneSelect All (Filtered),,Suspend Reason:,<None>Filter:AnyNoneSelect All (Filtered),,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Skill Grade (Begin/End):,"<Any>
-								0
-								1
-								2
-								3
-								4
-								5
-								6
-								7
-								8
-								9
-
-							
-                                                    /
-								<Any>
-								0
-								1
-								2
-								3
-								4
-								5
-								6
-								7
-								8
-								9",,Online/Ground:,<None>Filter:AnyNoneSelect All (Filtered),,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Product:,"<None>Filter:AnyNoneSelect All (Filtered)
-                                                        *",,County Searches Only:,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Sort By:,"Priority/SLA
-								Borrower
-								County
-								Municipality
-								Last Task
-								Last User
-								Current Task
-								Order Number
-								Originator
-								Online/Ground
-								Originator Client
-								Skill Grade
-								Product
-								Vendor
-								Arrival Time
-								Completed Time
-								Parcel ID
-
-							
-                                                    
-								Priority/SLA
-								Borrower
-								County
-								Municipality
-								Task Name
-								Task Status
-								Last User
-								Order Number
-								Originator
-								Online/Ground
-								Originator Client
-								Skill Grade
-								Product
-								Vendor
-								Task Time In Queue
-								Arrival Time
-								Completed Time
-								Parcel ID",,"Ascending
-								Descending",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-Display Columns:,"<None>Filter:AnyNoneSelect All (Filtered)
-                                                    
-                                                    
-                                                        
-
-							<None>Filter:AnyNoneSelect All (Filtered)",,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
-,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+﻿Order Number,Borrower,SLA Expiration*,Orig,Online/ Ground,Client,Product,Last User,Skill Grade,St,County,Municipality,Parcel ID,Task Name,Task Status,Comment,ETA,ETA Comments,Time Since Arrival,Task Time in Queue,Arrival Time,Completed Time,Vendor,OPON,Arrival Date,Queue Age Hours,Is Available,Is Suspended,SLA Status,Sync Timestamp
+TPS-AD-101-10924444,BUYER: Margaret,-3d 4h 58m,TPS-AD-,Ground,TELSIX,Full Title,,0,NJ,Passaic,Paterson,,Search,Available,ETA accepted by dalderette on 9/21/2026 ..,09/22 05:00 PM,"ETA: Hello, As requested, we have advis..",7d 6h 39m,7d 6h 39m,09/10/2026 10:20 AM,,,,2026-09-10,174.65,True,False,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-26RL10318,Michael Orecchi,-3d 4h 53m,TPS-AD-,Ground,NTAWA,Current Owner,,0,VT,Bennington,Winhall,(245)00701,Search,Available,Continue - approved proceed as rush and ..,09/22 09:00 AM,"ETA: Hello, This is a ground order, and ..",6d 5h 30m,6d 5h 30m,09/11/2026 11:29 AM,,,,2026-09-11,149.5,True,False,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-4239184-1,SECRETARY OF VE,-3d 4h 15m,TPS-AD-,Ground,MC,Full Title,,0,MT,Dawson,Glendive,,Search,Available,[Int] - Suspended for further review due..,09/23 05:00 PM,"ETA: Hello, The abstractor is currently..",8d 6h 20m,8d 6h 20m,09/09/2026 10:39 AM,,,,2026-09-09,198.33,True,False,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-FC622-VA,Jeffrey Ollie B,-1d 0m,TPS-AD-,Ground,FCHOICE,24 Month Curre..,,0,VA,Charlottesville City,Charlottesville,,Search,Available,ETA accepted by dalderette on 9/21/2026 ..,09/24 05:00 PM,"ETA: Hello, We have received an incomple..",5d 6h 49m,5d 6h 49m,09/14/2026 10:10 AM,,,,2026-09-14,126.82,True,False,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10906585,BUYER: PHILLIP,6h 13m,TPS-AD-,Online,TELSIX,ClientReview,,0,MD,Carroll,Westminster,,CRSP2,Available,[Int] - TV Auto Suspend - TV Auto-Suspen..,,,0m,0m,09/22/2026 05:00 AM,,Invicto Labs Inc. SP2*,,2026-09-22,0.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-26-003771-1,borrower: Feder,09/25 03:57 PM,TPS-AD-,Ground,BHTA,Two Owner,,0,MN,Le Sueur,Kasota,,Search,Available,ETA accepted by KondaveniP_FAI on 9/22/2..,09/25 05:00 PM,ETA: Order has been assigned to the abst..,3d 0m,3d 0m,09/17/2026 08:57 AM,,,,2026-09-17,72.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10919489,BUYER: Michael,-8d 4h 0m,TPS-AD-,Ground,TELSIX,Full Title,,0,GA,Muscogee,Columbus,,Search,Available,ETA accepted by dalderette on 9/21/2026 ..,09/22 05:00 PM,"ETA: Hello, We received an incomplete p..",13d 1h 1m,13d 1h 1m,09/01/2026 03:58 PM,,,,2026-09-01,313.02,True,False,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-ACC-4848,GRECO ALBERT /,-5d 4h 0m,TPS-AD-,Ground,RVNY,Current Owner,KishoreK_ADSSearchType,0,VT,Bennington,Bondville,(245)93025,Search,Workflow Suspended,"Cannot Complete Order - Hello, We have ..",09/22 05:00 PM,"ETA: Hello, The current abstractor's fee..",7d 4h 10m,7d 4h 9m,09/10/2026 12:49 PM,,,,2026-09-10,172.17,False,True,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10925558,BUYER: LAFAYETT,-4d 5h 51m,TPS-AD-,Online,TELSIX,Two Owner,MadhanM_ADSSearchType,0,TX,Angelina,Lufkin,,Search,Task Suspended,[Int] - TV Auto Suspend - TV Auto-Suspen..,,,6d 1h 50m,6d 1h 50m,09/11/2026 03:09 PM,,,,2026-09-11,145.83,False,True,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-76351162,BOOMER R WALKER,-4d 4h 40m,TPS-AD-,Ground,TSO,24 Month Curre..,,0,VT,Windham,West Wardsboro,16/ 02/ 003/ 1/,Search,Available,ETA accepted by dalderette on 9/21/2026 ..,09/22 09:00 AM,"ETA: Hello, For this order, multiple ab..",8d 2h 30m,8d 2h 30m,09/09/2026 02:29 PM,,,,2026-09-09,194.5,True,False,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10828258,JANICE MCLEAN A,1d 11m,TPS-AD-,Online,TELSIX,Update w/ Requ..,,0,TX,Hays,KYLE,,UpdateSearch,Available,"Client: Effective Date: September 6, 202..",,,2h 0m,2h 0m,09/21/2026 02:59 PM,,,,2026-09-21,2.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-917606093,BORROWER: TWIN,-4d 1h 54m,TPS-AD-,Ground,DATATREE,Current Owner,SharathK_ADSSearchType,0,NM,Eddy,CARLSBAD,4185142150063,TypingModule,Task Suspended,[Int] - TV Auto Suspend - TV Auto-Suspen..,09/22 05:00 PM,"ETA: Hello, This order is in Typing in p..",8d 5h 53m,0m,09/09/2026 11:06 AM,,,,2026-09-09,197.88,False,True,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10924721,CORP: Blue Anch,-3d 2h 44m,TPS-AD-,Ground,TELSIX,Full Title,,0,NJ,Passaic,Hewitt,,Search,Available,ETA accepted by MohammadR_FAI on 9/21/20..,09/22 05:00 PM,"ETA: Hello, The order was received on 0..",7d 6h 43m,7d 6h 43m,09/10/2026 10:16 AM,,,,2026-09-10,174.72,True,False,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10925203,BUYER: ADAM NEW,-3d 52m,TPS-AD-,Online,TELSIX,Quality Contro..,KishoreK_ADSSearchType,0,OH,Morgan,Malta,,SearchFix,Workflow Suspended,Outbound correspondence created; ID=7896..,,"ETA: Hello Team, Please be informed tha..",3d 2h 52m,3d 2h 52m,09/16/2026 02:07 PM,,,,2026-09-16,74.87,False,True,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10927374,BUYER: THOMAS B,-1d 6h 25m,TPS-AD-,Online,TELSIX,Two Owner,,0,PA,Clearfield,Mahaffey,,Search,Available,[Int] - Suspended for further review due..,09/23 05:00 PM,"ETA: Hello, we have completed the search..",3d 2h 24m,3d 2h 23m,09/16/2026 02:35 PM,,,,2026-09-16,74.4,True,False,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10927402,BUYER: Staci St,-1d 5h 22m,TPS-AD-,Online,TELSIX,Two Owner,KamaleshK_ADSSearchType,0,IL,Sangamon,Waverly,,Search,Workflow Suspended,"Cannot Complete Order - Hello, For the ..",,,2d 5h 55m,2d 5h 55m,09/17/2026 11:04 AM,,,,2026-09-17,53.92,False,True,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10925763,BUYER: RYAN SPA,-1d 4h 0m,TPS-AD-,Ground,TELSIX,Full Title,,0,IL,White,Norris City,,Search,Available,"Continue - Approved, please have your gr..",09/23 05:00 PM,"ETA: Hello, This order was received on 0..",6d 0m,6d 0m,09/11/2026 06:24 PM,,,,2026-09-11,144.0,True,False,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10925815,BUYER: CHRISTOP,-1d 4h 0m,TPS-AD-,Ground,TELSIX,Full Title,DinakarK_ADSSearchType,0,NJ,Passaic,Wayne,,Search,Task Suspended,ETA accepted by dalderette on 9/21/2026 ..,09/22 05:00 PM,"ETA: Hello, As per the abstractor, the o..",6d 0m,6d 0m,09/11/2026 08:16 PM,,,,2026-09-11,144.0,False,True,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-919254532,BORROWER: C&B C,-1d 4h 0m,TPS-AD-,Ground,DATATREE,Current Owner,KishoreK_ADSSearchType,0,MN,Aitkin,AITKIN,31-0-036502,Search,Workflow Suspended,"Cannot Complete Order - Hello, This is ..",09/22 05:00 PM,"ETA: Hello, As per the abstractor, the ..",6d 0m,6d 0m,09/13/2026 02:59 PM,,,,2026-09-13,144.0,False,True,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10925568,BUYER: Ashley D,-1d 48m,TPS-AD-,Ground,TELSIX,Two Owner,,0,NJ,Passaic,Pompton Lakes,,Search,Available,ETA accepted by MohammadR_FAI on 9/21/20..,09/22 05:00 PM,"ETA: Hello, As advised by the abstracto..",6d 1h 50m,6d 1h 50m,09/11/2026 03:09 PM,,,,2026-09-11,145.83,True,False,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10925706,BUYER: HAMILTON,-1d 1m,TPS-AD-,Ground,TELSIX,Full Title,,0,GA,Richmond,Hephzibah,,Search,Available,ETA accepted by dalderette on 9/21/2026 ..,09/23 05:00 PM,"ETA: Hello, This order was received on ..",6d 0m,6d 0m,09/11/2026 05:44 PM,,,,2026-09-11,144.0,True,False,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-P1542797,BORROWER: Rober,-1d 1m,TPS-AD-,Online,SIRAVNTHSB,Current Owner,BhuvanaG_ADSSearchType,0,CT,Litchfield,Thomaston,,Search,Workflow Suspended,"Cannot Complete Order - Hello, 1. Please..",,,2d 0m,2d 0m,09/17/2026 05:00 PM,,,,2026-09-17,48.0,False,True,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10847460,DEMETRIUS WILDE,1d 35m,TPS-AD-,Online,TELSIX,Update w/ Requ..,,0,TX,Smith,TYLER,,UpdateSearch,Available,"Client: Effective Date: September 6, 202..",,,1h 36m,1h 36m,09/21/2026 03:23 PM,,,,2026-09-21,1.6,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928399,BUYER: ASHLEY W,-1d 0m,TPS-AD-,Online,VYLLAMMP,Current Owner,,0,MS,Scott,Lena,,Search,Available,"Continue - Not approved, the site is onl..",,,2d 0m,2d 0m,09/17/2026 08:28 PM,,,,2026-09-17,48.0,True,False,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-8169283,GMF ENTERPRISES,-1d 0m,TPS-AD-,Ground,INFOTRACK,Legal & Vestin..,,0,UT,Emery,Cleveland,,Search,Available,ETA accepted by dalderette on 9/21/2026 ..,09/25 05:00 PM,"ETA: Hello, This order was received on 0..",17d 3h 48m,17d 3h 48m,08/26/2026 01:11 PM,,,,2026-08-26,411.8,True,False,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-8169308,GMF ENTERPRISES,-1d 0m,TPS-AD-,Ground,INFOTRACK,Legal & Vestin..,,0,UT,Emery,Cleveland,,Search,Available,ETA accepted by dalderette on 9/21/2026 ..,09/25 05:00 PM,"ETA: Hello, This order was received on 0..",17d 3h 47m,17d 3h 47m,08/26/2026 01:12 PM,,,,2026-08-26,411.78,True,False,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-8169266,GMF ENTERPRISES,-1d 0m,TPS-AD-,Ground,INFOTRACK,Legal & Vestin..,,0,UT,Emery,Cleveland,,Search,Available,ETA accepted by dalderette on 9/21/2026 ..,09/25 05:00 PM,"ETA: Hello, This order was received on 0..",17d 3h 49m,17d 3h 49m,08/26/2026 01:10 PM,,,,2026-08-26,411.82,True,False,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-8169227,GMF ENTERPRISES,-1d 0m,TPS-AD-,Ground,INFOTRACK,Legal & Vestin..,KishoreK_ADSSearchType,0,UT,Emery,Cleveland,,Search,Task Suspended,ETA accepted by dalderette on 9/21/2026 ..,09/25 05:00 PM,"ETA: Hello, for this order the additiona..",17d 3h 51m,17d 3h 50m,08/26/2026 01:08 PM,,,,2026-08-26,411.85,False,True,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-P1542847,BORROWER: James,-7h 40m,TPS-AD-,Online,SIRAEFCU,Current Owner,PunithAS_ADSSearchType,0,CT,Hartford,South Windsor,,Search,Workflow Suspended,"Cannot Complete Order - Hello, This is ..",,,1d 7h 39m,1d 7h 39m,09/18/2026 09:20 AM,,,,2026-09-18,31.65,False,True,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-P1542849,BORROWER: Alfre,-7h 33m,TPS-AD-,Online,SIRAEFCU,Current Owner,BhuvanaG_ADSSearchType,0,CT,Hartford,Marlborough,,Search,Task Suspended,"Cannot Complete Order - Hello, As per t..",,,1d 7h 32m,1d 7h 32m,09/18/2026 09:27 AM,,,,2026-09-18,31.53,False,True,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-P1542859,BORROWER: Cathe,-7h 14m,TPS-AD-,Online,SIRAVNFICB,Current Owner,VenkateshP_ADSSearchType,0,CT,Fairfield,Stamford,,Search,Workflow Suspended,"Cannot Complete Order - Hello, For the S..",,,1d 7h 13m,1d 7h 13m,09/18/2026 09:46 AM,,,,2026-09-18,31.22,False,True,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-76391675,CHRISTOPHER G S,-7h 12m,TPS-AD-,Online,TSO,24 Month Curre..,NishaM_ADSSearchType,0,MT,Carbon,Joliet,10062314307040000,Search,Workflow Suspended,Outbound correspondence created; ID=7901..,09/23 01:00 PM,ON HOLD - Awaiting response to fee appro..,1d 5h 12m,1d 5h 12m,09/18/2026 11:47 AM,,,,2026-09-18,29.2,False,True,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10924987,BUYER: NELSON C,-6h 54m,TPS-AD-,Ground,TELSIX,Full Title,,0,OH,Lorain,Lorain,,Search,Available,[Int] - Suspended for further review due..,09/23 05:00 PM,"ETA: Hello, As advised by the abstracto..",7d 1h 38m,7d 1h 36m,09/10/2026 03:21 PM,,,,2026-09-10,169.63,True,False,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-91624138,SEE SYSTEM COMM,-6h 19m,TPS-AD-,Online,NPS-FAMS,Full Title,Gummadi_ADSSearchType,5,IN,Hamilton,"CICERO ,",,Search,Workflow Suspended,"Cannot Complete Order - Hello, For This ..",09/22 05:00 PM,"ETA: Hello, This order is in QC in progr..",2d 34m,2d 33m,09/17/2026 04:25 PM,,,,2026-09-17,48.57,False,True,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10710718,BUYER: ESTATE O,-6h 4m,TPS-AD-,Online,TELSIX,Update Two Own..,AshokB_ADSSearchType,0,TX,Atascosa,Lytle,,UpdateSearch,Workflow Suspended,"Cannot Complete Order - Hello, For the s..",,,1d 6h 3m,1d 6h 3m,09/18/2026 10:56 AM,,,101-10928238,2026-09-18,30.05,False,True,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10925811,BUYER: MATTHEW,-6h 1m,TPS-AD-,Ground,TELSIX,Full Title,DinakarK_ADSSearchType,0,NJ,Ocean,Brick,,Search,Task Suspended,[Int] - Suspended for further review due..,09/24 05:00 PM,"ETA: Hello, The order is currently wait..",5d 7h 23m,5d 7h 23m,09/14/2026 09:36 AM,,,,2026-09-14,127.38,False,True,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10924596,BUYER: ALICIA C,-6h 0m,TPS-AD-,Online,TELSIX,Quality Contro..,HarryS_ADSSearchType,0,OH,Sandusky,Fremont,,SearchFix,Task Suspended,ETA added by HarryS_ADSSearchType on 9/..,,"ETA:Hello Team, Please be informed that ..",1d 0m,1d 0m,09/21/2026 03:14 AM,,,,2026-09-21,24.0,False,True,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-444278MTS,Anderson Holdin,-5h 36m,TPS-AD-,Online,RGS,Quality Contro..,KishoreK_ADSSearchType,0,NY,Albany,Albany,,SearchFix,Task Suspended,[Int] - TV Auto Logout - User Logged off..,,,7h 36m,7h 36m,09/21/2026 09:23 AM,,,,2026-09-21,7.6,False,True,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10925378,BUYER: Monday N,-5h 35m,TPS-AD-,Ground,TELSIX,Full Title,,0,GA,Jackson,Commerce,,Search,Available,[Int] - Suspended for further review due..,09/23 05:00 PM,"ETA: Hello, The order is currently in p..",6d 5h 6m,6d 5h 6m,09/11/2026 11:53 AM,,,,2026-09-11,149.1,True,False,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10925704,BUYER: RAYMOND,-5h 21m,TPS-AD-,Ground,TELSIX,Full Title,,0,GA,Stephens,Eastanollee,,Search,Available,[Int] - Suspended for further review due..,09/24 05:00 PM,"ETA: Hello, The order is still waiting ..",6d 0m,6d 0m,09/11/2026 05:38 PM,,,,2026-09-11,144.0,True,False,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928009,BUYER: MARYLOU,-5h 20m,TPS-AD-,Online,TELSIX,Two Owner,MadhanM_ADSSearchType,8,FL,Marion,Anthony,,Search,Workflow Suspended,"Cannot Complete Order - Hello, Could yo..",,,1d 6h 0m,1d 5h 58m,09/18/2026 10:59 AM,,,,2026-09-18,30.0,False,True,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10926401,BUYER: MICHELLE,-5h 0m,TPS-AD-,Ground,TELSIX,Full Title,SupriyaG_ADSSearchType,0,NJ,Camden,Berlin,,TypingModule,In Progress,Continue - Proceed with search. Please ..,09/22 05:00 PM,"ETA: Hello, We just received the package..",5d 0m,0m,09/14/2026 05:58 PM,,,,2026-09-14,120.0,False,False,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928648,BUYER: April D,-4h 14m,TPS-AD-,Ground,TELSIX,Preliminary Re..,,0,IN,Tipton,Tipton,,AESearch,Available,ETA accepted by MohammadR_FAI on 9/21/20..,09/25 05:00 PM,"ETA: Hello, This is a ground order, and ..",1d 2h 14m,1d 2h 14m,09/18/2026 02:45 PM,,,,2026-09-18,26.23,True,False,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10926607,BUYER: BRANDY K,-4h 0m,TPS-AD-,Ground,TELSIX,Full Title,,0,NJ,Camden,Barrington,,Search,Available,[Int] - Suspended for further review due..,09/24 05:00 PM,"ETA: Hello, The order is currently wait..",4d 6h 8m,4d 6h 8m,09/15/2026 10:51 AM,,,,2026-09-15,102.13,True,False,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-PA-2609407988,Todd Cook,-4h 0m,TPS-AD-,Online,FATICCS,Full Title,,0,PA,Dauphin,HARRISBURG,,Search,Available,ETA denied by dalderette on 9/21/2026 12..,,what does this have to do with ETA reque..,3d 0m,3d 0m,09/16/2026 05:43 PM,,,,2026-09-16,72.0,True,False,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928237,BUYER: PEDRO RO,-4h 0m,TPS-AD-,Online,TELSIX,Two Owner,MadhanM_ADSSearchType,0,TX,Hidalgo,Weslaco,,Search,Workflow Suspended,"Cannot Complete Order - Hello, For the s..",,,2d 0m,2d 0m,09/17/2026 05:39 PM,,,,2026-09-17,48.0,False,True,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928275,BUYER: ROLANDO,-4h 0m,TPS-AD-,Online,TELSIX,Two Owner,ShabajS_ADSSearchType,0,TX,Webb,Laredo,,TypingModule,Task Suspended,[Int] - TV Auto Suspend - TV Auto-Suspen..,,,2d 0m,0m,09/17/2026 06:02 PM,,,,2026-09-17,48.0,False,True,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928422,BUYER: NORMA DE,-4h 0m,TPS-AD-,Online,TELSIX,Two Owner,MadhanM_ADSSearchType,0,TX,Maverick,Eagle Pass,,Search,Workflow Suspended,"Cannot Complete Order - Hello, we are r..",,,2d 0m,2d 0m,09/17/2026 09:35 PM,,,,2026-09-17,48.0,False,True,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928424,BUYER: WYATT RI,-4h 0m,TPS-AD-,Online,TELSIX,Two Owner,PraveenaB_ADSSearchType,0,TX,Gray,Pampa,,Search,Task Suspended,"Cannot Complete Order - Hello, We are un..",,,2d 0m,2d 0m,09/17/2026 09:38 PM,,,,2026-09-17,48.0,False,True,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928490,CORP: Yancey Re,-3h 46m,TPS-AD-,Online,TELSIX,Two Owner,,0,MD,Baltimore City,Baltimore,,Search,Available,Continue - Proceed with search. Lease c..,,,1d 7h 45m,1d 7h 42m,09/18/2026 09:14 AM,,,,2026-09-18,31.75,True,False,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-26-0321,David Vaughan,-3h 12m,TPS-AD-,Ground,MTAC,Full Title,,0,MT,Deer Lodge,Anaconda,146300,Search,Available,Continue - Approved,09/23 05:00 PM,"ETA: Hello, We have utilized contact man..",4d 7h 11m,4d 7h 8m,09/15/2026 09:48 AM,,,,2026-09-15,103.18,True,False,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-P1543086,BORROWER: Peter,-2h 37m,TPS-AD-,Online,SIRAEFCU,Legal & Vestin..,VenkateshP_ADSSearchType,0,CT,Hartford,Southington,,Search,Workflow Suspended,[Int] - site is down will try again tomo..,,,1d 37m,1d 36m,09/18/2026 04:22 PM,,,,2026-09-18,24.62,False,True,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928708,BUYER: KELSEY J,-2h 28m,TPS-AD-,Online,VYLLAMMP,Current Owner,SoniyaD_ADSSearchType,0,MN,Morrison,Royalton,,Search,Workflow Suspended,"Cannot Complete Order - Hello, We do no..",,,1d 2h 27m,1d 2h 27m,09/18/2026 02:32 PM,,,,2026-09-18,26.45,False,True,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-P1543022,BORROWER: Sharo,-2h 12m,TPS-AD-,Online,CISAFSION,Current Owner,SoniyaD_ADSSearchType,0,CT,New Haven,Naugatuck,,Search,Workflow Suspended,"Cannot Complete Order - Hello, The give..",,,1d 2h 11m,1d 2h 10m,09/18/2026 02:48 PM,,,,2026-09-18,26.18,False,True,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-OSN-449538,borrower: WILLI,-2h 0m,TPS-AD-,Online,DOMAX,Document Retri..,MohammadN_ADSSearchType,0,IN,Delaware,Muncie,,Search,Workflow Suspended,"Cannot Complete Order - Hello, We have r..",,,1d 0m,1d 0m,09/21/2026 07:21 AM,,,,2026-09-21,24.0,False,True,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-P1543157,BORROWER: CALEB,-2h 0m,TPS-AD-,Online,SIRCOF,Legal & Vestin..,AshwinK_ADSSearchType,0,CT,New London,Quaker Hill,,Search,Workflow Suspended,"Cannot Complete Order - Hello, For the ..",,,1d 0m,1d 0m,09/21/2026 08:27 AM,,,,2026-09-21,24.0,False,True,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928546,BUYER: Joseph V,-1h 58m,TPS-AD-,Online,TELSIX,Two Owner,MadhanM_ADSSearchType,8,FL,Palm Beach,Royal Palm Beach,,Search,Workflow Suspended,"Cannot Complete Order - Hello, There ap..",,,1d 4h 44m,1d 4h 41m,09/18/2026 12:15 PM,,,,2026-09-18,28.73,False,True,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10926775,BUYER: SHEILA L,-1h 36m,TPS-AD-,Ground,VYLLAMMP,Current Owner,,0,MS,Lauderdale,Meridian,,Search,Available,Continue - Approved,09/24 05:00 PM,"ETA: Hello, This is a ground order, and ..",4d 5h 35m,4d 5h 34m,09/15/2026 11:24 AM,,,,2026-09-15,101.58,True,False,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-91624422,SEE SYSTEM COMM,-1h 11m,TPS-AD-,Online,NPS-FAMS,Full Title,Gummadi_ADSSearchType,0,OH,Cuyahoga,"BROADVIEW ,",,Search,Workflow Suspended,"Cannot Complete Order - Hello, For This ..",09/22 05:00 PM,"ETA: Hello, We are working on this order..",1d 1h 53m,1d 1h 52m,09/18/2026 03:06 PM,,,,2026-09-18,25.88,False,True,Overdue,2026-09-22T10:38:36.194520+00:00
+TPS-AD-P1543165,BORROWER: Canda,2h 14m,TPS-AD-,Online,SIRAVNGUSB,Current Owner,PunithAS_ADSSearchType,0,CT,Middlesex,Clinton,,Search,Workflow Suspended,"Cannot Complete Order - Hello, This is ..",,,7h 57m,7h 57m,09/21/2026 09:02 AM,,,,2026-09-21,7.95,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-P1537965,BORROWER: Franc,2h 15m,TPS-AD-,Online,SIRAEFCU,Update Current..,,0,CT,Hartford,New Britain,,UpdateSearch,Available,[Int] - Suspended for further review due..,09/25 05:00 PM,"ETA: Hello, As Per the New Britain Town ..",7d 7h 57m,7d 7h 57m,09/10/2026 09:02 AM,,,,2026-09-10,175.95,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-922404881,BORROWER: ELIZA,2h 53m,TPS-AD-,Online,DATATREE,Legal & Vestin..,SanthoshK_ADSSearchType,0,MI,Eaton,LANSING,23 50 40 36 177 061,Search,Workflow Suspended,"Cannot Complete Order - Hello, We are un..",,,5h 20m,5h 19m,09/21/2026 11:39 AM,,,,2026-09-21,5.33,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-1280827100,Tbd,3h 1m,TPS-AD-,Online,VALU,Update Prelimi..,ANILG_ADSSearchType,0,TX,Travis,Manchaca,,UpdateSearch,Workflow Suspended,"Cannot Complete Order - Hello, As per T..",,,7h 11m,7h 10m,09/21/2026 09:48 AM,,,,2026-09-21,7.18,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929082,CORP: Burvick I,1d 38m,TPS-AD-,Online,TELSIX,Two Owner,,0,MD,Baltimore City,Baltimore,,Search,Available,[Int] - TV Auto Suspend,,,5h 34m,5h 30m,09/21/2026 11:25 AM,,,,2026-09-21,5.57,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-REM-REO-468662,OLIT 2026-HB1 A,3h 5m,TPS-AD-,Online,LTCX,Update Prelimi..,ANILG_ADSSearchType,0,TX,Tarrant,Fort Worth,,UpdateSearch,Workflow Suspended,"Cannot Complete Order - Hello, In Previ..",,,7h 6m,7h 6m,09/21/2026 09:53 AM,,,REM-REO-480056,2026-09-21,7.1,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-520-1229219,Aletha Stephan,3h 42m,TPS-AD-,Online,LLSS,Two Owner,PraveenaB_ADSSearchType,0,IA,Buena Vista,Storm Lake,1403431017,Search,Workflow Suspended,"Cannot Complete Order - Hello, We are un..",,,1d 2h 30m,1d 2h 29m,09/18/2026 02:29 PM,,,,2026-09-18,26.5,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-P1543212,BORROWER: Danie,3h 49m,TPS-AD-,Online,SIRAVNSFCU,Current Owner,BhuvanaG_ADSSearchType,0,CT,New Haven,Naugatuck,,Search,Workflow Suspended,"Hello, please ignore prior clarification..",,,6h 22m,6h 22m,09/21/2026 10:37 AM,,,,2026-09-21,6.37,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-P1543216,BORROWER: Edwar,3h 54m,TPS-AD-,Online,SIRAVNSFCU,Current Owner,VenkateshP_ADSSearchType,0,CT,New Haven,Derby,,Search,Workflow Suspended,"Cannot Complete Order - Hello, As per t..",,,6h 17m,6h 17m,09/21/2026 10:42 AM,,,,2026-09-21,6.28,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10908423,ABEL CAMARILLO,3h 57m,TPS-AD-,Online,TELSIX,Update w/ Requ..,,0,TX,Jim Wells,ALICE,_,UpdateSearch,Available,REQUESTED E DATE NOT YET MET: CURRENT E ..,09/29 05:00 PM,ETA:ON HOLD - Waiting for plant date to ..,6h 14m,6h 14m,09/21/2026 10:45 AM,,,101-10908423,2026-09-21,6.23,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10924498,"BUYER: Gordon,",4h 13m,TPS-AD-,Online,TELSIX,Quality Contro..,,0,NJ,Essex,Glen Ridge,,SearchFix,Available,[Int] - TV Auto Suspend,,,0m,0m,09/22/2026 06:24 AM,,,,2026-09-22,0.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-CH-447257,borrower: TIMOT,4h 13m,TPS-AD-,Online,DOMA,Quality Contro..,KishoreK_ADSSearchType,0,IN,Tippecanoe,West Lafayette,,SearchFix,In Progress,[Int] - TV Auto Suspend,,,0m,0m,09/22/2026 06:28 AM,,,,2026-09-22,0.0,False,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10927993,BUYER: Charles,4h 29m,TPS-AD-,Online,TELSIX,Full Title,ShashankR_ADSSearchType,0,GA,Cobb,Powder Springs,,TypingModule,Task Suspended,[Int] - TV Auto Suspend - TV Auto-Suspen..,,,2d 1h 42m,1d 0m,09/17/2026 03:17 PM,,,,2026-09-17,49.7,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10925504,BUYER: JACQUELI,4h 29m,TPS-AD-,Ground,TELSIX,Two Owner,,0,MS,Jackson,Gautier,,Search,Available,Continue - Approved,09/22 05:00 PM,"Hello, Order has been assigned to the ab..",6d 2h 38m,6d 2h 38m,09/11/2026 02:21 PM,,,,2026-09-11,146.63,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-14-26-04776,Jessica Reeves,4h 34m,TPS-AD-,Online,CODILIS,Update Full Ti..,,0,IL,Lake,Hainesville,06-28-202-024-0000,UpdateSearch,Available,ETA added by KishoreK_ADSSearchType on ..,09/24 09:00 AM,ETA:ON HOLD - Waiting for plant date to ..,5h 37m,5h 37m,09/21/2026 11:22 AM,,,,2026-09-21,5.62,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-636408,Buyer: OPENDOOR,4h 36m,TPS-AD-,Ground,OSN,Full Title,,0,CO,El Paso,Colorado Springs,,Search,Available,ETA accepted by SyedaF_FAI on 9/17/2026 ..,09/22 05:00 PM,"Hello, Order has been assigned to the ab..",6d 4h 33m,6d 4h 32m,09/11/2026 12:26 PM,,,,2026-09-11,148.55,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-25DO305 D,,4h 40m,TPS-AD-,Online,GGL,One Owner Fore..,NavyaS_ADSSearchType,0,FL,Palm Beach,Jupiter,,Search,In Progress,[Int] - TV Auto Suspend,,,3h 32m,3h 18m,09/21/2026 01:27 PM,,,,2026-09-21,3.53,False,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-CH-446187,borrower: Eliza,4h 50m,TPS-AD-,Online,DOMA,Document Retri..,YeshwanthM_ADSSearchType,0,AZ,Pima,Tucson,,Search,Workflow Suspended,"Cannot Complete Order - Hello, We are u..",,,3h 23m,3h 22m,09/21/2026 01:36 PM,,,,2026-09-21,3.38,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-1280827820,Raul Chavira,4h 59m,TPS-AD-,Online,VALU,Update Prelimi..,ANILG_ADSSearchType,0,TX,El Paso,El Paso,,UpdateSearch,Workflow Suspended,"Cannot Complete Order - Hello, As per T..",,,5h 12m,5h 11m,09/21/2026 11:47 AM,,,,2026-09-21,5.2,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928051,BUYER: ROBERT L,5h 21m,TPS-AD-,Online,TELSIX,Full Title,DeepikaL_ADSSearchType,0,LA,Orleans,New Orleans,,TypingModule,In Progress,[Int] - TV Auto Suspend - TV Auto-Suspen..,,,2d 50m,0m,09/17/2026 04:09 PM,,,,2026-09-17,48.83,False,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-25DO305 F,,5h 36m,TPS-AD-,Online,GGL,One Owner Fore..,DesiyaE_ADSSearchType,0,FL,Alachua,Gainesville,,Search,Task Suspended,[Int] - TV Auto Suspend - TV Auto-Suspen..,,,3h 33m,3h 30m,09/21/2026 01:26 PM,,,,2026-09-21,3.55,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10925709,BUYER: ASHLEY F,5h 37m,TPS-AD-,Ground,TELSIX,Full Title,,0,GA,Fulton,Atlanta,,Search,Available,ETA accepted by SyedaF_FAI on 9/17/2026 ..,09/22 05:00 PM,"Hello, Order has been assigned to the ab..",6d 0m,6d 0m,09/11/2026 05:51 PM,,,,2026-09-11,144.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10914147,SHARMISHA BENJA,5h 48m,TPS-AD-,Online,TELSIX,Update Full Ti..,KishoreK_ADSSearchType,0,IL,Williamson,HERRIN,_,UpdateSearch,Task Suspended,[Int] - TV Auto Suspend - TV Auto-Suspen..,,,4h 23m,4h 23m,09/21/2026 12:36 PM,,,,2026-09-21,4.38,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928139,BUYER: Dennis G,5h 56m,TPS-AD-,Online,TELSIX,Full Title,SteephenJ_ADSSearchType,0,TX,Hays,San Marcos,,Search,Workflow Suspended,"Cannot Complete Order - Hello, we do n..",,,2d 16m,2d 16m,09/17/2026 04:43 PM,,,,2026-09-17,48.27,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-WF-447298,borrower: Miche,6h 9m,TPS-AD-,Online,DOMA,Current Owner,Vijayashree_ADSSearchType,0,AZ,Maricopa,Scottsdale,,TypingModule,Task Suspended,[Int] - TV Auto Logout - User Logged off..,,,4h 2m,0m,09/21/2026 12:57 PM,,,,2026-09-21,4.03,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-14-26-05879,BORROWER: Willi,6h 12m,TPS-AD-,Online,CODILIS,Full Title,AmruthR_ADSSearchType,0,IL,McHenry,Woodstock,,Search,Workflow Suspended,"Cannot Complete Order - Hello, In Deed ..",,,1d 6h 36m,1d 6h 35m,09/18/2026 10:23 AM,,,,2026-09-18,30.6,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-P1533278,BORROWER: Micha,6h 13m,TPS-AD-,Online,SIRAVNNWCB,Update Current..,,0,CT,Hartford,Plainville,,UpdateSearch,Available,ETA updated by AshokB_ADSSearchType on ..,09/25 05:00 PM,ETA:ON HOLD - Waiting for plant date to ..,2d 5h 50m,2d 5h 50m,09/17/2026 11:09 AM,,,,2026-09-17,53.83,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10924941,BUYER: MARIAN J,6h 13m,TPS-AD-,Ground,TELSIX,Full Title,,0,MS,Lowndes,Columbus,,Search,Available,Continue - Approved,09/22 05:00 PM,"Hello, Order has been assigned to the ab..",7d 2h 9m,7d 2h 9m,09/10/2026 02:50 PM,,,,2026-09-10,170.15,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-920070711,BORROWER: Anton,6h 13m,TPS-AD-,Ground,PIVOT,Current Owner,,0,NJ,Ocean,TOMS RIVER,08-00694-11-00007,Search,Available,ETA accepted by SyedaF_FAI on 9/17/2026 ..,09/22 05:00 PM,"Hello, Order has been assigned to the ab..",4d 5h 0m,4d 4h 59m,09/15/2026 11:59 AM,,,,2026-09-15,101.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928180,BUYER: KODY HEB,6h 13m,TPS-AD-,Online,TELSIX,Full Title,MukeshT_ADSSearchType,0,LA,St. Martin,Saint Martinville,,TypingModule,In Progress,[Int] - TV Auto Suspend - TV Auto-Suspen..,,,2d 0m,0m,09/17/2026 10:10 PM,,,,2026-09-17,48.0,False,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928185,BUYER: PHILLIP,6h 13m,TPS-AD-,Online,TELSIX,Full Title,SuriyakumarS_ADSSearchType,0,TX,Tyler,Fred,,Search,Workflow Suspended,"Cannot Complete Order - Hello, We are un..",,,2d 0m,2d 0m,09/17/2026 05:19 PM,,,,2026-09-17,48.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928337,BUYER: EDISON P,6h 13m,TPS-AD-,Online,TELSIX,Full Title,AnushreeU_ADSSearchType,0,PA,Luzerne,Wilkes Barre,,Search,Workflow Suspended,Message Note added: Client- foreclosure..,,,2d 0m,2d 0m,09/17/2026 06:50 PM,,,,2026-09-17,48.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928440,BUYER: Anne Duk,6h 13m,TPS-AD-,Online,TELSIX,Full Title,NinithaR_ADSSearchType,0,NC,Pasquotank,Elizabeth City,,Search,Workflow Suspended,"Cannot Complete Order - Hello, For your ..",,,2d 0m,2d 0m,09/18/2026 08:02 AM,,,,2026-09-18,48.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928952,BUYER: ROBERTO,6h 13m,TPS-AD-,Online,TELSIX,Two Owner,YogasathishS_ADSSearchType,0,TX,Webb,Laredo,,Search,Workflow Suspended,"Cannot Complete Order - HELLO, FOR THE S..",,,1d 0m,1d 0m,09/18/2026 08:55 PM,,,,2026-09-18,24.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928989,CORP: Sandlewoo,6h 13m,TPS-AD-,Online,TELSIX,Two Owner,SandhyaS_ADSSearchType,6,FL,Broward,North Lauderdale,,Search,Workflow Suspended,"Cannot Complete Order - Hello, We are ..",,,7h 10m,7h 5m,09/21/2026 09:49 AM,,,,2026-09-21,7.17,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-76317025,Peter Hanlin;,6h 13m,TPS-AD-,Online,TSO,External Updat..,,0,MN,Goodhue,Red Wing,55.270.0010,UpdateSearch,Available,[Int] - TV Auto Suspend,,,3h 58m,3h 57m,09/21/2026 01:01 PM,,,,2026-09-21,3.97,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10794355,BUYER: Bahadar,6h 18m,TPS-AD-,Online,TELSIX,Update Two Own..,KishoreK_ADSSearchType,0,NY,Richmond,Staten Island,,UpdateSearch,Task Suspended,[Int] - TV Auto Suspend - TV Auto-Suspen..,,,3h 54m,3h 53m,09/21/2026 01:05 PM,,,,2026-09-21,3.9,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-922593110,BORROWER: CAROL,6h 28m,TPS-AD-,Online,DATATREE,Legal & Vestin..,,0,MI,Branch,COLDWATER,070-G70-000-022-00,Search,Available,[Int] - TV Auto Suspend - TV Auto-Suspen..,,,1h 44m,1h 44m,09/21/2026 03:15 PM,,,,2026-09-21,1.73,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10924482,BUYER: Christop,6h 41m,TPS-AD-,Ground,TELSIX,Full Title,,0,IL,Adams,Payson,,Search,Available,Message Note added: Client- foreclosure@..,09/22 05:00 PM,"Hello, Order has been assigned to the ab..",6d 4h 38m,6d 4h 38m,09/11/2026 12:21 PM,,,,2026-09-11,148.63,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929030,BUYER: William,6h 44m,TPS-AD-,Online,TELSIX,Two Owner,VijayR_ADSSearchType,0,MD,Baltimore City,Baltimore,,Search,In Progress,[Int] - TV Auto Suspend,,,7h 27m,7h 27m,09/21/2026 09:32 AM,,,,2026-09-21,7.45,False,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10907673,JUAN JOSE ZUNIG,6h 47m,TPS-AD-,Online,TELSIX,Update w/ Requ..,,0,TX,Ellis,GLENN HEIGHTS,_,UpdateSearch,Available,Client : please provide a pre-sale title..,,,3h 24m,3h 24m,09/21/2026 01:35 PM,,,,2026-09-21,3.4,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10927185,BUYER: Raymond,6h 55m,TPS-AD-,Ground,TELSIX,Full Title,SteephenJ_ADSSearchType,0,VA,Orange,Orange,,Search,Workflow Suspended,"Cannot Complete Order - Hello, We are u..",09/22 05:00 PM,"Hello, Order has been assigned to the ab..",3d 7h 16m,3d 7h 16m,09/16/2026 09:43 AM,,,,2026-09-16,79.27,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10927191,BUYER: Alex Smo,7h 17m,TPS-AD-,Ground,TELSIX,Full Title,,0,IL,White,Carmi,,Search,Available,Continue - we cannot approve for 'rural'..,09/22 05:00 PM,"Hello, Order has been assigned to the ab..",3d 6h 55m,3d 6h 54m,09/16/2026 10:04 AM,,,,2026-09-16,78.92,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-14-25-05314,BORROWER: Jonat,7h 23m,TPS-AD-,Online,CODILIS,Update Full Ti..,,0,IL,Williamson,Herrin,0219362020,UpdateSearch,Available,Client : New Effective Date: 06/17/2026,,,2h 48m,2h 47m,09/21/2026 02:11 PM,,,,2026-09-21,2.8,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-26NTNY27324,William Epolito,7h 24m,TPS-AD-,Online,NFTSNY,Two Owner,,0,NY,Onondaga,Syracuse,,Search,Available,ETA added by DonnaMauri on 9/21/2026 2:..,,,6h 47m,6h 47m,09/21/2026 10:12 AM,,,,2026-09-21,6.78,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929183,BUYER: MARILYN,7h 28m,TPS-AD-,Online,VYLLAMMP,Current Owner,,0,NV,Clark,Las Vegas,,Search,Available,[Int] - TV Auto Suspend,,,2h 43m,2h 21m,09/21/2026 02:16 PM,,,,2026-09-21,2.72,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929185,BUYER: DARLA G,7h 35m,TPS-AD-,Online,VYLLAMMP,Current Owner,SandhyaS_ADSSearchType,0,AR,Benton,Bella Vista,,Search,In Progress,[Int] - TV Auto Suspend,,,2h 36m,2h 36m,09/21/2026 02:23 PM,,,,2026-09-21,2.6,False,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-14-26-04804,Buyer(s): Franc,7h 44m,TPS-AD-,Online,CODILIS,Update Full Ti..,,0,IL,Lake,Mundelein,"11-31-112-028, 11-31-112-",UpdateSearch,Available,REQUESTED E DATE NOT YET MET: CURRENT E ..,09/23 05:00 PM,ETA:ON HOLD - Waiting for plant date to ..,2h 27m,2h 27m,09/21/2026 02:32 PM,,,,2026-09-21,2.45,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928531,BUYER: Cynthia,7h 48m,TPS-AD-,Online,TELSIX,Full Title,BhuvanaG_ADSSearchType,0,DC,District Of Columbia,Washington,,Search,Workflow Suspended,"Cannot Complete Order - Hello, 1. We ar..",,,1d 5h 52m,1d 5h 52m,09/18/2026 11:07 AM,,,,2026-09-18,29.87,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-26018990IL,Busey Bank,7h 54m,TPS-AD-,Online,ADVOCUS,Full Title,NagendraR_ADSSearchType,0,IL,Madison,Maryville,"13-2-21-14-06-101-005, 13",Search,Workflow Suspended,"Cannot Complete Order - Hello, 1.For the..",,,4h 48m,4h 48m,09/21/2026 12:11 PM,,,,2026-09-21,4.8,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10859450,FERNANDO HERRER,7h 55m,TPS-AD-,Online,TELSIX,Update w/ Requ..,ShwetaA_ADSSearchType,0,TX,Hunt,GREENVILLE,,UpdateSearch,Workflow Suspended,"Cannot Complete Order - Hello, As per Ve..",,,2h 16m,2h 16m,09/21/2026 02:43 PM,,,,2026-09-21,2.27,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-26NTNY27332,Hope D Martin,1d 7m,TPS-AD-,Online,NFTSNY,Two Owner,ManamHemanth_ADSSearchType,0,NY,Kings,Brooklyn,,TypingModule,In Progress,[Int] - TV Auto Suspend - TV Auto-Suspen..,,,6h 4m,0m,09/21/2026 10:55 AM,,,,2026-09-21,6.07,False,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-WF-446643,borrower: David,1d 13m,TPS-AD-,Online,DOMA,Document Retri..,YeshwanthM_ADSSearchType,0,AZ,Gila,Globe,,Search,Workflow Suspended,"Cannot Complete Order - Hello, We are u..",,,0m,0m,09/22/2026 06:29 AM,,,,2026-09-22,0.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-OSN-449714,borrower: Dino,1d 13m,TPS-AD-,Online,DOMAX,Document Retri..,,0,IL,DuPage,Hanover Park,,Search,Available,[Int] - TV Auto Suspend,,,0m,0m,09/22/2026 06:30 AM,,,,2026-09-22,0.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-922685289,BORROWER: CONNI,1d 13m,TPS-AD-,Online,DATATREE,Legal & Vestin..,KishoreK_ADSSearchType,0,CA,Humboldt,FORTUNA,201-253-013-000,Search,Task Suspended,[Int] - TV Auto Logout - User Logged off..,,,0m,0m,09/21/2026 05:04 PM,,,,2026-09-21,0.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-922686103,BORROWER: JOHN,1d 13m,TPS-AD-,Online,DATATREE,Legal & Vestin..,SachinSS_ADSSearchType,0,AL,Jefferson,CENTER POINT,13-00-24-4-003-010.000,Search,Workflow Suspended,[Ext] - Awaiting client quote/fee approv..,,,0m,0m,09/21/2026 05:05 PM,,,,2026-09-21,0.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-8459024,The HB3 Legacy,1d 13m,TPS-AD-,Online,INFOTRACK,Legal & Vestin..,AshokaA_ADSSearchType,0,UT,Cache,Wellsville,,TypingModule,In Progress,[Int] - TV Auto Suspend - TV Auto-Suspen..,,,0m,0m,09/21/2026 05:10 PM,,,,2026-09-21,0.0,False,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-DEN-CO-26093744FS,Taylor Morrison,1d 13m,TPS-AD-,Online,CMT,Home Builder L..,,0,CO,Adams,Brighton,0156920201044,Search,Available,Client: COPIES OF DOCUMENTS,,,0m,0m,09/21/2026 05:58 PM,,,,2026-09-21,0.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-922733295,BORROWER: BRIAN,1d 13m,TPS-AD-,Online,DATATREE,Legal & Vestin..,SachinSS_ADSSearchType,0,MI,Monroe,OTTAWA LAKE,15-001-030-00,Search,Workflow Suspended,"Cannot Complete Order - Hello, We are u..",,,0m,0m,09/21/2026 06:15 PM,,,,2026-09-21,0.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-922759313,BORROWER: CREAS,1d 13m,TPS-AD-,Online,DATATREE,Legal & Vestin..,SanthoshK_ADSSearchType,0,CA,Los Angeles,LONG BEACH,7137-020-015,Search,Workflow Suspended,"Cannot Complete Order - Hello, We are un..",,,0m,0m,09/21/2026 07:01 PM,,,,2026-09-21,0.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-922800478,BORROWER: ROBER,1d 13m,TPS-AD-,Online,DATATREE,Legal & Vestin..,PremC_ADSSearchType,0,NY,Suffolk,SOUTHAMPTON,0904-014.00-01.00-016.000,Search,In Progress,[Int] - TV Auto Suspend,,,0m,0m,09/21/2026 08:58 PM,,,,2026-09-21,0.0,False,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929499,BUYER: Frank Sl,1d 13m,TPS-AD-,Online,TELSIX,Preliminary Re..,DesiyaE_ADSSearchType,0,NH,Grafton,Ashland,,AESearch,In Progress,[Int] - TV Auto Suspend,,,0m,0m,09/21/2026 09:25 PM,,,,2026-09-21,0.0,False,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10903451,BUYER: Devyn Co,1d 13m,TPS-AD-,Online,TELSIX,Update w/ Requ..,,0,TX,Grayson,Sherman,,UpdateSearch,Available,[Int] - TV Auto Suspend - TV Auto-Suspen..,,,1h 58m,1h 58m,09/21/2026 03:01 PM,,,,2026-09-21,1.97,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928548,BUYER: BRIAN PE,1d 16m,TPS-AD-,Online,TELSIX,Full Title,ArchanaG_ADSSearchType,0,OH,Lake,Willoughby,,Search,Workflow Suspended,"Cannot Complete Order - Hello, We are un..",,,1d 5h 55m,1d 5h 54m,09/18/2026 11:04 AM,,,,2026-09-18,29.92,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10817895,LISA DIAZ AND C,1d 18m,TPS-AD-,Online,TELSIX,Update Two Own..,,0,TX,Kaufman,HEARTLAND,,UpdateSearch,Available,[Int] - TV Auto Suspend,,,1h 54m,1h 53m,09/21/2026 03:05 PM,,,,2026-09-21,1.9,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10867780,** Multiple typ,1d 20m,TPS-AD-,Online,TELSIX,Update w/ New ..,,0,IL,Williamson,Marion,,UpdateSearch,Available,"client- Laura.Turkal@vylla.com ""We place..",,,1h 51m,1h 50m,09/21/2026 03:08 PM,,,101-10929077,2026-09-21,1.85,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-P1543368,BORROWER: Jeffr,1d 26m,TPS-AD-,Online,SIRCGB,Current Owner,BalajiB_ADSSearchType,0,CT,Middlesex,Middletown,,TypingModule,Task Suspended,[Int] - TV Auto Logout - User Logged off..,,,1h 45m,1h 2m,09/21/2026 03:14 PM,,,,2026-09-21,1.75,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10917019,BUYER: Matthew,1d 27m,TPS-AD-,Online,TELSIX,Update Two Own..,,0,IL,Warren,Little York,,UpdateSearch,Available,[Int] - TV Auto Suspend,,,1h 45m,1h 44m,09/21/2026 03:14 PM,,,,2026-09-21,1.75,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10821536,LAURA BAGWELL A,1d 31m,TPS-AD-,Online,TELSIX,Update w/ Requ..,YeshwanthM_ADSSearchType,0,TX,Grayson,SADLER,,UpdateSearch,Workflow Suspended,Cannot Complete Order - Hello for subjec..,,,1h 41m,1h 41m,09/21/2026 03:18 PM,,,,2026-09-21,1.68,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-5120126-02300,Jamison,1d 42m,TPS-AD-,Online,TRG,Current Owner,YeshwanthM_ADSSearchType,0,OH,Licking,Alexandria,,Search,Workflow Suspended,"Cannot Complete Order - Hello, We are u..",,,1h 29m,1h 29m,09/21/2026 03:30 PM,,,,2026-09-21,1.48,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929242,BUYER: NIKIKITA,1d 43m,TPS-AD-,Online,VYLLAMMP,Current Owner,VadlaA_ADSSearchType,0,VA,Prince William,Dumfries,,TypingModule,Task Suspended,[Int] - TV Auto Suspend - TV Auto-Suspen..,,,1h 28m,0m,09/21/2026 03:31 PM,,,,2026-09-21,1.47,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928566,BUYER: CYNTHIA,1d 48m,TPS-AD-,Online,VYLLAMMPNY,Current Owner ..,,0,NY,Erie,Buffalo,,Search,Available,Continue - Please use ETA review process..,,,1d 5h 23m,1d 5h 23m,09/18/2026 11:36 AM,,,,2026-09-18,29.38,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-76299080,Aaron W McCoy;,1d 49m,TPS-AD-,Online,TSO,Update 24 Mont..,,0,MT,Flathead,Kalispell,0015757,UpdateSearch,Available,[Int] - TV Auto Suspend,,,1h 22m,1h 21m,09/21/2026 03:37 PM,,,,2026-09-21,1.37,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10859904,JAMESA MOTEN,1d 50m,TPS-AD-,Online,TELSIX,Update w/ Requ..,AshokB_ADSSearchType,0,TX,Ellis,RED OAK,263182,UpdateSearch,Workflow Suspended,"Cannot Complete Order - Hello, For the ..",,,1h 21m,1h 21m,09/21/2026 03:38 PM,,,,2026-09-21,1.35,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929251,BUYER: TRACIE J,1d 55m,TPS-AD-,Online,VYLLAMMP,Current Owner,GurumurthyM_ADSSearchType,0,OH,Summit,Akron,,TypingModule,In Progress,[Int] - TV Auto Suspend - TV Auto-Suspen..,,,1h 17m,0m,09/21/2026 03:42 PM,,,,2026-09-21,1.28,False,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-P1543382,BORROWER: Richa,1d 58m,TPS-AD-,Online,SIRAVNTHSB,Current Owner,VenkateshP_ADSSearchType,0,CT,New Haven,Wolcott,,Search,Task Suspended,[Int] - TV Auto Suspend - TV Auto-Suspen..,,,0m,0m,09/21/2026 05:33 PM,,,,2026-09-21,0.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929092,CORP: Williams,1d 1h 6m,TPS-AD-,Online,TELSIX,Two Owner,,8,FL,Columbia,Lake City,,Search,Available,[Int] - TV Auto Suspend,,,2h 27m,2h 26m,09/21/2026 02:32 PM,,,,2026-09-21,2.45,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10927257,BUYER: Linda Wi,1d 1h 8m,TPS-AD-,Ground,TELSIX,Full Title,SuriyakumarS_ADSSearchType,0,VA,Suffolk City,Suffolk,,Search,Workflow Suspended,"Cannot Complete Order - Hello, This is ..",09/22 05:00 PM,"Hello, Order has been assigned to the ab..",3d 5h 3m,3d 5h 3m,09/16/2026 11:56 AM,,,,2026-09-16,77.05,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-P1543395,BORROWER: Carl,1d 1h 11m,TPS-AD-,Online,SIRAVNSFCU,Current Owner,AshwinK_ADSSearchType,0,CT,New Haven,Hamden,,Search,Workflow Suspended,"Cannot Complete Order - Hello, 1.For the..",,,1h 0m,1h 0m,09/21/2026 03:59 PM,,,,2026-09-21,1.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-P1543396,BORROWER: Naren,1d 1h 13m,TPS-AD-,Online,SIRCGB,Current Owner,VenkateshP_ADSSearchType,0,CT,Hartford,South Windsor,,Search,Workflow Suspended,"Cannot Complete Order - Hello, This is t..",,,58m,58m,09/21/2026 04:01 PM,,,,2026-09-21,0.97,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929272,BUYER: TANIA FO,1d 1h 24m,TPS-AD-,Online,VYLLAMMP,Current Owner,ShashankR_ADSSearchType,0,RI,Providence,Pawtucket,,TypingModule,Workflow Suspended,Cannot Complete Order - The City of Pawt..,,,47m,0m,09/21/2026 04:12 PM,,,,2026-09-21,0.78,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929113,BUYER: Shannon,1d 1h 33m,TPS-AD-,Online,TELSIX,Two Owner,,0,MD,Washington,Smithsburg,,Search,Available,[Int] - TV Auto Suspend,,,4h 39m,4h 38m,09/21/2026 12:20 PM,,,,2026-09-21,4.65,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-CO-117051,"TBD TBD, Michae",1d 1h 36m,TPS-AD-,Online,TF,Preliminary Re..,SreedharM_ADSSearchType,0,CO,Arapahoe,Aurora,1975-29-2-20-156,AESearch,Workflow Suspended,"Cannot Complete Order - Hello, This AES..",,,4h 44m,4h 43m,09/21/2026 12:15 PM,,,,2026-09-21,4.73,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-CO-117052,"TBD TBD, Chandl",1d 1h 36m,TPS-AD-,Online,TF,Preliminary Re..,SabarishChinnannan_ADSp2,0,CO,Arapahoe,Aurora,1973-25-4-07-173,AESearch,Blocked,[Int] - TV Auto Suspend - TV Auto-Suspen..,,,5h 59m,5h 59m,09/21/2026 11:00 AM,,,,2026-09-21,5.98,False,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10870349,ELENA NIEVES-GO,1d 1h 48m,TPS-AD-,Online,TELSIX,Update Full Ti..,,0,FL,Polk,HAINES CITY,,UpdateSearch,Available,Client : OPN ; 101-10929156,,,23m,22m,09/21/2026 04:36 PM,,,101-10929156,2026-09-21,0.38,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10830802,JONATHAN SMITH,1d 2h 13m,TPS-AD-,Online,TELSIX,Update Full Ti..,,0,FL,Hillsborough,LITHIA,,UpdateSearch,Available,[Int] - TV Auto Suspend,,,0m,0m,09/21/2026 05:25 PM,,,,2026-09-21,0.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10886772,TULOLO TOUTAI A,1d 2h 13m,TPS-AD-,Online,TELSIX,Update w/ Requ..,,0,NY,Albany,LATHAM,,UpdateSearch,Available,REQUESTED E DATE NOT YET MET: CURRENT E ..,09/28 05:00 PM,ON HOLD - Waiting for plant date to matc..,0m,0m,09/21/2026 05:58 PM,,,,2026-09-21,0.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10888287,JOHN NOONE AND,1d 2h 13m,TPS-AD-,Online,TELSIX,Update Two Own..,,0,FL,Levy,CHIEFLAND,,UpdateSearch,Available,[Int] - TV Auto Suspend,,,0m,0m,09/21/2026 08:57 PM,,,,2026-09-21,0.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-14-26-05384,BORROWER: Larry,1d 2h 13m,TPS-AD-,Online,CODILIS,Update Full Ti..,,0,IL,Adams,Quincy,,UpdateSearch,Available,[Int] - TV Auto Suspend,,,0m,0m,09/21/2026 06:11 PM,,,,2026-09-21,0.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-26018975IL,Delancey Allan,1d 2h 13m,TPS-AD-,Online,ADVOCUS,External Updat..,,0,IL,Madison,Edwardsville,14-2-15-13-02-203-002.001,UpdateSearch,Available,Please update from 07/01/2025,,,0m,0m,09/21/2026 06:20 PM,,,,2026-09-21,0.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929319,BUYER: EMAD N H,1d 2h 13m,TPS-AD-,Online,VYLLAMMP,Current Owner,BhuvanaG_ADSSearchType,0,OH,Cuyahoga,North Olmsted,,Search,Workflow Suspended,"Cannot Complete Order - Hello, 1. we are..",,,0m,0m,09/21/2026 05:03 PM,,,,2026-09-21,0.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-VL-447301,borrower: Ali A,1d 2h 13m,TPS-AD-,Online,DOMA,Current Owner,YeshwanthM_ADSSearchType,0,MI,Wayne,Detroit,,Search,Workflow Suspended,"Cannot Complete Order - Hello, 1. The e..",,,0m,0m,09/21/2026 05:40 PM,,,,2026-09-21,0.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10795175,BUYER: DASCHELL,09/23 09:00 AM,TPS-AD-,Online,TELSIX,Update Two Own..,,0,TX,Bell,Temple,,UpdateSearch,Available,[Int] - TV Auto Suspend,,,0m,0m,09/22/2026 06:45 AM,,,,2026-09-22,0.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-CH-444687,borrower: ELIZA,09/23 09:00 AM,TPS-AD-,Online,DOMA,Update Current..,YeshwanthM_ADSSearchType,0,MI,Wayne,Detroit,,UpdateSearch,Workflow Suspended,"Cannot Complete Order - Hello, For subj..",,,0m,0m,09/22/2026 03:01 AM,,,CH-444687,2026-09-22,0.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929385,BUYER: JOSHUA S,09/23 09:00 AM,TPS-AD-,Online,VYLLAMMP,Current Owner,,0,OH,Ashtabula,Conneaut,,Search,Available,[Int] - TV Auto Suspend,,,0m,0m,09/22/2026 04:10 AM,,,,2026-09-22,0.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-P1543477,BORROWER: Brend,09/23 09:00 AM,TPS-AD-,Online,CISAFSACCU,Current Owner,,0,CT,Windham,Woodstock,,Search,Available,[Int] - TV Auto Suspend,,,0m,0m,09/22/2026 06:15 AM,,,,2026-09-22,0.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928664,BUYER: Stanley,09/23 09:30 AM,TPS-AD-,Online,TELSIX,Full Title,AnushreeU_ADSSearchType,0,IL,Williamson,Herrin,,Search,Workflow Suspended,"Cannot Complete Order - Hello, This is ..",,,1d 3h 28m,1d 3h 27m,09/18/2026 01:31 PM,,,,2026-09-18,27.47,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-14-26-05889,BORROWER: Sherr,09/23 09:37 AM,TPS-AD-,Online,CODILIS,Two Owner,DhanushG_ADSSearchType,0,IL,McHenry,Lake In The Hills,1928126007,TypingModule,In Progress,[Int] - TV Auto Suspend,,,3h 21m,0m,09/21/2026 01:38 PM,,,,2026-09-21,3.35,False,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929179,BUYER: CAROLINE,09/23 10:07 AM,TPS-AD-,Online,VYLLAMMP,Current Owner,,0,GA,Henry,Stockbridge,,Search,Available,"Continue - Proceed, include copies of al..",,,28m,28m,09/21/2026 04:31 PM,,,,2026-09-21,0.47,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10927307,BUYER: Deborah,09/23 10:22 AM,TPS-AD-,Ground,TELSIX,Two Owner,,0,NJ,Passaic,Wanaque,,Search,Available,Continue - Fee is approved. Please RUSH.,09/23 05:00 PM,Order has been assigned to the abstracto..,3d 3h 54m,3d 3h 54m,09/16/2026 01:05 PM,,,,2026-09-16,75.9,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10926241,BUYER: Darryl P,09/23 10:29 AM,TPS-AD-,Ground,TELSIX,Full Title,,0,GA,Bibb,Macon,,Search,Available,ETA accepted by SyedaF_FAI on 9/17/2026 ..,09/23 05:00 PM,"Hello, Order has been assigned to the ab..",5d 2h 28m,5d 2h 27m,09/14/2026 02:31 PM,,,,2026-09-14,122.47,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928716,BUYER: Marilyn,09/23 10:32 AM,TPS-AD-,Online,TELSIX,Full Title,ArchanaG_ADSSearchType,0,OH,Montgomery,Dayton,,Search,Workflow Suspended,"Cannot Complete Order - Hello, This is ..",,,1d 2h 26m,1d 2h 25m,09/18/2026 02:33 PM,,,,2026-09-18,26.43,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929221,BUYER: Christop,09/23 10:52 AM,TPS-AD-,Online,TELSIX,Two Owner,,0,MD,Howard,Ellicott City,,Search,Available,[Int] - TV Auto Suspend,,,2h 6m,2h 5m,09/21/2026 02:53 PM,,,,2026-09-21,2.1,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929219,BUYER: EUGENIA,09/23 10:59 AM,TPS-AD-,Online,VYLLAMMP,Current Owner,SabarishChinnannan_ADSp2,0,GA,Cherokee,Acworth,,TypingModule,Task Suspended,[Int] - TV Auto Suspend - TV Auto-Suspen..,,,1h 59m,0m,09/21/2026 03:00 PM,,,,2026-09-21,1.98,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10907435,JAMES GOODLET,09/23 11:00 AM,TPS-AD-,Ground,TELSIX,Update Full Ti..,,0,OH,Mahoning,YOUNGSTOWN,_,UpdateSearch,Available,ETA accepted by SyedaF_FAI on 9/17/2026 ..,09/23 05:00 PM,"Hello, Order has been assigned to the ab..",3d 1h 58m,3d 1h 57m,09/16/2026 03:01 PM,,,,2026-09-16,73.97,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10925696,BUYER: RODNEY J,09/23 11:01 AM,TPS-AD-,Ground,TELSIX,Full Title,,0,GA,Macon,Montezuma,,Search,Available,ETA accepted by SyedaF_FAI on 9/17/2026 ..,09/23 05:00 PM,"Hello, Order has been assigned to the ab..",6d 0m,6d 0m,09/11/2026 05:35 PM,,,,2026-09-11,144.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928784,BUYER: Susan K,09/23 11:52 AM,TPS-AD-,Online,TELSIX,Full Title,ShreyaH_ADSSearchType,0,GA,Cobb,Powder Springs,,Search,In Progress,Continue - Proceed with search as found ..,,,1d 1h 6m,1d 1h 6m,09/18/2026 03:53 PM,,,,2026-09-18,25.1,False,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929267,BUYER: JESUS AY,09/23 12:03 PM,TPS-AD-,Online,VYLLAMMP,Current Owner,DeepikaK_ADSSearchType,0,GA,Hall,Oakwood,,TypingModule,Task Suspended,[Int] - TV Auto Logout - User Logged off..,,,54m,0m,09/21/2026 04:05 PM,,,,2026-09-21,0.9,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928737,BUYER: MATTHEW,09/23 12:10 PM,TPS-AD-,Online,TELSIX,Two Owner,,0,PA,Lehigh,Bethlehem,,Search,Available,[Int] - TV Auto Suspend,,,0m,0m,09/21/2026 05:30 PM,,,,2026-09-21,0.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929283,BUYER: CURTIS G,09/23 12:23 PM,TPS-AD-,Online,VYLLAMMP,Current Owner,PriyankaK_ADSSearchType,0,GA,Fulton,Union City,,TypingModule,Task Suspended,[Int] - TV Auto Suspend - TV Auto-Suspen..,,,35m,0m,09/21/2026 04:24 PM,,,,2026-09-21,0.58,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929286,BUYER: BRENT MA,09/23 12:24 PM,TPS-AD-,Online,TELSIX,Two Owner,MadhanM_ADSSearchType,6,FL,Okaloosa,Destin,,Search,Task Suspended,[Int] - TV Auto Suspend - TV Auto-Suspen..,,,1m,0m,09/21/2026 04:58 PM,,,,2026-09-21,0.02,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-4252913,WILLIAM S BUTE,09/23 12:30 PM,TPS-AD-,Online,MC,Full Title,NinithaR_ADSSearchType,0,IA,Cherokee,Cherokee,,Search,Workflow Suspended,"Cannot Complete Order - Hello, 1. For th..",,,1d 28m,1d 28m,09/18/2026 04:31 PM,,,4252913-1,2026-09-18,24.47,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929297,BUYER: MARTIN J,09/23 12:30 PM,TPS-AD-,Online,TELSIX,Two Owner,RajuD_ADSSearchType,0,NH,Grafton,Lebanon,,TypingModule,Task Suspended,[Int] - TV Auto Suspend - TV Auto-Suspen..,,,28m,0m,09/21/2026 04:31 PM,,,,2026-09-21,0.47,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-806570,Cynthia Grubb a,09/23 12:41 PM,TPS-AD-,Online,INVESTKS,Full Title,AmruthR_ADSSearchType,0,IL,St. Clair,Belleville,,Search,Workflow Suspended,"Cannot Complete Order - Hello, Legal is..",,,1d 17m,1d 15m,09/18/2026 04:42 PM,,,,2026-09-18,24.28,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10926420,BUYER: Yileska,09/23 12:44 PM,TPS-AD-,Ground,TELSIX,Full Title,,0,GA,Hall,Gainesville,,Search,Available,ETA accepted by SyedaF_FAI on 9/17/2026 ..,09/23 05:00 PM,"Hello, Order has been assigned to the ab..",5d 37m,5d 37m,09/14/2026 04:22 PM,,,,2026-09-14,120.62,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929316,BUYER: JONATHAN,09/23 12:53 PM,TPS-AD-,Online,TELSIX,Two Owner,,0,TX,Andrews,Andrews,,Search,Available,[Int] - TV Auto Suspend,,,5m,5m,09/21/2026 04:54 PM,,,,2026-09-21,0.08,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929321,BUYER: JACKIE K,09/23 12:55 PM,TPS-AD-,Online,TELSIX,Two Owner,,0,TX,Bowie,Redwater,,Search,Available,[Int] - TV Auto Suspend,,,3m,3m,09/21/2026 04:56 PM,,,,2026-09-21,0.05,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-14-26-05574,BORROWER: Charl,09/23 12:59 PM,TPS-AD-,Online,CODILIS,Update Full Ti..,,0,IL,McHenry,Woodstock,,UpdateSearch,Available,ETA updated by AshokB_ADSSearchType on ..,09/28 05:00 PM,ON HOLD - Hello Waiting for plant date t..,2d 0m,2d 0m,09/17/2026 06:20 PM,,,,2026-09-17,48.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-gng_2Feb26,test_dev_order,09/23 01:00 PM,TPS-AD-,Online,OBTEST,Full Title,DeepikaK_ADSSearchType,0,AZ,Maricopa,,test_parcel,TypingModule,Task Suspended,[Int] - TV Auto Logout - User Logged off..,,,1d 0m,1d 0m,09/19/2026 09:16 AM,,,,2026-09-19,24.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10867044,WILLIAM GLOVER,09/23 01:00 PM,TPS-AD-,Online,TELSIX,Update w/ Requ..,KishoreK_ADSSearchType,0,FL,Jackson,SNEADS,326N07000000300023,UpdateSearch,Workflow Suspended,[Int] - Awaiting external resource - AWA..,09/22 05:00 PM,ON HOLD - Hello Waiting for plant date t..,4d 0m,4d 0m,09/15/2026 05:38 PM,,,,2026-09-15,96.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10911913,BUYER: BONNIE M,09/23 01:00 PM,TPS-AD-,Ground,VYLLAMMP,Update w/ Requ..,,0,VA,Prince George,Disputanta,,UpdateSearch,Available,ETA accepted by SyedaF_FAI on 9/17/2026 ..,09/23 05:00 PM,"Hello, Order has been assigned to the ab..",3d 0m,3d 0m,09/17/2026 08:13 AM,,,,2026-09-17,72.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10921101,** Multiple typ,09/23 01:00 PM,TPS-AD-,Online,TELSIX,Update Prelimi..,,0,MD,Kent,Rock Hall,,UpdateSearch,Available,ETA accepted by KondaveniP_FAI on 9/21/2..,09/22 05:00 PM,"ETA:ON HOLD - Hello, As Per the Kent Rec..",2d 5h 37m,2d 5h 37m,09/17/2026 11:22 AM,,,,2026-09-17,53.62,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-921087663,BORROWER: CRABT,09/23 01:00 PM,TPS-AD-,Ground,DATATREE,Legal & Vestin..,,0,KS,Leavenworth,BASEHOR,181-11-0-00-00-015.08-0,Search,Available,Continue - Please pull vesting from the ..,09/23 05:00 PM,"Hello, Order has been assigned to the ab..",3d 0m,3d 0m,09/17/2026 08:16 AM,,,,2026-09-17,72.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-921087965,BORROWER: CRABT,09/23 01:00 PM,TPS-AD-,Ground,DATATREE,Legal & Vestin..,KishoreK_ADSSearchType,0,KS,Leavenworth,BASEHOR,181-11-0-00-00-015.08-0,Search,Workflow Suspended,Cannot Complete Order - As Per Document ..,09/23 05:00 PM,"Hello, Order has been assigned to the ab..",3d 0m,3d 0m,09/17/2026 08:28 AM,,,,2026-09-17,72.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928882,BUYER: WILLIAM,09/23 01:00 PM,TPS-AD-,Online,TELSIX,Full Title,MukeshT_ADSSearchType,0,LA,Livingston,Livingston,,TypingModule,Task Suspended,[Int] - TV Auto Suspend - TV Auto-Suspen..,,,1d 0m,0m,09/18/2026 06:28 PM,,,,2026-09-18,24.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928885,BUYER: CARLTON,09/23 01:00 PM,TPS-AD-,Online,TELSIX,Full Title,RaghuP_ADSSearchType,0,MD,Montgomery,Rockville,,Search,Task Suspended,[Int],,,1d 0m,1d 0m,09/21/2026 08:39 AM,,,,2026-09-21,24.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928942,BUYER: MATTHEW,09/23 01:00 PM,TPS-AD-,Online,TELSIX,Full Title,SuriyakumarS_ADSSearchType,0,OH,Scioto,Wheelersburg,,Search,Workflow Suspended,"Cannot Complete Order - Hello, For the s..",,,1d 0m,1d 0m,09/18/2026 08:08 PM,,,,2026-09-18,24.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928943,BUYER: CHARLES,09/23 01:00 PM,TPS-AD-,Online,TELSIX,Full Title,DhotreA_ADSSearchType,0,OH,Allen,Lima,,Search,Workflow Suspended,"Cannot Complete Order - Hello, We are un..",,,1d 0m,1d 0m,09/18/2026 08:11 PM,,,,2026-09-18,24.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928945,BUYER: SUSAN BE,09/23 01:00 PM,TPS-AD-,Online,TELSIX,Full Title,AbhilashC_ADSSearchType,0,PA,Berks,Leesport,,Search,Task Suspended,[Int] - TV Manual Logout - User Logged o..,,,1d 0m,1d 0m,09/18/2026 08:12 PM,,,,2026-09-18,24.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928948,BUYER: JORDAN T,09/23 01:00 PM,TPS-AD-,Online,TELSIX,Full Title,BhuvanaG_ADSSearchType,0,PA,Dauphin,Halifax,,Search,Workflow Suspended,"Cannot Complete Order - Hello, we are u..",,,1d 0m,1d 0m,09/18/2026 08:33 PM,,,,2026-09-18,24.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928953,BUYER: DANIEL L,09/23 01:00 PM,TPS-AD-,Online,TELSIX,Full Title,AnushreeU_ADSSearchType,0,WI,Waupaca,New London,,Search,Workflow Suspended,"Cannot Complete Order - Hello, This is ..",,,1d 0m,1d 0m,09/18/2026 09:18 PM,,,,2026-09-18,24.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929330,BUYER: ROBERT G,09/23 01:00 PM,TPS-AD-,Online,TELSIX,Two Owner,,0,TX,Bell,Killeen,,Search,Available,[Int] - TV Auto Suspend,,,0m,0m,09/21/2026 05:12 PM,,,,2026-09-21,0.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928862,BUYER: AMARI HE,09/23 01:00 PM,TPS-AD-,Online,TELSIX,Full Title,,0,GA,Clayton,Hampton,,Search,Available,"Continue - Proceed as found, Dozier is t..",,,6h 38m,6h 38m,09/21/2026 10:21 AM,,,,2026-09-21,6.63,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929336,BUYER: John DeR,09/23 01:00 PM,TPS-AD-,Online,TELSIX,Two Owner,,0,NY,Westchester,Pelham,,Search,Available,Continue - Please recheck all of the lan..,,,0m,0m,09/21/2026 05:14 PM,,,,2026-09-21,0.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929345,BUYER: JESSICA,09/23 01:00 PM,TPS-AD-,Online,VYLLAMMP,Current Owner,SreedharM_ADSSearchType,0,GA,Paulding,Dallas,,TypingModule,Task Suspended,[Int] - TV Auto Suspend - TV Auto-Suspen..,,,0m,0m,09/21/2026 05:29 PM,,,,2026-09-21,0.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-26019051IL,,09/23 01:00 PM,TPS-AD-,Online,ADVOCUS,Full Title,NinithaR_ADSSearchType,0,IL,Iroquois,Thawville,29-06-130-017,Search,Workflow Suspended,"Cannot Complete Order - Hello, We have d..",,,0m,0m,09/21/2026 05:32 PM,,,,2026-09-21,0.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929392,BUYER: BERNADIN,09/23 01:00 PM,TPS-AD-,Online,VYLLAMMP,Current Owner,BaburawWade_ADSSearchType,0,GA,Richmond,Augusta,,TypingModule,Task Suspended,[Int] - TV Auto Logout - User session ti..,,,0m,0m,09/21/2026 06:06 PM,,,,2026-09-21,0.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929401,BUYER: TONY MEN,09/23 01:00 PM,TPS-AD-,Online,VYLLAMMP,Current Owner,AshifShaikh_ADSSearchType,0,GA,Columbia,Grovetown,,TypingModule,Task Suspended,[Int] - TV Manual Logout - User Logged o..,,,0m,0m,09/21/2026 06:13 PM,,,,2026-09-21,0.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929415,BUYER: MICHAEL,09/23 01:00 PM,TPS-AD-,Online,VYLLAMMP,Current Owner,RoopaB_ADSSearchType,0,GA,Gwinnett,Buford,,TypingModule,Task Suspended,[Int] - TV Auto Suspend - TV Auto-Suspen..,,,0m,0m,09/21/2026 06:37 PM,,,,2026-09-21,0.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929442,BUYER: ISAAC CA,09/23 01:00 PM,TPS-AD-,Online,VYLLAMMP,Current Owner,AshokaA_ADSSearchType,0,GA,Effingham,Guyton,,TypingModule,Task Suspended,[Int] - TV Auto Suspend - TV Auto-Suspen..,,,0m,0m,09/21/2026 07:01 PM,,,,2026-09-21,0.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929445,BUYER: CHARQUEN,09/23 01:00 PM,TPS-AD-,Online,VYLLAMMP,Current Owner,AshwinA_ADSSearchType,0,GA,Bibb,Macon,,TypingModule,Task Suspended,[Int] - TV Auto Suspend - TV Auto-Suspen..,,,0m,0m,09/21/2026 07:01 PM,,,,2026-09-21,0.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929476,BUYER: LATISHA,09/23 01:00 PM,TPS-AD-,Online,VYLLAMMP,Current Owner,DeepikaK_ADSSearchType,0,GA,Columbia,Grovetown,,TypingModule,Task Suspended,[Int] - TV Auto Logout - User Logged off..,,,0m,0m,09/21/2026 07:41 PM,,,,2026-09-21,0.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929496,BUYER: FRANKLIN,09/23 01:00 PM,TPS-AD-,Online,VYLLAMMP,Current Owner,DeepikaK_ADSSearchType,0,GA,Cobb,Mableton,,TypingModule,Task Suspended,[Int] - TV Auto Logout - User Logged off..,,,0m,0m,09/21/2026 08:17 PM,,,,2026-09-21,0.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929537,BUYER: NATOSHA,09/23 01:00 PM,TPS-AD-,Online,TELSIX,Two Owner,,0,TX,Comal,Canyon Lake,,Search,Available,[Int] - TV Auto Suspend,,,0m,0m,09/21/2026 10:17 PM,,,,2026-09-21,0.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929540,BUYER: GINA TAY,09/23 01:00 PM,TPS-AD-,Online,TELSIX,Two Owner,SoniyaD_ADSSearchType,0,TX,Hockley,Sundown,,Search,Workflow Suspended,"Cannot Complete Order - Hello, We are u..",,,0m,0m,09/21/2026 10:27 PM,,,,2026-09-21,0.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929539,BUYER: MICHAEL,09/23 01:00 PM,TPS-AD-,Online,TELSIX,Two Owner,YeshwanthM_ADSSearchType,0,TX,Brazos,Bryan,,Search,Workflow Suspended,"Cannot Complete Order - Hello, For subj..",,,0m,0m,09/21/2026 10:27 PM,,,,2026-09-21,0.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929541,BUYER: MATTHEW,09/23 01:00 PM,TPS-AD-,Online,TELSIX,Two Owner,,0,TX,Hood,Granbury,,Search,Available,[Int] - TV Auto Suspend,,,0m,0m,09/21/2026 10:29 PM,,,,2026-09-21,0.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929546,BUYER: CHIQUITA,09/23 01:00 PM,TPS-AD-,Online,TELSIX,Two Owner,,0,TX,Hunt,Greenville,,Search,Available,[Int] - TV Auto Suspend,,,0m,0m,09/21/2026 10:48 PM,,,,2026-09-21,0.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929551,BUYER: GONZALO,09/23 01:00 PM,TPS-AD-,Online,TELSIX,Two Owner,,0,TX,Webb,Laredo,,Search,Available,[Int] - TV Auto Suspend,,,0m,0m,09/21/2026 10:57 PM,,,,2026-09-21,0.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10927489,BUYER: JORGE TO,09/23 01:00 PM,TPS-AD-,Ground,TELSIX,Full Title,,0,NJ,Camden,West Berlin,,Search,Available,ETA accepted by SyedaF_FAI on 9/17/2026 ..,09/23 05:00 PM,ETA: Order has been assigned to the abst..,2d 7h 37m,2d 7h 37m,09/17/2026 09:22 AM,,,,2026-09-17,55.62,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10927670,BUYER: CYNTHIA,09/23 01:52 PM,TPS-AD-,Ground,TELSIX,Full Title,AmruthR_ADSSearchType,0,NJ,Camden,Waterford Works,,Search,Task Suspended,ETA accepted by SyedaF_FAI on 9/21/2026 ..,09/24 05:00 PM,"ETA: Hello, This is a ground order, and ..",2d 6h 42m,2d 6h 42m,09/17/2026 10:17 AM,,,,2026-09-17,54.7,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929047,BUYER: Ilsa Osb,09/23 02:04 PM,TPS-AD-,Online,TELSIX,Full Title,SuriyakumarS_ADSSearchType,0,AR,Pulaski,Jacksonville,,Search,In Progress,[Int] - TV Auto Suspend,,,6h 54m,6h 54m,09/21/2026 10:05 AM,,,,2026-09-21,6.9,False,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-637237,Buyer: OPENDOOR,09/23 02:04 PM,TPS-AD-,Online,OSN,Full Title,ManamHemanth_ADSSearchType,0,CO,Denver,Denver,,TypingModule,Task Suspended,[Int] - TV Auto Suspend - TV Auto-Suspen..,,,3h 59m,0m,09/21/2026 01:00 PM,,,,2026-09-21,3.98,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929049,BUYER: Rhett L,09/23 02:08 PM,TPS-AD-,Online,TELSIX,Full Title,PunithAS_ADSSearchType,0,OH,Lake,Mentor,,Search,Workflow Suspended,"Cannot Complete Order - Hello, We are ..",,,6h 50m,6h 49m,09/21/2026 10:09 AM,,,,2026-09-21,6.83,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928980,BUYER: NEVIL PI,09/23 02:13 PM,TPS-AD-,Online,TELSIX,Full Title,NinithaR_ADSSearchType,0,LA,St. Bernard,Meraux,,Search,Workflow Suspended,"Cannot Complete Order - Hello, 1. For th..",,,6h 45m,6h 45m,09/21/2026 10:14 AM,,,,2026-09-21,6.75,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-14-26-05989,BORROWER: Feder,09/23 02:34 PM,TPS-AD-,Online,CODILIS,REO Full Title,AnushreeU_ADSSearchType,0,IL,Williamson,Herrin,01-24-427-008,Search,Workflow Suspended,"Cannot Complete Order - Hello, This is ..",,,1d 6h 24m,1d 6h 23m,09/18/2026 10:35 AM,,,,2026-09-18,30.4,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-PPA-2762C,Emerald Propert,09/23 02:47 PM,TPS-AD-,Online,PAC,Full Title,MahaboobBa_ADSSearchType,0,PA,Berks,Reading,93-5306-06-39-6115,Search,Workflow Suspended,"Cannot Complete Order - Hello, Given pro..",,,3h 13m,3h 13m,09/21/2026 01:46 PM,,,,2026-09-21,3.22,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929086,BUYER: Nicholas,09/23 03:36 PM,TPS-AD-,Online,TELSIX,Full Title,RoopaB_ADSSearchType,0,LA,Ascension,Saint Amant,,TypingModule,In Progress,[Int] - TV Auto Logout - User session ti..,,,5h 22m,0m,09/21/2026 11:37 AM,,,,2026-09-21,5.37,False,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-14-26-05996,BORROWER: US Ba,09/23 03:40 PM,TPS-AD-,Online,CODILIS,REO Full Title,AbhilashC_ADSSearchType,0,IL,Williamson,Herrin,02-19-277-001,Search,Workflow Suspended,"Cannot Complete Order - Hello, We are ..",,,1d 5h 18m,1d 5h 17m,09/18/2026 11:41 AM,,,,2026-09-18,29.3,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-520-1226327,Virginia A Quil,09/23 03:41 PM,TPS-AD-,Ground,LLSS,Two Owner,NishaM_ADSSearchType,0,KY,Jefferson,Louisville,,Search,Task Suspended,[Int] - TV Auto Suspend - TV Auto-Suspen..,09/23 05:00 PM,ETA: Order has been assigned to the abst..,5d 4h 57m,5d 4h 56m,09/14/2026 12:02 PM,,,,2026-09-14,124.95,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-DTT-2026-27345,borrower: Brian,09/23 04:00 PM,TPS-AD-,Online,HOMELIGHT,Full Title,NagendraR_ADSSearchType,0,AZ,Maricopa,Chandler,302-97-374,Search,In Progress,[Int] - TV Auto Suspend - TV Auto-Suspen..,,,4h 58m,4h 56m,09/21/2026 12:01 PM,,,,2026-09-21,4.97,False,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-P1496609,BORROWER: Tiffa,09/23 04:26 PM,TPS-AD-,Online,SIRAVNNWCB,Update Current..,,0,CT,Litchfield,Morris,,UpdateSearch,Available,REQUESTED E DATE NOT YET MET: CURRENT E ..,09/23 05:00 PM,"ETA: Hello, As per the Morris Town Recor..",9d 32m,9d 32m,09/08/2026 04:27 PM,,,,2026-09-08,216.53,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10927696,BUYER: Andrew T,09/23 04:31 PM,TPS-AD-,Ground,TELSIX,Two Owner,,0,NJ,Essex,Montclair,,Search,Available,ETA accepted by SyedaF_FAI on 9/17/2026 ..,09/23 05:00 PM,ETA: Order has been assigned to the abst..,2d 6h 39m,2d 6h 39m,09/17/2026 10:20 AM,,,,2026-09-17,54.65,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10927827,BUYER: STEVEN Y,09/23 04:48 PM,TPS-AD-,Ground,VYLLAMMP,Current Owner,KishoreK_ADSSearchType,0,MT,Richland,Sidney,,Search,Workflow Suspended,"Cannot Complete Order - Hello, As per a..",09/23 05:00 PM,ETA: Order has been assigned to the abst..,2d 4h 10m,2d 4h 9m,09/17/2026 12:49 PM,,,,2026-09-17,52.17,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-AZ-2607-0393,borrower: Eliza,09/24 08:14 AM,TPS-AD-,Online,LANDSEA,Home Builder U..,NarendraV_ADSSearchType,0,AZ,Maricopa,Gilbert,,Search,Workflow Suspended,"Cannot Complete Order - Hello, GI is cu..",,,2d 4h 33m,2d 4h 33m,09/17/2026 12:26 PM,,,AZ-2607-0393,2026-09-17,52.55,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10927014,BUYER: Lawrence,09/24 10:05 AM,TPS-AD-,Ground,TELSIX,Full Title,,0,LA,Orleans,New Orleans,,Search,Available,ETA accepted by KondaveniP_FAI on 9/17/2..,09/24 05:00 PM,ETA: Order has been assigned to the abst..,4d 4m,4d 4m,09/15/2026 04:55 PM,,,,2026-09-15,96.07,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10927025,BUYER: CHRISTIA,09/24 10:38 AM,TPS-AD-,Ground,TELSIX,Full Title,,0,LA,Livingston,Livingston,,Search,Available,ETA accepted by KondaveniP_FAI on 9/17/2..,09/24 05:00 PM,ETA: Order has been assigned to the abst..,4d 0m,4d 0m,09/15/2026 05:07 PM,,,,2026-09-15,96.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929213,BUYER: Reginald,09/24 10:47 AM,TPS-AD-,Online,TELSIX,Full Title,DinakarK_ADSSearchType,0,OH,Hamilton,Cincinnati,,Search,Workflow Suspended,"Cannot Complete Order - Hello, For the ..",,,2h 11m,2h 10m,09/21/2026 02:48 PM,,,,2026-09-21,2.18,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10927938,BUYER: DEAKIN R,09/24 10:47 AM,TPS-AD-,Ground,TELSIX,Full Title,AnushreeU_ADSSearchType,0,OH,Perry,New Lexington,,Search,Task Suspended,[Int] - TV Manual Logout - User Logged o..,09/24 05:00 PM,ETA: Order has been assigned to the abst..,2d 2h 11m,2d 2h 10m,09/17/2026 02:48 PM,,,,2026-09-17,50.18,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929213-2,BUYER: Reginald,09/24 10:51 AM,TPS-AD-,Online,TELSIX,Full Title,DinakarK_ADSSearchType,0,OH,Hamilton,Cincinnati,,Search,Task Suspended,[Int] - TV Manual Logout - User Logged o..,,,2h 7m,2h 6m,09/21/2026 02:52 PM,,,,2026-09-21,2.12,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10926572,BUYER: REESE HA,09/24 11:13 AM,TPS-AD-,Ground,TELSIX,Full Title,,0,GA,Walton,Covington,,Search,Available,ETA accepted by KondaveniP_FAI on 9/17/2..,09/24 05:00 PM,ETA: Order has been assigned to the abst..,5d 0m,5d 0m,09/14/2026 06:30 PM,,,,2026-09-14,120.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10925616,BUYER: Christop,09/24 11:30 AM,TPS-AD-,Ground,TELSIX,Full Title,,0,GA,Troup,Lagrange,,Search,Available,ETA accepted by KondaveniP_FAI on 9/17/2..,09/24 05:00 PM,ETA: Order has been assigned to the abst..,6d 47m,6d 47m,09/11/2026 04:12 PM,,,,2026-09-11,144.78,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-8456395,Wesbanco,09/24 11:38 AM,TPS-AD-,Online,INFOTRACK,Full Title,AnushreeU_ADSSearchType,0,IN,Allen,Fort Wayne,,Search,In Progress,[Int] - TV Auto Suspend,,,1h 19m,1h 18m,09/21/2026 03:40 PM,,,,2026-09-21,1.32,False,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-76301488,John Retan; Da,09/24 12:06 PM,TPS-AD-,Ground,TSO,Update 24 Mont..,AshokB_ADSSearchType,0,MT,Phillips,Malta,449800,UpdateSearch,Task Suspended,[Int] - TV Auto Suspend - TV Auto-Suspen..,09/24 05:00 PM,ETA: Order has been assigned to the abst..,2d 52m,2d 52m,09/17/2026 04:07 PM,,,,2026-09-17,48.87,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928117,SECRETARY OF HO,09/24 12:28 PM,TPS-AD-,Ground,TELSIX,Full Title,,0,VA,Fredericksburg City,FREDERICKSBURG,_,Search,Available,ETA accepted by KondaveniP_FAI on 9/17/2..,09/24 05:00 PM,ETA: Order has been assigned to the abst..,2d 28m,2d 28m,09/17/2026 04:31 PM,,,101-10928117,2026-09-17,48.47,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929199,BUYER: DEAN SIG,09/24 12:31 PM,TPS-AD-,Online,TELSIX,Full Title,AbhilashC_ADSSearchType,0,OH,Stark,Canton,,Search,In Progress,[Int] - TV Auto Suspend,,,26m,26m,09/21/2026 04:33 PM,,,,2026-09-21,0.43,False,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-8458497,Wesbanco,09/24 12:49 PM,TPS-AD-,Online,INFOTRACK,Full Title,MahaboobBa_ADSSearchType,0,IN,Dearborn,Greendale,,Search,Workflow Suspended,"Cannot Complete Order - Hello, We are un..",,,9m,7m,09/21/2026 04:50 PM,,,,2026-09-21,0.15,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10904968,CHALMER COOK an,09/24 12:59 PM,TPS-AD-,Online,TELSIX,Update w/ Requ..,,0,FL,Lee,Cape Coral,,UpdateSearch,Available,REQUESTED E DATE NOT YET MET: CURRENT E ..,09/23 05:00 PM,ON HOLD - Waiting for plant date to matc..,7h 4m,6h 55m,09/21/2026 09:55 AM,,,101-10904968,2026-09-21,7.07,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10717482,BUYER: TIMOTHY,09/28 01:00 PM,TPS-AD-,Ground,TELSIX,Update Two Own..,,0,VA,Augusta,Churchville,,UpdateSearch,Available,Client : OPN : 101-10829439,,,0m,0m,09/22/2026 06:00 AM,,,101-10829439,2026-09-22,0.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-14-26-05051,BORROWER: Karla,09/24 01:00 PM,TPS-AD-,Online,CODILIS,Update Full Ti..,,0,IL,McHenry,Johnsburg,,UpdateSearch,Available,ETA accepted by KondaveniP_FAI on 9/21/2..,09/23 05:00 PM,ETA:ON HOLD - Waiting for plant date to ..,2d 0m,2d 0m,09/17/2026 06:21 PM,,,,2026-09-17,48.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10917516,BRITTANY HUNTER,09/24 01:00 PM,TPS-AD-,Online,TELSIX,Update w/ Requ..,,0,MI,Eaton,CHARLOTTE,_,UpdateSearch,Available,[Int] - Suspended for further review due..,09/29 05:00 PM,ETA: Hello Waiting for plant date to mat..,4d 0m,4d 0m,09/15/2026 05:35 PM,,,,2026-09-15,96.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10927463,BUYER: Jams W W,09/24 01:00 PM,TPS-AD-,Ground,TELSIX,Two Owner,,0,LA,Rapides,Alexandria,,Search,Available,ETA accepted by KondaveniP_FAI on 9/17/2..,09/24 05:00 PM,ETA: Order has been assigned to the abst..,3d 0m,3d 0m,09/16/2026 05:05 PM,,,,2026-09-16,72.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10927767,BUYER: Marissa,09/24 01:00 PM,TPS-AD-,Ground,TELSIX,Full Title,,0,NJ,Essex,Newark,,Search,Available,ETA accepted by KondaveniP_FAI on 9/21/2..,09/24 05:00 PM,ETA: Order has been assigned to the abst..,2d 5h 26m,2d 5h 26m,09/17/2026 11:33 AM,,,,2026-09-17,53.43,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10927929,BUYER: COREY BO,09/24 01:00 PM,TPS-AD-,Ground,TELSIX,Full Title,,0,NJ,Cape May,Villas,,Search,Available,ETA accepted by KondaveniP_FAI on 9/21/2..,09/24 05:00 PM,ETA: Order has been assigned to the abst..,2d 2h 21m,2d 2h 21m,09/17/2026 02:38 PM,,,,2026-09-17,50.35,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-76393752,Cody Fetters;,09/24 01:00 PM,TPS-AD-,Ground,TSO,24 Month Curre..,KishoreK_ADSSearchType,0,MT,Glacier,Cut Bank,38-4529-12-3-14-08-0000,Search,Task Suspended,"Cannot Complete Order - Hello, As per th..",09/24 05:00 PM,ETA: Order has been assigned to the abst..,2d 0m,2d 0m,09/17/2026 05:17 PM,,,,2026-09-17,48.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928265,BUYER: LAKEITA,09/24 01:00 PM,TPS-AD-,Ground,VYLLAMMP,Current Owner,,0,MS,Washington,Greenville,,Search,Available,Continue - Approved,09/24 05:00 PM,ETA: Order has been assigned to the abst..,2d 0m,2d 0m,09/17/2026 06:02 PM,,,,2026-09-17,48.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-76393907,Lamont Stevens,09/24 01:00 PM,TPS-AD-,Ground,TSO,24 Month Curre..,KishoreK_ADSSearchType,0,MT,Sheridan,Plentywood,0394800,Search,Workflow Suspended,"Cannot Complete Order - Hello Team, Plea..",09/24 05:00 PM,ETA: Order has been assigned to the abst..,2d 0m,2d 0m,09/17/2026 06:02 PM,,,,2026-09-17,48.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-AHM-447185,borrower: Leath,09/24 01:00 PM,TPS-AD-,Ground,DOMA,Current Owner,KishoreK_ADSSearchType,0,MS,Bolivar,Cleveland,,Search,Workflow Suspended,"Cannot Complete Order - Hello, As per th..",09/24 05:00 PM,ETA: Order has been assigned to the abst..,2d 0m,2d 0m,09/17/2026 06:46 PM,,,,2026-09-17,48.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928385,CORP: TBD,09/24 01:00 PM,TPS-AD-,Ground,TELSIX,Attorney Appro..,,0,LA,Morehouse,Bastrop,,Search,Available,ETA accepted by KondaveniP_FAI on 9/21/2..,09/24 05:00 PM,ETA: Order has been assigned to the abst..,2d 0m,2d 0m,09/17/2026 07:52 PM,,,,2026-09-17,48.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928338,CORP: TBD,09/24 01:00 PM,TPS-AD-,Ground,TELSIX,Attorney Appro..,,0,LA,East Feliciana,Ethel,,Search,Available,[Int] - 9/21- Requested vendor to provid..,09/24 05:00 PM,ETA: Order has been assigned to the abst..,2d 0m,2d 0m,09/17/2026 07:53 PM,,,,2026-09-17,48.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928402,BUYER: ANGELA M,09/24 01:00 PM,TPS-AD-,Ground,VYLLAMMP,Current Owner,,0,MO,Ripley,Fairdealing,,Search,Available,ETA accepted by KondaveniP_FAI on 9/21/2..,09/24 05:00 PM,ETA: Order has been assigned to the abst..,2d 0m,2d 0m,09/17/2026 08:32 PM,,,,2026-09-17,48.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928406,BUYER: TAMEKA D,09/24 01:00 PM,TPS-AD-,Ground,VYLLAMMP,Current Owner,,0,MS,Hinds,Jackson,,Search,Available,ETA accepted by KondaveniP_FAI on 9/21/2..,09/24 05:00 PM,ETA: Order has been assigned to the abst..,2d 0m,2d 0m,09/17/2026 08:42 PM,,,,2026-09-17,48.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-76394725,Amanda Pioche;,09/24 01:00 PM,TPS-AD-,Ground,TSO,Extended Updat..,,0,SD,Pennington,New Underwood,0007059010,Search,Available,ETA accepted by KondaveniP_FAI on 9/21/2..,09/24 05:00 PM,ETA: Order has been assigned to the abst..,2d 0m,2d 0m,09/17/2026 10:04 PM,,,,2026-09-17,48.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-8458937,Wesbanco,09/24 01:00 PM,TPS-AD-,Online,INFOTRACK,Full Title,SteephenJ_ADSSearchType,0,IN,Crawford,Marengo,,Search,Workflow Suspended,"Cannot Complete Order - Hello, The deed..",,,0m,0m,09/21/2026 05:07 PM,,,,2026-09-21,0.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929334,BUYER: NANCY KE,09/24 01:00 PM,TPS-AD-,Online,VYLLAMMPNY,Current Owner ..,,0,NY,Suffolk,West Babylon,,Search,Available,[Int] - TV Auto Suspend,,,0m,0m,09/21/2026 05:18 PM,,,,2026-09-21,0.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929368,BUYER: Darrin B,09/24 01:00 PM,TPS-AD-,Online,TELSIX,Full Title,KishoreK_ADSSearchType,0,LA,St. Mary,Morgan City,,Search,Task Suspended,[Int] - TV Auto Suspend - TV Auto-Suspen..,,,0m,0m,09/21/2026 05:36 PM,,,,2026-09-21,0.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929369,BUYER: Kema Tur,09/24 01:00 PM,TPS-AD-,Online,TELSIX,Full Title,Gummadi_ADSSearchType,0,LA,Bossier,Bossier City,,Search,Task Suspended,[Int] - TV Manual Logout - User Logged o..,,,0m,0m,09/21/2026 05:36 PM,,,,2026-09-21,0.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929386,BUYER: CONNER R,09/24 01:00 PM,TPS-AD-,Online,TELSIX,Full Title,ArchanaG_ADSSearchType,0,GA,Troup,Lagrange,,Search,Workflow Suspended,"Cannot Complete Order - Hello, We are u..",,,0m,0m,09/21/2026 06:01 PM,,,,2026-09-21,0.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929403,BUYER: CANELDA,09/24 01:00 PM,TPS-AD-,Online,TELSIX,Full Title,,0,GA,Gwinnett,Dacula,,Search,Available,[Int] - TV Auto Suspend,,,0m,0m,09/21/2026 10:39 PM,,,,2026-09-21,0.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929410,BUYER: JERNINE,09/24 01:00 PM,TPS-AD-,Online,TELSIX,Full Title,ArchanaG_ADSSearchType,0,GA,Cobb,Atlanta,,Search,Task Suspended,[Int] - TV Auto Logout - User session ti..,,,0m,0m,09/21/2026 06:28 PM,,,,2026-09-21,0.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929413,BUYER: CHOCTAW,09/24 01:00 PM,TPS-AD-,Online,TELSIX,Full Title,,0,GA,Muscogee,Columbus,,Search,Available,[Int] - TV Auto Suspend,,,0m,0m,09/21/2026 06:30 PM,,,,2026-09-21,0.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929466,BUYER: SHANELL,09/24 01:00 PM,TPS-AD-,Online,TELSIX,Full Title,,0,MD,Charles,Waldorf,,Search,Available,[Int] - TV Auto Suspend,,,0m,0m,09/22/2026 01:05 AM,,,,2026-09-22,0.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929513,BUYER: GEORGE H,09/24 01:00 PM,TPS-AD-,Online,TELSIX,Full Title,,0,NJ,Salem,Pilesgrove,,Search,Available,[Int] - TV Auto Suspend,,,0m,0m,09/21/2026 10:50 PM,,,,2026-09-21,0.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929512,BUYER: JAMIL JA,09/24 01:00 PM,TPS-AD-,Online,TELSIX,Full Title,,0,NJ,Burlington,Willingboro,,Search,Available,[Int] - TV Auto Suspend,,,0m,0m,09/21/2026 08:52 PM,,,,2026-09-21,0.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929514,BUYER: CHRISTOP,09/24 01:00 PM,TPS-AD-,Online,TELSIX,Full Title,MahaboobBa_ADSSearchType,0,NJ,Gloucester,Westville,,Search,In Progress,[Int] - TV Auto Suspend,,,0m,0m,09/21/2026 08:55 PM,,,,2026-09-21,0.0,False,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929523,BUYER: AARON ST,09/24 01:00 PM,TPS-AD-,Online,TELSIX,Full Title,,0,OH,Richland,Mansfield,,Search,Available,[Int] - TV Auto Suspend,,,0m,0m,09/21/2026 09:29 PM,,,,2026-09-21,0.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929522,BUYER: BRIDGETT,09/24 01:00 PM,TPS-AD-,Online,TELSIX,Full Title,SuriyakumarS_ADSSearchType,0,OH,Miami,Piqua,,Search,Workflow Suspended,"Cannot Complete Order - Hello, We are ..",,,0m,0m,09/21/2026 09:29 PM,,,,2026-09-21,0.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929525,BUYER: WILLIAM,09/24 01:00 PM,TPS-AD-,Online,TELSIX,Full Title,,0,PA,Fayette,Mc Clellandtown,,Search,Available,[Int] - TV Auto Suspend,,,0m,0m,09/22/2026 06:45 AM,,,,2026-09-22,0.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929528,BUYER: William,09/24 01:00 PM,TPS-AD-,Online,TELSIX,Full Title,,0,PA,Westmoreland,Jeannette,,Search,Available,[Int] - TV Auto Suspend,,,0m,0m,09/21/2026 09:36 PM,,,,2026-09-21,0.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10927309,BUYER: DONOVAN,09/24 01:06 PM,TPS-AD-,Ground,TELSIX,Full Title,,0,GA,Carroll,Villa Rica,,Search,Available,ETA accepted by KondaveniP_FAI on 9/21/2..,09/24 05:00 PM,ETA: Order has been assigned to the abst..,3d 3h 43m,3d 3h 43m,09/16/2026 01:16 PM,,,,2026-09-16,75.72,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10890147,** Multiple typ,09/24 01:16 PM,TPS-AD-,Ground,TELSIX,Attorney Appro..,,0,LA,St. Landry,Opelousas,,Search,Available,ETA accepted by KondaveniP_FAI on 9/21/2..,09/24 05:00 PM,ETA: Order has been assigned to the abst..,1d 7h 42m,1d 7h 42m,09/18/2026 09:17 AM,,,,2026-09-18,31.7,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10915414,BUYER: KATHLEEN,09/24 01:19 PM,TPS-AD-,Ground,TELSIX,Update Two Own..,,0,VA,Waynesboro City,Waynesboro,,UpdateSearch,Available,ETA accepted by KondaveniP_FAI on 9/21/2..,09/24 05:00 PM,ETA: Order has been assigned to the abst..,1d 7h 39m,1d 7h 39m,09/18/2026 09:20 AM,,,,2026-09-18,31.65,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928123,BUYER: ELVA REG,09/24 01:28 PM,TPS-AD-,Ground,TELSIX,Two Owner,,0,NJ,Burlington,Maple Shade,,Search,Available,ETA accepted by KondaveniP_FAI on 9/21/2..,09/24 05:00 PM,ETA: Order has been assigned to the abst..,2d 21m,2d 21m,09/17/2026 04:38 PM,,,,2026-09-17,48.35,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928524,BUYER: Kenneth,09/24 02:19 PM,TPS-AD-,Ground,TELSIX,Full Title,AnushreeU_ADSSearchType,0,OH,Mahoning,Youngstown,,Search,Task Suspended,ETA accepted by KondaveniP_FAI on 9/21/2..,09/24 05:00 PM,ETA: Order has been assigned to the abst..,1d 6h 39m,1d 6h 39m,09/18/2026 10:20 AM,,,,2026-09-18,30.65,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10927303,BUYER: CHANTRIC,09/24 02:32 PM,TPS-AD-,Ground,TELSIX,Full Title,,0,GA,DeKalb,Decatur,,Search,Available,ETA accepted by KondaveniP_FAI on 9/21/2..,09/24 05:00 PM,ETA: Order has been assigned to the abst..,3d 3h 53m,3d 3h 53m,09/16/2026 01:06 PM,,,,2026-09-16,75.88,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-P1542006,BORROWER: Debor,09/24 02:37 PM,TPS-AD-,Online,SIRAEFCU,Legal & Vestin..,,0,CT,Hartford,Manchester,,Search,Available,REQUESTED E DATE NOT YET MET: CURRENT E ..,09/23 05:00 PM,ETA: Waiting for plant date to match the..,4d 5h 41m,4d 5h 40m,09/15/2026 11:18 AM,,,,2026-09-15,101.68,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10927237,BUYER: Nathanie,09/24 03:18 PM,TPS-AD-,Ground,TELSIX,Full Title,,0,GA,Dougherty,Albany,,Search,Available,ETA accepted by KondaveniP_FAI on 9/21/2..,09/24 05:00 PM,ETA: Order has been assigned to the abst..,3d 5h 32m,3d 5h 32m,09/16/2026 11:27 AM,,,,2026-09-16,77.53,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928136,BUYER: ESTATE O,09/24 03:46 PM,TPS-AD-,Ground,TELSIX,Two Owner,,0,NJ,Essex,Irvington,,Search,Available,ETA accepted by KondaveniP_FAI on 9/21/2..,09/24 05:00 PM,ETA: Order has been assigned to the abst..,2d 10m,2d 10m,09/17/2026 04:49 PM,,,,2026-09-17,48.17,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-88303-520228,SEAN C CHAPMAN,09/24 04:32 PM,TPS-AD-,Ground,SIW,Update Two Own..,KishoreK_ADSSearchType,0,VA,Prince Edward,FARMVILLE,TAX MAP ID NO. 037A 5 73,UpdateSearch,Workflow Suspended,ETA accepted by KondaveniP_FAI on 9/21/2..,09/24 05:00 PM,ETA: Order has been assigned to the abst..,1d 4h 26m,1d 4h 26m,09/18/2026 12:33 PM,,,88303-577497,2026-09-18,28.43,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10927507,BUYER: Laura Je,09/25 09:02 AM,TPS-AD-,Ground,TELSIX,Full Title,,0,NJ,Essex,Newark,,Search,Available,ETA accepted by KondaveniP_FAI on 9/21/2..,09/25 05:00 PM,ETA: Order has been assigned to the abst..,1d 4h 0m,1d 3h 59m,09/18/2026 12:59 PM,,,,2026-09-18,28.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10927914,BUYER: WILLARD,09/25 12:43 PM,TPS-AD-,Ground,VYLLAMMP,Current Owner,PoongavanamG_ADSSearchType,0,OH,Ross,Kingston,,Search,In Progress,ETA accepted by KondaveniP_FAI on 9/21/2..,09/25 05:00 PM,ETA: Order has been assigned to the abst..,2d 2h 43m,2d 2h 42m,09/17/2026 02:16 PM,,,,2026-09-17,50.72,False,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928230,** Multiple typ,09/25 12:57 PM,TPS-AD-,Ground,TELSIX,Current Owner,,0,SC,Horry,Conway,,Search,Available,ETA accepted by KondaveniP_FAI on 9/21/2..,09/25 05:00 PM,ETA: Order has been assigned to the abst..,2d 0m,2d 0m,09/17/2026 05:34 PM,,,,2026-09-17,48.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10854003,BUYER: KENDRA L,09/25 12:59 PM,TPS-AD-,Online,VYLLAMMP,Update w/ Requ..,,0,MI,Muskegon,Muskegon,,UpdateSearch,Available,REQUESTED E DATE NOT YET MET: CURRENT E ..,09/24 05:00 PM,ON HOLD - Waiting for plant date to matc..,3d 0m,3d 0m,09/17/2026 08:15 AM,,,,2026-09-17,72.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-76366352,Karin Lord;,09/25 12:59 PM,TPS-AD-,Ground,TSO,Extended Updat..,,0,SD,Pennington,Rapid City,2032251032,Search,Available,ETA accepted by dalderette on 9/21/2026 ..,09/25 05:00 PM,"ETA: Hello, The county land records are..",9d 0m,9d 0m,09/08/2026 09:49 PM,,,,2026-09-08,216.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10906274,BUYER: Gittel M,09/25 12:59 PM,TPS-AD-,Online,TELSIX,Update w/ Requ..,,0,NY,Kings,Brooklyn,,UpdateSearch,Available,REQUESTED E DATE NOT YET MET: CURRENT E ..,09/24 05:00 PM,ON HOLD - Waiting for plant date to matc..,3d 38m,3d 37m,09/16/2026 04:21 PM,,,,2026-09-16,72.63,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10872530,LISE FREEMAN,09/25 12:59 PM,TPS-AD-,Online,TELSIX,Update w/ Requ..,,0,FL,Pinellas,GULFPORT,,UpdateSearch,Available,ETA accepted by KondaveniP_FAI on 9/17/2..,09/24 05:00 PM,ON HOLD - Waiting for plant date to matc..,2d 6h 41m,2d 6h 16m,09/17/2026 10:18 AM,,,101-10927445,2026-09-17,54.68,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10857562,GLORIA GARCIA,09/25 12:59 PM,TPS-AD-,Online,TELSIX,Update w/ Requ..,,0,MI,Bay,BAY CITY,,UpdateSearch,Available,REQUESTED E DATE NOT YET MET: CURRENT E ..,09/25 05:00 PM,ETA:Waiting for plant date to match the ..,3d 4h 30m,3d 4h 27m,09/16/2026 12:29 PM,,,101-10881688,2026-09-16,76.5,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10864653,RYAN RILEY AND,09/25 01:00 PM,TPS-AD-,Online,TELSIX,Update w/ Requ..,,0,AR,Pope,RUSSELLVILLE,,UpdateSearch,Available,REQUESTED E DATE NOT YET MET: CURRENT E ..,09/24 05:00 PM,ON HOLD - Hello Waiting for plant date t..,4d 1h 49m,4d 1h 48m,09/15/2026 03:10 PM,,,101-10926796,2026-09-15,97.82,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10880944,CECILIA DEAL AN,09/25 01:00 PM,TPS-AD-,Online,TELSIX,Update w/ Requ..,,0,AR,Pope,RUSSELLVILLE,,UpdateSearch,Available,REQUESTED E DATE NOT YET MET: CURRENT E ..,09/25 09:00 AM,ON HOLD - Waiting for plant date to matc..,7d 5h 41m,7d 5h 41m,09/10/2026 11:18 AM,,,101-10880944,2026-09-10,173.68,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928298,BUYER: HENRY ST,09/25 01:00 PM,TPS-AD-,Ground,TELSIX,Full Title,,0,NJ,Mercer,East Windsor,,Search,Available,ETA accepted by SyedaF_FAI on 9/21/2026 ..,09/25 05:00 PM,ETA: Order has been assigned to the abst..,2d 0m,2d 0m,09/17/2026 06:32 PM,,,,2026-09-17,48.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928857,BUYER: DEREK CO,09/25 01:00 PM,TPS-AD-,Ground,TELSIX,Two Owner,,0,IL,McDonough,Good Hope,,Search,Available,ETA accepted by KondaveniP_FAI on 9/21/2..,09/25 05:00 PM,ETA: Order has been assigned to the abst..,1d 0m,1d 0m,09/18/2026 05:35 PM,,,,2026-09-18,24.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928937,BUYER: KIMBERLY,09/25 01:00 PM,TPS-AD-,Ground,TELSIX,Full Title,MahaboobBa_ADSSearchType,0,OH,Mahoning,Campbell,,Search,Task Suspended,ETA accepted by KondaveniP_FAI on 9/21/2..,09/25 05:00 PM,ETA: Order has been assigned to the abst..,1d 0m,1d 0m,09/18/2026 07:53 PM,,,,2026-09-18,24.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-76398834,Heather Deprie,09/25 01:00 PM,TPS-AD-,Ground,TSO,24 Month Curre..,KishoreK_ADSSearchType,0,MT,Blaine,Chinook,0011906,Search,Workflow Suspended,"Cannot Complete Order - Hello, As per th..",09/25 05:00 PM,ETA: Order has been assigned to the abst..,1d 0m,1d 0m,09/20/2026 04:47 PM,,,,2026-09-20,24.0,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-76340829,Joshua Ehrhard,09/25 01:51 PM,TPS-AD-,Ground,TSO,Update 24 Mont..,,0,MT,Custer,Miles City,RMS0839,UpdateSearch,Available,ETA accepted by KondaveniP_FAI on 9/22/2..,09/25 05:00 PM,ETA: Order has been assigned to the abst..,7h 7m,7h 7m,09/21/2026 09:52 AM,,,,2026-09-21,7.12,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10557610,DONALD W RADVAN,09/25 02:40 PM,TPS-AD-,Ground,TELSIX,Update Two Own..,,0,VA,Fairfax City,FAIRFAX,,UpdateSearch,Available,ETA accepted by SyedaF_FAI on 9/21/2026 ..,09/25 05:00 PM,ETA: Order has been assigned to the abst..,6h 18m,6h 18m,09/21/2026 10:41 AM,,,101-10819766,2026-09-21,6.3,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-922371112,BORROWER: FRANK,09/25 02:51 PM,TPS-AD-,Ground,DATATREE,Legal & Vestin..,,0,KS,Linn,LA CYGNE,092-04-0-10-20-006.00-0,Search,Available,ETA accepted by KondaveniP_FAI on 9/22/2..,09/25 05:00 PM,ETA: Order has been assigned to the abst..,6h 7m,6h 6m,09/21/2026 10:52 AM,,,,2026-09-21,6.12,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10927966,BUYER: ZORAIDE,09/25 03:03 PM,TPS-AD-,Ground,TELSIX,Full Title,,0,LA,Orleans,New Orleans,,Search,Available,ETA accepted by KondaveniP_FAI on 9/22/2..,09/25 05:00 PM,ETA: Order has been assigned to the abst..,2d 1h 53m,2d 1h 52m,09/17/2026 03:06 PM,,,,2026-09-17,49.88,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928053,BUYER: HARVEY M,09/25 03:04 PM,TPS-AD-,Ground,TELSIX,Full Title,,0,LA,Orleans,New Orleans,,Search,Available,ETA accepted by KondaveniP_FAI on 9/22/2..,09/25 05:00 PM,ETA: Order has been assigned to the abst..,2d 50m,2d 50m,09/17/2026 04:09 PM,,,,2026-09-17,48.83,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10696374,BUYER: JUAN BER,09/25 04:08 PM,TPS-AD-,Ground,TELSIX,Update w/ Requ..,,0,VA,Westmoreland,Colonial Beach,,UpdateSearch,Available,ETA accepted by KondaveniP_FAI on 9/22/2..,09/25 05:00 PM,ETA: Order has been assigned to the abst..,4h 50m,4h 49m,09/21/2026 12:09 PM,,,101-10929063,2026-09-21,4.83,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-76400032,Carmen R Stacy;,09/25 04:47 PM,TPS-AD-,Ground,TSO,Extended Updat..,JagadeeshG_ADSSearchType,0,OK,Tulsa,Glenpool,85178721235930,Search,In Progress,ETA accepted by KondaveniP_FAI on 9/22/2..,09/25 05:00 PM,ETA: Order has been assigned to the abst..,4h 9m,4h 9m,09/21/2026 12:50 PM,,,,2026-09-21,4.15,False,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-97055-572278,MARIE LESLIE SC,09/28 09:22 AM,TPS-AD-,Ground,SIW,Update Two Own..,,0,VA,Cumberland,FARMVILLE,110AX180,UpdateSearch,Available,[Int] - TV Auto Suspend - TV Auto-Suspen..,09/28 05:00 PM,ETA: Order has been assigned to the abst..,3h 28m,3h 28m,09/21/2026 01:31 PM,,,,2026-09-21,3.47,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10915338,MICHAEL PALMER,09/28 11:06 AM,TPS-AD-,Ground,TELSIX,Update Full Ti..,,0,OH,Mahoning,YOUNGSTOWN,_481080337000,UpdateSearch,Available,ETA added by HarryS_ADSSearchType on 9/..,09/28 05:00 PM,ETA: Order has been assigned to the abst..,1h 52m,1h 51m,09/21/2026 03:07 PM,,,,2026-09-21,1.87,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10903665,ADRIANNE WARREN,09/28 11:25 AM,TPS-AD-,Ground,TELSIX,Update w/ Requ..,,0,OH,Mahoning,YOUNGSTOWN,_,UpdateSearch,Available,ETA added by HarryS_ADSSearchType on 9/..,09/28 05:00 PM,ETA: Order has been assigned to the abst..,1h 33m,1h 32m,09/21/2026 03:26 PM,,,,2026-09-21,1.55,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-CENTX-26-43286,Clarissa Johnso,09/28 12:04 PM,TPS-AD-,Ground,AFFINX,Current Owner,,0,VA,Caroline,Ruther Glen,,Search,Available,ETA added by HarryS_ADSSearchType on 9/..,09/28 05:00 PM,ETA: Order has been assigned to the abst..,54m,54m,09/21/2026 04:05 PM,,,,2026-09-21,0.9,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-50-26-00127,BORROWER: Micha,09/28 12:38 PM,TPS-AD-,Ground,CODILIS,Update One Own..,,0,WI,Fond du Lac,Van Dyne,,UpdateSearch,Available,ETA added by HarryS_ADSSearchType on 9/..,09/28 05:00 PM,ETA: Order has been assigned to the abst..,20m,20m,09/21/2026 04:39 PM,,,,2026-09-21,0.33,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10885092,YACLU KETEL ANT,09/28 12:59 PM,TPS-AD-,Online,TELSIX,Update w/ Requ..,,0,NJ,Warren,BLAIRSTOWN,,UpdateSearch,Available,REQUESTED E DATE NOT YET MET: CURRENT E ..,09/25 05:00 PM,ON HOLD - Waiting for plant date to matc..,1d 26m,1d 26m,09/18/2026 04:33 PM,,,,2026-09-18,24.43,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10858130,BILLY D TURNER,09/28 01:00 PM,TPS-AD-,Online,TELSIX,Update w/ Requ..,,0,MD,Baltimore,COCKEYSVILLE,0813022922,UpdateSearch,Available,REQUESTED E DATE NOT YET MET: CURRENT E ..,,how did the effective date go backwards?..,2d 1h 40m,2d 1h 39m,09/17/2026 03:19 PM,,,,2026-09-17,49.67,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928116,BUYER: DAVID FU,09/28 01:00 PM,TPS-AD-,Ground,TELSIX,Two Owner,,0,NH,Hillsborough,Hillsboro,,Search,Available,ETA accepted by SyedaF_FAI on 9/21/2026 ..,09/28 05:00 PM,ETA: Order has been assigned to the abst..,2d 24m,2d 24m,09/17/2026 04:35 PM,,,,2026-09-17,48.4,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10928934,BUYER: SCOTT MO,09/28 01:00 PM,TPS-AD-,Ground,TELSIX,Full Title,,0,NJ,Ocean,Forked River,,Search,Available,gotoground - Proceed with ground search...,,,1d 0m,1d 0m,09/18/2026 08:17 PM,,,,2026-09-18,24.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-922743461,BORROWER: OLD G,09/28 01:00 PM,TPS-AD-,Ground,DATATREE,Current Owner,,0,NM,Luna,DEMING,3051137134524,Search,Available,ETA accepted by SyedaF_FAI on 9/21/2026 ..,09/28 05:00 PM,ETA: Order has been assigned to the abst..,0m,0m,09/21/2026 06:31 PM,,,,2026-09-21,0.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10929467,BUYER: KYLE SIM,09/28 01:00 PM,TPS-AD-,Ground,VYLLAMMP,Current Owner,SoniyaD_ADSSearchType,0,OH,Jefferson,Bloomingdale,,Search,In Progress,ETA accepted by KondaveniP_FAI on 9/22/2..,09/28 05:00 PM,ETA: Order has been assigned to the abs..,0m,0m,09/21/2026 07:31 PM,,,,2026-09-21,0.0,False,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-P1542947,BORROWER: Justi,09/30 11:44 AM,TPS-AD-,Online,SIRAVNSFCU,Current Owner,,0,CT,Fairfield,Stamford,,Search,Available,REQUESTED E DATE NOT YET MET: CURRENT E ..,10/02 05:00 PM,"ETA: Hello, As Per the Stamford Town Rec..",1d 5h 14m,1d 5h 14m,09/18/2026 11:45 AM,,,,2026-09-18,29.23,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10912018,MARLENE GAMBS,09/30 01:00 PM,TPS-AD-,Ground,TELSIX,Update w/ Requ..,,0,OH,Tuscarawas,UHRICHSVILLE,_,UpdateSearch,Available,Waiting for plant date to match the requ..,09/29 05:00 PM,ON HOLD - Waiting for plant date to matc..,0m,0m,09/21/2026 05:45 PM,,,,2026-09-21,0.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10828774,DENNIS GOULD,10/01 01:00 PM,TPS-AD-,Online,TELSIX,Update w/ Requ..,,0,TX,Taylor,ABILENE,,UpdateSearch,Available,REQUESTED E DATE NOT YET MET: CURRENT E ..,09/30 05:00 PM,ETA:ON HOLD - Waiting for plant date to ..,3d 2h 48m,3d 2h 48m,09/16/2026 02:11 PM,,,,2026-09-16,74.8,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10847298,** Multiple typ,10/01 01:00 PM,TPS-AD-,Online,TELSIX,Update w/ Requ..,,0,MI,Bay,Essexville,,UpdateSearch,Available,ETA added by ShwetaA_ADSSearchType on 9..,10/06 05:00 PM,ETA:ON HOLD - Waiting for plant date to ..,0m,0m,09/21/2026 05:37 PM,,,101-10926876,2026-09-21,0.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10869115,CHI PARK,10/01 01:00 PM,TPS-AD-,Online,TELSIX,Update w/ Requ..,,0,NY,Richmond,STATEN ISLAND,,UpdateSearch,Available,Waiting for plant date to match the requ..,09/30 05:00 PM,ON HOLD - Waiting for plant date to matc..,0m,0m,09/21/2026 05:51 PM,,,,2026-09-21,0.0,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10913220,BUYER: PINNACLE,10/02 12:59 PM,TPS-AD-,Online,TELSIX,Update w/ Requ..,,0,NY,Sullivan,Kauneonga Lake,,UpdateSearch,Available,ETA accepted by dalderette on 9/21/2026 ..,10/23 05:00 PM,ETA: Waiting for plant date to match the..,7d 4h 52m,7d 4h 52m,09/10/2026 12:07 PM,,,101-10913220,2026-09-10,172.87,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-P1522316,BORROWER: David,10/05 12:07 PM,TPS-AD-,Online,SIRAVNNWCB,Update Current..,,0,CT,Hartford,East Hartland,,UpdateSearch,Available,REQUESTED E DATE NOT YET MET: CURRENT E ..,10/02 05:00 PM,"ETA: Hello, As Per the Hartland Town Rec..",13d 4h 52m,13d 4h 52m,09/01/2026 12:07 PM,,,,2026-09-01,316.87,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10911949,BUYER: THOMAS E,10/05 12:59 PM,TPS-AD-,Online,TELSIX,Update w/ Requ..,,0,KY,Grayson,Falls of Rough,,UpdateSearch,Available,REQUESTED E DATE NOT YET MET: CURRENT E ..,10/02 05:00 PM,ON HOLD - Hello Waiting for plant date t..,3d 2h 10m,3d 2h 10m,09/16/2026 02:49 PM,,,,2026-09-16,74.17,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10780223,BUYER: SABIR BE,10/05 01:00 PM,TPS-AD-,Online,TELSIX,Update w/ Requ..,,0,NY,Monroe,Rochester,,UpdateSearch,Available,REQUESTED E DATE NOT YET MET: CURRENT E ..,10/02 05:00 PM,ETA:ON HOLD - Waiting for plant date to ..,17d 4h 14m,17d 4h 14m,08/26/2026 12:45 PM,,,101-10780223,2026-08-26,412.23,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-910639349,BORROWER: PACIF,10/09 12:34 PM,TPS-AD-,Online,DATATREE,Legal & Vestin..,,0,CA,Santa Cruz,WATSONVILLE,017-241-04-000,Search,Available,"Continue - Please proceed ""As is"" per cl..",08/27 01:00 PM,ON HOLD - Awaiting response to fee appro..,18d 5h 13m,18d 5h 12m,08/25/2026 11:46 AM,,,,2026-08-25,437.22,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10844252,ALPHONSO FORRES,10/14 09:19 AM,TPS-AD-,Ground,TELSIX,Update w/ Requ..,KishoreK_ADSSearchType,0,VA,Chesapeake City,CHESAPEAKE,,UpdateSearch,Task Suspended,ETA accepted by KondaveniP_FAI on 9/21/2..,10/09 05:00 PM,ETA: Waiting for plant date to match the..,6d 3h 40m,6d 3h 40m,09/11/2026 01:19 PM,,,,2026-09-11,147.67,False,True,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10873840,CHARLES STASZEW,10/15 01:00 PM,TPS-AD-,Online,TELSIX,Update w/ Requ..,,0,NY,Monroe,NORTH CHILI,,UpdateSearch,Available,REQUESTED E DATE NOT YET MET: CURRENT E ..,10/14 05:00 PM,ETA:ON HOLD - Waiting for plant date to ..,11d 3h 39m,11d 3h 39m,09/03/2026 01:20 PM,,,101-10873840,2026-09-03,267.65,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-14-26-04899,BORROWER: Fnu Y,10/15 01:00 PM,TPS-AD-,Online,CODILIS,Update Two Own..,,0,IL,Ogle,Rochelle,,UpdateSearch,Available,REQUESTED E DATE NOT YET MET: CURRENT E ..,10/14 05:00 PM,ETA:ON HOLD - Waiting for plant date to ..,21d 4h 32m,21d 4h 32m,08/20/2026 12:27 PM,,,,2026-08-20,508.53,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10902622,BUYER: Danielle,10/19 01:00 PM,TPS-AD-,Online,TELSIX,Update w/ Requ..,,0,NY,Monroe,Rochester,,UpdateSearch,Available,ETA accepted by KondaveniP_FAI on 9/22/2..,10/16 05:00 PM,ETA:ON HOLD - Waiting for plant date to ..,7h 52m,7h 52m,09/21/2026 09:07 AM,,,,2026-09-21,7.87,True,False,Unknown,2026-09-22T10:38:36.194520+00:00
+TPS-AD-101-10886810,EUNICE VALENCIA,10/28 01:00 PM,TPS-AD-,Online,TELSIX,Update w/ Requ..,,0,NJ,Bergen,TOWNSHIP OF WASHINGTON,,UpdateSearch,Available,ETA accepted by KondaveniP_FAI on 9/21/2..,10/27 05:00 PM,ETA:ON HOLD - Hello Waiting for plant da..,5d 1h 42m,5d 1h 42m,09/14/2026 03:17 PM,,,,2026-09-14,121.7,True,False,Unknown,2026-09-22T10:38:36.194520+00:00

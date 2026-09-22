@@ -1,62 +1,116 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
-const XLSX = require('xlsx');
 
-const TARGET_URL = "https://tv.datatracetitle.com/Queues.aspx?qid=23656";
-const USERNAME = "KishoreK_ADS";
-const PASSWORD = "Kishore@2025";
+require('dotenv').config({ path: path.join(__dirname, '.env'), quiet: true });
+const config = require('./sync_config.json');
+const TARGET_URL = process.env.DATATRACE_QUEUE_URL || config.queue_url;
+const USERNAME = process.env.DATATRACE_USERNAME;
+const PASSWORD = process.env.DATATRACE_PASSWORD;
+if (!USERNAME || !PASSWORD) {
+    console.error('Set DATATRACE_USERNAME and DATATRACE_PASSWORD.');
+    process.exit(1);
+}
 
-const csvPath = path.join(__dirname, 'queue_data_sheet2.csv');
-const excelPath = path.join(__dirname, 'queue_data_sheet2.xlsx');
+const outputPath = process.env.DATATRACE_OUTPUT_JSON || path.join(__dirname, 'queue_data.json');
 
 (async () => {
     console.log("[*] Launching Puppeteer Chromium Browser...");
     const browser = await puppeteer.launch({
-        headless: false, // Visible browser so user can see auto login in action
+        headless: process.env.DATATRACE_HEADLESS !== 'false',
         defaultViewport: null,
-        args: ['--start-maximized', '--no-sandbox', '--disable-setuid-sandbox']
+        args: ['--start-maximized']
     });
 
     try {
         const page = await browser.newPage();
         console.log(`[*] Navigating to: ${TARGET_URL}`);
-        await page.goto(TARGET_URL, { waitUntil: 'networkidle2', timeout: 45000 });
-
-        // Check if redirected to Azure B2C login screen (#signInName)
-        const usernameSelector = '#signInName';
-        const passwordSelector = '#password';
-        const submitSelector = '#next';
-
-        console.log("[*] Checking for login inputs...");
-        await page.waitForSelector(usernameSelector, { timeout: 15000 }).catch(() => {
-            console.log("[!] Login fields not immediately found, checking alternative forms...");
+        await page.goto(TARGET_URL, { waitUntil: 'domcontentloaded', timeout: 90000 }).catch(e => {
+            console.log("[!] Navigation load notice:", e.message);
         });
 
-        if (await page.$(usernameSelector)) {
-            console.log(`[*] Entering Username: ${USERNAME}`);
-            await page.click(usernameSelector);
-            await page.type(usernameSelector, USERNAME, { delay: 50 });
+        // Check for Azure B2C (#signInName) or ASP.NET login inputs
+        let usernameSelector = '#signInName';
+        let passwordSelector = '#password';
+        let submitSelector = '#next';
+
+        console.log("[*] Checking for login inputs...");
+        await page.waitForSelector(usernameSelector, { timeout: 10000 }).catch(() => {});
+
+        if (!await page.$(usernameSelector)) {
+            if (await page.$('#txtUserName')) {
+                usernameSelector = '#txtUserName';
+                passwordSelector = '#txtPassword';
+                submitSelector = '#btnSignIn';
+            } else if (await page.$('[name*="UserName"]')) {
+                usernameSelector = '[name*="UserName"]';
+                passwordSelector = '[name*="Password"]';
+                submitSelector = '[name*="Sign"], [name*="Login"], button[type="submit"]';
+            }
+        }
+
+        const userElem = await page.$(usernameSelector);
+        if (userElem) {
+            console.log(`[*] Found login field (${usernameSelector}). Entering configured credentials`);
+
+            // Focus and set value safely
+            await page.evaluate((sel, val) => {
+                const el = document.querySelector(sel);
+                if (el) {
+                    el.focus();
+                    el.value = val;
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+            }, usernameSelector, USERNAME);
 
             console.log("[*] Entering Password...");
-            await page.click(passwordSelector);
-            await page.type(passwordSelector, PASSWORD, { delay: 50 });
+            await page.evaluate((sel, val) => {
+                const el = document.querySelector(sel);
+                if (el) {
+                    el.focus();
+                    el.value = val;
+                    el.dispatchEvent(new Event('input', { bubbles: true }));
+                    el.dispatchEvent(new Event('change', { bubbles: true }));
+                }
+            }, passwordSelector, PASSWORD);
 
-            console.log("[*] Clicking 'Sign in' button (#next)...");
+            console.log("[*] Clicking 'Sign in' button...");
             await Promise.all([
                 page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => {}),
-                page.click(submitSelector)
+                page.evaluate(sel => {
+                    const btn = document.querySelector(sel);
+                    if (btn) btn.click();
+                }, submitSelector)
+            ]);
+        } else {
+            console.log("[*] No login inputs found or already logged in. Proceeding to target table...");
+        }
+
+        // Scope table discovery and paging to the portal's results panel.
+        const GRID_SELECTOR = '#ctl00_ContentPlaceHolder1_pnlResults';
+
+        console.log(`[*] Waiting for queue grid table selector: ${GRID_SELECTOR}...`);
+        await page.waitForSelector(GRID_SELECTOR, { visible: true, timeout: 45000 });
+
+        // A fresh login can show an empty results panel until Refresh View runs the query.
+        const hasResults = await page.$(`${GRID_SELECTOR} table`);
+        if (!hasResults) {
+            const refresh = await page.$('input[value="Refresh View"]');
+            if (!refresh) throw new Error('Results panel is empty and Refresh View was not found.');
+            console.log('[*] Loading queue results with Refresh View...');
+            await Promise.all([
+                page.waitForFunction(selector => {
+                    const panel = document.querySelector(selector);
+                    return panel && panel.querySelector('table');
+                }, { timeout: 90000 }, GRID_SELECTOR),
+                refresh.click(),
             ]);
         }
 
-        console.log("[*] Waiting for queue table data...");
-        await page.waitForSelector('table', { timeout: 30000 }).catch(() => {
-            console.log("[!] Table timeout. Capturing visible table data if available...");
-        });
-
         // Try clicking Arrival Time header to sort by newest arrival date
         try {
-            const headers = await page.$$('th, td');
+            const headers = await page.$$(`${GRID_SELECTOR} th`);
             for (const header of headers) {
                 const text = await page.evaluate(el => el.textContent.trim(), header);
                 if (text.toLowerCase().includes('arrival time')) {
@@ -70,67 +124,119 @@ const excelPath = path.join(__dirname, 'queue_data_sheet2.xlsx');
             console.log("[!] Header click sort note:", e.message);
         }
 
-        // Parse Table Data from Page DOM
-        const tableData = await page.evaluate(() => {
-            const tables = Array.from(document.querySelectorAll('table'));
-            if (!tables.length) return null;
+        // Locate the queue by its headers, not the first layout table in the panel.
+        let tableData = [];
+        const seenPages = new Set();
+        for (let pageNumber = 0; ; pageNumber++) {
+        if (pageNumber >= 1000) throw new Error('Queue pagination exceeded safety limit.');
+        const pageData = await page.evaluate((selector) => {
+            const gridContainer = document.querySelector(selector);
 
-            // Pick table with most rows
-            let targetTable = tables[0];
-            let maxRows = 0;
-            for (const t of tables) {
-                const rCount = t.querySelectorAll('tr').length;
-                if (rCount > maxRows) {
-                    maxRows = rCount;
-                    targetTable = t;
-                }
-            }
+            if (!gridContainer) return null;
 
-            const rows = Array.from(targetTable.querySelectorAll('tr'));
+            const tables = gridContainer.tagName === 'TABLE'
+                ? [gridContainer, ...gridContainer.querySelectorAll('table')]
+                : [...gridContainer.querySelectorAll('table')];
+            const targetTable = tables.find(table => [...table.rows].some(row => {
+                const names = [...row.cells].map(cell => cell.textContent.trim().replace(/\s+/g, ' '));
+                return names.includes('Arrival Time') && names.includes('Task Status');
+            }));
+
+            if (!targetTable) return null;
+
+            const rows = Array.from(targetTable.rows);
             if (!rows.length) return null;
 
-            // Extract column headers
-            const headerRow = rows[0];
-            const headers = Array.from(headerRow.querySelectorAll('th, td')).map(cell => cell.textContent.trim());
+            // Extract column headers from top row / thead
+            let headers = [];
+            const headerRow = rows.find(row => {
+                const names = [...row.cells].map(cell => cell.textContent.trim().replace(/\s+/g, ' '));
+                return names.includes('Arrival Time') && names.includes('Task Status');
+            });
+            if (headerRow) {
+                headers = Array.from(headerRow.cells).map(cell => cell.textContent.trim().replace(/\s+/g, ' '));
+            }
 
             const records = [];
-            for (let i = 1; i < rows.length; i++) {
-                const cells = Array.from(rows[i].querySelectorAll('td'));
-                if (!cells.length) continue;
+            for (const row of rows) {
+                // Skip header row and pager row
+                if (row === headerRow || row.classList.contains('rgPager') || row.querySelector('th') || row.classList.contains('rgFilterRow')) continue;
+
+                const cells = Array.from(row.cells);
+                if (!cells.length || cells.length !== headers.length) continue;
+
+                // Skip if row is pager
+                if (row.closest('.rgPager') || cells.some(c => c.classList.contains('rgPagerCell'))) continue;
 
                 const rowObj = {};
                 cells.forEach((cell, idx) => {
                     const colName = headers[idx] || `Column_${idx + 1}`;
-                    rowObj[colName] = cell.textContent.trim();
+                    rowObj[colName] = cell.textContent.trim().replace(/\s+/g, ' ');
                 });
-                records.push(rowObj);
+
+                if (Object.keys(rowObj).length > 0 && Object.values(rowObj).some(val => val !== "")) {
+                    records.push(rowObj);
+                }
             }
+            if (!headers.includes('Arrival Time') || !headers.includes('Task Status')) return null;
             return records;
-        });
+        }, GRID_SELECTOR);
+        if (!pageData || !pageData.length) {
+            if (process.env.DATATRACE_DIAGNOSTICS_DIR) {
+                const folder = process.env.DATATRACE_DIAGNOSTICS_DIR;
+                fs.mkdirSync(folder, {recursive: true});
+                fs.writeFileSync(path.join(folder, 'results-panel.html'),
+                    await page.$eval(GRID_SELECTOR, el => el.outerHTML), 'utf8');
+                await page.screenshot({path: path.join(folder, 'results-panel.png'), fullPage: true});
+            }
+            throw new Error(`Queue table missing or empty inside ${GRID_SELECTOR}.`);
+        }
+        const fingerprint = JSON.stringify(pageData);
+        if (seenPages.has(fingerprint)) throw new Error('Queue pagination repeated a page.');
+        seenPages.add(fingerprint);
+        tableData.push(...pageData);
+        const nextSelector = `${GRID_SELECTOR} .rgPageNext`;
+        const next = await page.$(nextSelector);
+        const enabled = next && await page.evaluate(el =>
+            !el.disabled && el.getAttribute('aria-disabled') !== 'true' &&
+            !el.className.includes('Disabled'), next);
+        if (!enabled) break;
+        const before = await page.$eval(GRID_SELECTOR, el => el.innerText);
+        await next.click();
+        await page.waitForFunction((selector, previous) => {
+            const grid = document.querySelector(selector);
+            return grid && grid.innerText !== previous;
+        }, { timeout: 45000 }, GRID_SELECTOR, before);
+        await new Promise(resolve => setTimeout(resolve, 500));
+        }
 
         if (tableData && tableData.length > 0) {
-            console.log(`[+] Extracted ${tableData.length} queue rows!`);
+            console.log(`[+] Successfully extracted ${tableData.length} queue rows from ${GRID_SELECTOR}!`);
 
-            // Write CSV
-            const worksheet = XLSX.utils.json_to_sheet(tableData);
-            const csvContent = XLSX.utils.sheet_to_csv(worksheet);
-            fs.writeFileSync(csvPath, csvContent, 'utf8');
+            // Clean up unneeded empty columns (like Column_1) before exporting
+            const cleanedData = tableData.map(row => {
+                const newRow = {};
+                Object.keys(row).forEach(k => {
+                    if (k && !k.toLowerCase().startsWith('column_1') && k.trim() !== '') {
+                        newRow[k] = row[k];
+                    } else if (row[k] && row[k].trim() !== '') {
+                        newRow[k] = row[k];
+                    }
+                });
+                return newRow;
+            });
 
-            // Write Excel with Sheet2
-            const workbook = XLSX.utils.book_new();
-            XLSX.utils.book_append_sheet(workbook, worksheet, "Sheet2");
-            XLSX.writeFile(workbook, excelPath);
-
-            console.log(`[+] Saved queue data to: ${csvPath}`);
-            console.log(`[+] Saved queue data to: ${excelPath}`);
+            fs.writeFileSync(outputPath, JSON.stringify(cleanedData), 'utf8');
+            console.log(`[+] Queue extracted. Python pipeline exports CSV/Excel and syncs spreadsheet ${config.spreadsheet_id}.`);
         } else {
-            console.log("[!] No table data extracted from page DOM.");
+            throw new Error("No queue records extracted.");
         }
 
     } catch (err) {
         console.error("[!] Puppeteer Automation Error:", err.message);
+        process.exitCode = 1;
     } finally {
         await browser.close();
         console.log("[*] Browser closed. Scraping process finished.");
     }
-})();
+})().catch(err => { console.error(err.message); process.exitCode = 1; });

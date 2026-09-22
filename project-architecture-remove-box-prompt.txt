@@ -1,0 +1,3 @@
+Built-in image-generation tool: remove marked dashboard box
+
+undefined
