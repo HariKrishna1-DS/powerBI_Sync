@@ -40,6 +40,9 @@ class PreviewTests(unittest.TestCase):
         b = self.store.save(pd.concat([self.frame('Completed').assign(**{'Time Since Arrival': '2h 0m'}), self.frame().assign(OPON='3')]))
         result = compare(a, b)
         self.assertEqual(result['counts'], {'added': 1, 'removed': 1, 'modified': 1, 'unchanged': 0})
+        self.assertEqual(result['record_counts'], {'matched': 1, 'missing': 1, 'newly_added': 1, 'unchanged': 0})
+        self.assertEqual(result['matched_rows'][0]['Comparison Status'], 'Matched - changed')
+        self.assertEqual({row['Comparison Status'] for row in result['unmatched_rows']}, {'Missing', 'Newly Added'})
         modified = [r for r in result['rows'] if r['Change'] == 'Modified']
         self.assertEqual(len(modified), 1)
         self.assertEqual(modified[0]['Column'], 'Task Status')
@@ -54,7 +57,33 @@ class PreviewTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             compare(a, b, keys=['OPON'])
 
-    def test_second_real_pipeline_run_creates_preview_after_sync_failure(self):
+    def test_rows_after_previous_last_order(self):
+        previous = self.store.save(pd.DataFrame([
+            {'Order Number': 'ORD-100', 'Product': 'Full Title'},
+            {'Order Number': 'ORD-101', 'Product': 'Current Owner'},
+        ]))
+        latest = self.store.save(pd.DataFrame([
+            {'Order Number': 'ORD-100', 'Product': 'Full Title'},
+            {'Order Number': 'ORD-101', 'Product': 'Current Owner'},
+            {'Order Number': 'ORD-102', 'Product': 'Full Title'},
+            {'Order Number': 'ORD-103', 'Product': 'Two Owner'},
+        ]))
+        appended = compare(previous, latest)['order_append']
+        self.assertTrue(appended['available'])
+        self.assertEqual(appended['anchor_order'], 'ORD-101')
+        self.assertEqual(appended['count'], 2)
+        self.assertEqual([row['Order Number'] for row in appended['rows']], ['ORD-102', 'ORD-103'])
+
+    def test_delete_removes_preview_record_and_exports(self):
+        saved = self.store.save(self.frame())
+        self.store.delete(saved['id'])
+        self.assertEqual(self.store.list(), [])
+        self.assertFalse((self.store.root / 'preview1.csv').exists())
+        self.assertFalse((self.store.root / 'preview1.xlsx').exists())
+        with self.assertRaises(KeyError):
+            self.store.get(saved['id'])
+
+    def test_second_real_pipeline_run_creates_preview_without_auto_sync(self):
         calls = []
         def scrape(*args, **kwargs):
             calls.append(1)
@@ -63,12 +92,40 @@ class PreviewTests(unittest.TestCase):
             return Mock(returncode=0)
         with patch.object(sync, 'BASE_DIR', self.root), patch.dict(sync.os.environ, {'DATATRACE_USERNAME':'test', 'DATATRACE_PASSWORD':'test'}), \
                 patch.object(sync.subprocess, 'run', side_effect=scrape), \
-                patch.object(sync, 'sync_dataframe', side_effect=RuntimeError('No sheet credentials')):
+                patch.object(sync, 'sync_workbook') as upload:
             a, b = sync.run_sync(), sync.run_sync()
         self.assertEqual(len(calls), 2)
         self.assertEqual([a['preview_id'], b['preview_id']], [1, 2])
-        self.assertEqual(b['google_sheet'], 'failed')
+        self.assertEqual(b['google_sheet'], 'not_synced')
+        upload.assert_not_called()
         self.assertEqual(self.store.get(2)['rows'][0]['Task Status'], 'Completed')
+
+    def test_manual_google_sync_and_daily_schedule(self):
+        syncer = Mock(return_value=['Sheet1', 'All Products', 'Full Title', 'Remaining Products'])
+        client = create_app(self.root / 'manual-sync', syncer=syncer).test_client()
+        self.assertEqual(client.post('/api/sync').status_code, 422)
+        first = client.post('/api/import', data={'file': (
+            BytesIO(self.frame().to_csv(index=False).encode()), 'queue.csv')})
+        second = client.post('/api/import', data={'file': (
+            BytesIO(self.frame('Completed').to_csv(index=False).encode()), 'queue.csv')})
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 201)
+        self.assertEqual(client.post('/api/sync', json={'preview': first.json['id']}).status_code, 202)
+        for _ in range(100):
+            state = client.get('/api/state').json
+            if not state['job']['running']:
+                break
+            time.sleep(.01)
+        self.assertEqual(state['job']['result']['google_sheet'], 'success')
+        self.assertEqual(state['job']['result']['trigger'], 'manual')
+        self.assertEqual(state['job']['result']['preview_name'], 'preview1')
+        self.assertEqual(syncer.call_count, 1)
+        self.assertEqual(syncer.call_args.args[0].iloc[0]['Task Status'], 'Available')
+        saved = client.post('/api/sync-schedule', json={'enabled': True, 'time': '14:30'})
+        self.assertEqual(saved.status_code, 200)
+        self.assertEqual(saved.json['time'], '14:30')
+        self.assertTrue(client.get('/api/state').json['schedule']['enabled'])
+        self.assertEqual(client.post('/api/sync-schedule', json={'enabled': True, 'time': '99:00'}).status_code, 422)
 
     def test_api_import_compare_excel_and_initial_empty(self):
         client = create_app(self.root / 'api').test_client()
@@ -83,6 +140,8 @@ class PreviewTests(unittest.TestCase):
         self.assertIn('DataTraceChanges', workbook.active.tables)
         with client.get('/api/previews/1/download/xlsx') as downloaded:
             self.assertEqual(downloaded.status_code, 200)
+        self.assertEqual(client.delete('/api/previews/1').status_code, 200)
+        self.assertEqual([p['id'] for p in client.get('/api/state').json['previews']], [2])
         self.assertEqual(client.post('/api/extract', headers={'Origin':'https://other.example'}).status_code, 403)
 
     def test_job_lock_released_after_failure_and_repeat_click(self):

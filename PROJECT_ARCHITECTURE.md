@@ -1,94 +1,82 @@
-# DataTrace Workspace: Project Architecture
+# DataTrace Application Architecture
 
-![DataTrace Workspace architecture](project-architecture.png)
+![DataTrace application architecture](docs/datatrace-application-architecture.png)
 
-## 1. Application Architecture
+## 1. Application Type
 
-The React frontend runs in a browser and calls a local Python HTTP API. The API
-starts extraction jobs in a background thread. Node.js and Puppeteer launch
-Chromium, log in to DataTrace TV, refresh the results panel, and extract queue
-rows. Python processes the results and saves each successful capture as a new
-numbered preview before attempting Google Sheets sync.
+DataTrace Workspace is a **local web application**. The interface opens in a web
+browser, while extraction, file processing, preview storage, and synchronization
+run on the user's Windows computer.
 
-| Layer | Implementation | Responsibility |
-| --- | --- | --- |
-| User interface | React, Vite, Recharts, Lucide | Preview selection, filters, charts, comparison, downloads |
-| Local API | Python, Flask, Waitress | Extraction jobs, file import, preview access, comparison, downloads |
-| Browser automation | Node.js, Puppeteer, Chromium | Login, Refresh View, queue extraction and pagination |
-| Processing | pandas, openpyxl | Calculated fields, CSV/Excel exports and named Excel tables |
-| Local persistence | SQLite and local files | Capture history and preview1.xlsx/csv, preview2.xlsx/csv, etc. |
-| Google Sheets integration | gspread, google-auth, Sheets API | Replace the configured worksheet using service-account access |
-| Power BI handoff | Excel/CSV downloads | Manual import of DataTraceQueue or DataTraceChanges into Power BI |
-
-Source modules: `gsheet_dashboard/frontend/src/main.jsx`, `server.py`,
-`scrape_datatrace.js`, `datatrace_sync.py`, `preview_store.py`, `sync_config.py`.
-
-Google Sheets sync is configured but still requires a valid service-account key
-and Editor access. A Sheets failure does not remove a saved local preview.
-Power BI is an export destination; no embedded Power BI report or automatic
-Power BI Service publishing is currently configured.
-
-## 2. Application Type
-
-**Local web application with browser automation.** It opens in a web browser,
-while its Python server, Chromium automation and storage run on the user's PC.
-The project is not currently a hosted public website, native mobile application,
-packaged desktop installer or AI-powered application.
-
-## 3. User Interaction Map
-
-1. Launch the local server and open DataTrace Workspace.
-2. Click Run AutoLogin & Extract Queue, or import an existing CSV/XLSX file.
-3. Select a saved numbered preview.
-4. Click a column header to inspect unique values/counts and apply filters.
-5. Choose chart type and grouping, then scroll or adjust the chart range.
-6. Open Changes and compare the selected preview with an earlier one.
-7. Download the preview, filtered CSV, unique values, or Power BI changes workbook.
-8. Run extraction again to create the next numbered preview.
-
-Extraction additionally attempts Google Sheets sync. File imports create local
-previews without logging into DataTrace or updating Google Sheets. Extraction is
-button/CLI-triggered; no recurring scheduler is installed.
-
-## 4. Technologies and AI
-
-The active stack is React/JavaScript, Vite, Recharts, Lucide, Python, Flask,
-Waitress, Node.js, Puppeteer, Chromium, pandas, openpyxl, SQLite, gspread,
-google-auth and python-dotenv. Tests use Python unittest and Playwright.
-
-**No AI/ML model, LLM API, vector database or AI inference is used by the app.**
-Extraction is deterministic browser automation; comparisons match task keys or
-compare row multisets. AI assistance used during development or to illustrate
-this architecture is separate from the application's runtime technology.
-Streamlit/Plotly packages remain in the dependency file from the former UI;
-the current interface is React.
-
-## 5. Code and Access Links
-
-| Item | Link / status |
+| Item | Current status |
 | --- | --- |
-| Configured GitHub repository | https://github.com/HariKrishna1-DS/powerBI_Sync |
-| Local running app | http://localhost:8510/ |
+| Application type | Local web application |
+| User interface | Web browser |
+| Runtime location | User's Windows PC |
+| Public website | Not deployed |
+| Native desktop/mobile app | Not created |
+| Installer or app-store download | Not available |
+
+## 2. User Interaction Map
+
+1. Launch DataTrace Workspace with the Windows launcher.
+2. Select **Extract Queue** or import a CSV/XLSX file.
+3. Extraction opens TitleVision, signs in, reads the queue, and saves a numbered preview.
+4. Select a preview to search, filter, inspect columns, view charts, and download data.
+5. Compare any two previews to review matched, missing, newly added, and unchanged orders.
+6. Select a preview and sync it to Google Sheets manually, or enable the optional daily trigger.
+7. Check and verify the synchronized Google Sheets tabs.
+8. Manually refresh or import the data in Power BI.
+9. Review the Power BI reports and dashboards.
+
+## 3. Application Flow
+
+| Layer | Responsibility |
+| --- | --- |
+| Browser workspace | Preview selection, filters, charts, comparisons, exports, and sync controls |
+| Local application service | Coordinates extraction, imports, previews, comparisons, downloads, and sync jobs |
+| TitleVision automation | Opens Chromium, signs in, refreshes the queue, follows pagination, and extracts rows |
+| Data processing | Cleans queue records and produces Excel/CSV outputs and report-specific layouts |
+| Preview storage | Keeps numbered Excel/CSV previews and a local SQLite history index |
+| Google Sheets | Receives the selected preview in Full Report, All Products, Full Title, and Remaining Products tabs |
+| Power BI | Uses manually verified sheet or Excel/CSV data for reporting |
+
+The Google Sheets and Power BI stages are separate. DataTrace can sync a selected
+preview to Google Sheets, but a user must verify the sheet and refresh or import it
+in Power BI. Automatic Power BI publishing is not configured.
+
+## 4. Technologies And AI
+
+| Area | Technologies |
+| --- | --- |
+| Interface | React, Vite, Recharts, Lucide |
+| Application service | Python, Flask, Waitress |
+| Browser automation | Node.js, Puppeteer, Chromium |
+| Data processing | pandas, openpyxl |
+| Storage and exports | SQLite, Excel, CSV |
+| Google integration | Google Sheets API, gspread, google-auth |
+| Testing | Python unittest, Playwright |
+
+### AI Status
+
+No AI model, machine-learning model, LLM API, vector database, or AI inference is
+used by the running application. Queue extraction and preview comparison are
+deterministic automation. AI assistance used during development or for architecture
+illustrations is not part of the application runtime.
+
+## 5. Code And Access
+
+| Item | Link or status |
+| --- | --- |
+| Configured GitHub repository | <https://github.com/HariKrishna1-DS/powerBI_Sync> |
+| Local application | <http://localhost:8510> |
 | Windows launcher | `gsheet_dashboard/run.bat` |
-| Setup instructions | [SYNC_SETUP.md](gsheet_dashboard/SYNC_SETUP.md) |
-| Google Sheet target | https://docs.google.com/spreadsheets/d/1xjQ3yaDpMgvp3cRSQM-SfF8UBnbTcW_HWpZp_aN5-a8/edit?gid=0 |
-| Public deployment | None configured |
-| Installer / app-store download | None created |
+| Setup guide | [SYNC_SETUP.md](gsheet_dashboard/SYNC_SETUP.md) |
+| Google Sheet target | <https://docs.google.com/spreadsheets/d/1xjQ3yaDpMgvp3cRSQM-SfF8UBnbTcW_HWpZp_aN5-a8/edit?gid=0> |
+| Public deployment | Not configured |
+| App download or installer | Not available |
 
-The GitHub URL is the repository's configured origin. Current implementation
-changes are present locally and include uncommitted/untracked files; this
-document does not assert that those changes are already published to GitHub.
-The localhost link works on the machine running the server, not as a public URL.
-
-## Architecture Image
-
-The accompanying diagram is an AI-generated illustration using the built-in
-image-generation tool, not a screenshot of the application.
-Prompt specification: create a simple white-background DataTrace Workspace
-architecture diagram showing React communicating with Flask/Waitress, Python
-starting Node.js/Puppeteer to extract DataTrace TV, pandas/openpyxl processing
-results, SQLite/numbered local Excel/CSV previews, pending service-account
-Google Sheets sync, and a dashed manual Excel import route to Power BI. Include
-the user flow Open app > Extract or import > Select preview > Filter/chart >
-Compare > Download. Label it a local web application with no AI model, public
-deployment or installer. Exclude credentials and invented services.
+The GitHub URL is the repository configured in the local Git checkout. The current
+workspace contains uncommitted changes, so the local application may be newer than
+the code currently available from that URL. The localhost link works only while the
+DataTrace server is running on the user's computer.

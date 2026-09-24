@@ -1,3 +1,0 @@
-Built-in image-generation tool: corrected current-project architecture
-
-undefined

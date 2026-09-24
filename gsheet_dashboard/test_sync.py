@@ -32,6 +32,26 @@ class SyncTests(unittest.TestCase):
             self.assertEqual(ws['D2'].value, '=1+1')
             self.assertEqual(ws['D2'].data_type, 's')
 
+    def test_report_frames_follow_sample_headers_and_product_split(self):
+        source = pd.DataFrame([
+            {'Order Number': 'A-1', 'Product': 'Full Title', 'St': 'NJ', 'Client': 'ONE',
+             'Online/ Ground': 'Ground', 'Task Status': 'Available', 'Arrival Date': '2026-09-22',
+             'Queue Age Hours': 4.5, 'OPON': '101'},
+            {'Order Number': 'A-2', 'Product': 'Current Owner', 'St': 'NY', 'Client': 'TWO',
+             'Online/ Ground': 'Online', 'Task Status': 'Task Suspended', 'Arrival Date': '2026-09-23',
+             'Queue Age Hours': 2.0, 'OPON': '102'},
+        ])
+        all_products, full_title, remaining = sync.report_frames(source)
+        self.assertEqual(list(all_products.columns), [name for name, _ in sync.ALL_PRODUCT_FIELDS])
+        self.assertEqual(list(full_title.columns), [name for name, _ in sync.FULL_TITLE_FIELDS])
+        self.assertEqual(list(remaining.columns), [name for name, _ in sync.REMAINING_PRODUCT_FIELDS])
+        self.assertEqual(all_products['Order Number'].tolist(), ['A-1', 'A-2'])
+        self.assertEqual(all_products['Originator Product Order Number'].tolist(), ['101', '102'])
+        self.assertEqual(full_title['Order number'].tolist(), ['A-1'])
+        self.assertEqual(remaining['Order Number'].tolist(), ['A-2'])
+        self.assertEqual(remaining['No'].tolist(), [1])
+        self.assertEqual(remaining['TraceQ Id'].tolist(), [''])
+
     def test_atomic_replace_gid_zero_and_literals(self):
         df = self.frame()
         book, sheet = Mock(), Mock(id=0, row_count=1, col_count=1, title='Actual tab')
@@ -55,14 +75,14 @@ class SyncTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder, patch.object(sync, 'BASE_DIR', Path(folder)), \
                 patch.dict(sync.os.environ, {'DATATRACE_USERNAME': 'test', 'DATATRACE_PASSWORD': 'test'}), \
                 patch.object(sync.subprocess, 'run', return_value=Mock(returncode=1)), \
-                patch.object(sync, 'sync_dataframe') as upload, \
+                patch.object(sync, 'sync_workbook') as upload, \
                 patch.object(sync, 'export_to_excel_and_csv') as export:
             result = sync.run_sync()
             self.assertEqual(result['scrape'], 'failed')
             upload.assert_not_called()
             export.assert_not_called()
 
-    def test_sheet_failure_retains_export_and_last_success(self):
+    def test_extraction_retains_export_without_google_sync(self):
         def scrape(*args, **kwargs):
             Path(kwargs['env']['DATATRACE_OUTPUT_JSON']).write_text(
                 self.frame().to_json(orient='records'), encoding='utf-8')
@@ -70,12 +90,12 @@ class SyncTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder, patch.object(sync, 'BASE_DIR', Path(folder)), \
                 patch.dict(sync.os.environ, {'DATATRACE_USERNAME': 'test', 'DATATRACE_PASSWORD': 'test'}), \
                 patch.object(sync.subprocess, 'run', side_effect=scrape), \
-                patch.object(sync, 'sync_dataframe', side_effect=RuntimeError('Share as Editor')):
+                patch.object(sync, 'sync_workbook') as upload:
             (Path(folder) / 'sync_status.json').write_text(json.dumps({'last_success_at': 'previous'}))
             result = sync.run_sync()
             self.assertEqual(result['scrape'], 'success')
-            self.assertEqual(result['google_sheet'], 'failed')
-            self.assertEqual(result['last_success_at'], 'previous')
+            self.assertEqual(result['google_sheet'], 'not_synced')
+            upload.assert_not_called()
             self.assertTrue((Path(folder) / 'queue_data_sheet2.xlsx').exists())
 
     def test_verification_failure_is_not_success(self):

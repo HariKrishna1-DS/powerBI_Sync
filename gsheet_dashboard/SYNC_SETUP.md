@@ -1,11 +1,17 @@
 # DataTrace Sync Setup
 
-The extraction button and `python datatrace_sync.py` run the same pipeline:
-browser login, queue pagination, CSV/Excel export, then Google Sheets replacement.
+The extraction button and `python datatrace_sync.py` run the same local pipeline:
+browser login, queue pagination, preview creation, and CSV/Excel export. Extraction
+does not update Google Sheets. Select a preview and use **Sync [preview] to Sheets**
+to publish that preview. The optional daily local-time trigger always publishes the
+newest saved preview.
 `sync_config.json` is the shared target configuration for spreadsheet
 `1xjQ3yaDpMgvp3cRSQM-SfF8UBnbTcW_HWpZp_aN5-a8`, worksheet gid `0`.
 The tab title is discovered by ID. Every successful sync replaces all values on
-that tab, including stale rows. Other tabs and formatting are retained.
+that tab, including stale rows. It also refreshes three report tabs: **All Products**
+(the ExcelReport column layout), **Full Title** (the Full Search layout), and
+**Remaining Products** (the C-O/Update layout). Template-only columns remain blank;
+sample workbook rows are never imported. Other tabs and formatting are retained.
 Keep manually maintained data on a separate tab.
 
 ## Requirements
@@ -42,10 +48,10 @@ npm.cmd --prefix gsheet_dashboard\frontend run build
 Or launch `gsheet_dashboard/run.bat` and click **Run AutoLogin & Extract Queue**.
 The React workspace opens at http://localhost:8510 (or the next free port printed
 by the launcher). The former Streamlit UI and demo star schema have been removed.
-The dashboard reports extraction status, row count, Sheets status and the last
-successful sync time in UTC. Failed extraction never uploads old local files.
-A failed Sheets write retains fresh local exports. The CLI exits nonzero on failure.
-No recurring schedule is installed by this change.
+The dashboard reports extraction and Google Sheets jobs separately. Failed extraction
+never uploads old local files, and a failed Sheets write retains the latest local
+preview and exports. The daily trigger is disabled by default, persists locally in
+`sync_schedule.json`, and runs only while the dashboard server is running.
 
 Exports are `gsheet_dashboard/queue_data_sheet2.csv` and `.xlsx`.
 Each new capture also saves immutable `previews/preview1.xlsx`, `preview2.xlsx`,
@@ -115,10 +121,15 @@ or apply text/numeric/date conditions. Conditions combine across columns with AN
 Use ISO dates (YYYY-MM-DD) for date bounds. Filters affect both charts and the table.
 Unique-value lists can be printed or downloaded. Filtered CSV exports include all
 matching rows, not just the current page; the original preview downloads remain intact.
+Choosing a previous preview automatically selects the immediately newer preview as
+the latest side of the comparison. Choosing a latest preview selects its immediate
+predecessor.
 
 Charts support bar, horizontal bar, line, area, pie and donut. Choose any grouping
 column, adjust spacing, and scroll horizontally or vertically for larger datasets.
 Cartesian charts also have a draggable range selector when there are many categories.
+Click a bar or pie segment to open a table containing the rows represented by that
+count. The drill-down table follows the current search and column filters.
 
 Each extraction launches a new browser process. The run button is disabled only
 while a job is active and becomes available after success or failure. A browser

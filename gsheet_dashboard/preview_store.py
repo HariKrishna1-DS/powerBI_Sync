@@ -58,6 +58,87 @@ class PreviewStore:
         return {'id': number, 'name': f'preview{number}', 'created': record[0], 'source': record[1],
                 'columns': json.loads(record[2]), 'rows': json.loads(record[3])}
 
+    def delete(self, number):
+        with self.connect() as db:
+            cursor = db.execute('DELETE FROM previews WHERE id=?', (number,))
+        if not cursor.rowcount:
+            raise KeyError('Preview not found.')
+        for suffix in ('csv', 'xlsx'):
+            (self.root / f'preview{number}.{suffix}').unlink(missing_ok=True)
+
+
+def rows_after_last_order(previous, latest):
+    column = 'Order Number'
+    result = {'available': False, 'column': column, 'anchor_order': '', 'anchor_index': None,
+              'count': 0, 'first_added_order': '', 'latest_added_order': '',
+              'columns': latest['columns'], 'rows': [], 'message': ''}
+    if column not in previous['columns'] or column not in latest['columns']:
+        result['message'] = 'Order Number is required in both previews for last-order comparison.'
+        return result
+
+    date_col = next((c for c in ['Arrival Time', 'RequestArrivalTime', 'In-Time', 'Arrival Date', 'Date', 'Received Date']
+                     if c in previous['columns'] and c in latest['columns']), None)
+
+    anchor_order = ''
+    anchor_dt = None
+
+    if date_col:
+        valid_previous = []
+        for index, row in enumerate(previous['rows']):
+            ord_val = text_value(row.get(column)).strip()
+            if not ord_val:
+                continue
+            parsed_dt = pd.to_datetime(row.get(date_col), errors='coerce')
+            if pd.notna(parsed_dt):
+                valid_previous.append((parsed_dt, index, ord_val, row))
+        if valid_previous:
+            valid_previous.sort(key=lambda x: (x[0], x[1]))
+            anchor_dt, _, anchor_order, _ = valid_previous[-1]
+
+    if not anchor_order:
+        anchor_order = next((text_value(row.get(column)).strip() for row in reversed(previous['rows'])
+                             if text_value(row.get(column)).strip()), '')
+
+    if not anchor_order:
+        result['message'] = 'The previous preview has no Order Number to use as an anchor.'
+        return result
+
+    result['anchor_order'] = anchor_order
+
+    if date_col and anchor_dt is not None:
+        after_rows = []
+        for index, row in enumerate(latest['rows']):
+            parsed_dt = pd.to_datetime(row.get(date_col), errors='coerce')
+            if pd.notna(parsed_dt) and parsed_dt > anchor_dt:
+                after_rows.append((parsed_dt, index, row))
+        after_rows.sort(key=lambda x: (x[0], x[1]))
+        result['available'] = True
+        result['rows'] = [x[2] for x in after_rows]
+        result['count'] = len(result['rows'])
+        if result['rows']:
+            result['first_added_order'] = text_value(result['rows'][0].get(column)).strip()
+            result['latest_added_order'] = text_value(result['rows'][-1].get(column)).strip()
+        result['message'] = f'{result["count"]} orders found after {anchor_order} in {latest["name"]}.'
+        return result
+
+    matches = [index for index, row in enumerate(latest['rows'])
+               if text_value(row.get(column)).strip().casefold() == anchor_order.casefold()]
+    if not matches:
+        result['message'] = f'Last order {anchor_order} from the previous preview was not found in the latest preview.'
+        return result
+
+    result['available'] = True
+    result['anchor_index'] = matches[-1]
+    result['rows'] = latest['rows'][matches[-1] + 1:]
+    result['count'] = len(result['rows'])
+    if result['rows']:
+        result['first_added_order'] = text_value(result['rows'][0].get(column)).strip()
+        result['latest_added_order'] = text_value(result['rows'][-1].get(column)).strip()
+    result['message'] = f'{result["count"]} orders found after {anchor_order} in {latest["name"]}.'
+    return result
+
+
+
 
 def text_value(value):
     return '' if value is None else str(value)
@@ -80,10 +161,17 @@ def compare(previous, latest, keys=None, ignore=None):
     if keys and not valid(keys):
         raise ValueError('Matching columns must form a unique, nonblank key in both previews. Select additional columns.')
     if not keys:
-        keys = next((candidate for candidate in [['OPON'], ['Task ID'],
+        keys = next((candidate for candidate in [['Order Number'], ['OPON'], ['Task ID'],
                     ['Arrival Time', 'Parcel ID', 'Task Name', 'Client', 'Product']] if valid(candidate)), [])
     changes = []
     counts = {'added': 0, 'removed': 0, 'modified': 0, 'unchanged': 0}
+    record_columns = ['Comparison Status'] + list(dict.fromkeys(previous['columns'] + latest['columns']))
+    matched_rows, unmatched_rows = [], []
+
+    def comparison_row(status, row):
+        return {'Comparison Status': status, **{column: text_value((row or {}).get(column))
+                                                for column in record_columns[1:]}}
+
     if keys:
         def index(rows):
             return {tuple(text_value(row.get(c)) for c in keys): row for row in rows}
@@ -100,15 +188,23 @@ def compare(previous, latest, keys=None, ignore=None):
             else:
                 changed = [c for c in columns if text_value(a.get(c)) != text_value(b.get(c))]
                 counts['modified' if changed else 'unchanged'] += 1
+                matched_rows.append(comparison_row('Matched - changed' if changed else 'Unchanged', b))
                 for c in changed:
                     changes.append({'Change': 'Modified', 'Task Key': label, 'Column': c,
                                     'Previous Value': text_value(a.get(c)), 'Latest Value': text_value(b.get(c))})
+            if a is None:
+                unmatched_rows.append(comparison_row('Newly Added', b))
+            elif b is None:
+                unmatched_rows.append(comparison_row('Missing', a))
         method = 'Matched by ' + ', '.join(keys)
     else:
         def fingerprints(rows):
             return Counter(tuple(text_value(row.get(c)) for c in columns) for row in rows)
         before, after = fingerprints(old), fingerprints(new)
         counts['unchanged'] = sum((before & after).values())
+        for values, frequency in (before & after).items():
+            for _ in range(frequency):
+                matched_rows.append(comparison_row('Unchanged', dict(zip(columns, values))))
         for kind, delta in [('Removed', before - after), ('Added', after - before)]:
             counts[kind.lower()] = sum(delta.values())
             for values, frequency in delta.items():
@@ -117,8 +213,16 @@ def compare(previous, latest, keys=None, ignore=None):
                     changes.append({'Change': kind, 'Task Key': '(unmatched)', 'Column': '(entire row)',
                                     'Previous Value': row if kind == 'Removed' else '',
                                     'Latest Value': row if kind == 'Added' else ''})
+                    unmatched_rows.append(comparison_row('Missing' if kind == 'Removed' else 'Newly Added',
+                                                         dict(zip(columns, values))))
         method = 'No unique task key: exact-row comparison. Updates appear as removed and added rows.'
+    record_counts = {'matched': counts['modified'] + counts['unchanged'],
+                     'missing': counts['removed'], 'newly_added': counts['added'],
+                     'unchanged': counts['unchanged']}
     return {'columns': CHANGE_COLUMNS, 'rows': changes, 'counts': counts, 'keys': keys, 'method': method,
+            'record_columns': record_columns, 'matched_rows': matched_rows,
+            'unmatched_rows': unmatched_rows, 'record_counts': record_counts,
             'ignored': sorted(ignored), 'previous': previous['name'], 'latest': latest['name'],
+            'order_append': rows_after_last_order(previous, latest),
             'added_columns': [c for c in latest['columns'] if c not in previous['columns']],
             'removed_columns': [c for c in previous['columns'] if c not in latest['columns']]}

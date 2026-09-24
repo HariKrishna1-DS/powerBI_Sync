@@ -7,6 +7,7 @@ const config = require('./sync_config.json');
 const TARGET_URL = process.env.DATATRACE_QUEUE_URL || config.queue_url;
 const USERNAME = process.env.DATATRACE_USERNAME;
 const PASSWORD = process.env.DATATRACE_PASSWORD;
+const TIMEOUT_MS = Number(process.env.DATATRACE_TIMEOUT_MS || 120000);
 if (!USERNAME || !PASSWORD) {
     console.error('Set DATATRACE_USERNAME and DATATRACE_PASSWORD.');
     process.exit(1);
@@ -15,17 +16,22 @@ if (!USERNAME || !PASSWORD) {
 const outputPath = process.env.DATATRACE_OUTPUT_JSON || path.join(__dirname, 'queue_data.json');
 
 (async () => {
-    console.log("[*] Launching Puppeteer Chromium Browser...");
-    const browser = await puppeteer.launch({
-        headless: process.env.DATATRACE_HEADLESS !== 'false',
-        defaultViewport: null,
-        args: ['--start-maximized']
-    });
-
+    let browser;
     try {
+        const headless = process.env.DATATRACE_HEADLESS !== 'false';
+        console.log(`[*] Launching Puppeteer Chromium Browser (headless=${headless}, timeout=${TIMEOUT_MS}ms)...`);
+        console.log(`[*] Chromium executable: ${await puppeteer.executablePath()}`);
+        browser = await puppeteer.launch({
+            headless,
+            defaultViewport: null,
+            timeout: TIMEOUT_MS,
+            args: ['--start-maximized']
+        });
+        console.log('[+] Chromium launched successfully.');
+
         const page = await browser.newPage();
         console.log(`[*] Navigating to: ${TARGET_URL}`);
-        await page.goto(TARGET_URL, { waitUntil: 'domcontentloaded', timeout: 90000 }).catch(e => {
+        await page.goto(TARGET_URL, { waitUntil: 'domcontentloaded', timeout: TIMEOUT_MS }).catch(e => {
             console.log("[!] Navigation load notice:", e.message);
         });
 
@@ -35,7 +41,7 @@ const outputPath = process.env.DATATRACE_OUTPUT_JSON || path.join(__dirname, 'qu
         let submitSelector = '#next';
 
         console.log("[*] Checking for login inputs...");
-        await page.waitForSelector(usernameSelector, { timeout: 10000 }).catch(() => {});
+        await page.waitForSelector(usernameSelector, { timeout: TIMEOUT_MS }).catch(() => {});
 
         if (!await page.$(usernameSelector)) {
             if (await page.$('#txtUserName')) {
@@ -77,7 +83,7 @@ const outputPath = process.env.DATATRACE_OUTPUT_JSON || path.join(__dirname, 'qu
 
             console.log("[*] Clicking 'Sign in' button...");
             await Promise.all([
-                page.waitForNavigation({ waitUntil: 'networkidle2', timeout: 30000 }).catch(() => {}),
+                page.waitForNavigation({ waitUntil: 'networkidle2', timeout: TIMEOUT_MS }).catch(() => {}),
                 page.evaluate(sel => {
                     const btn = document.querySelector(sel);
                     if (btn) btn.click();
@@ -91,7 +97,7 @@ const outputPath = process.env.DATATRACE_OUTPUT_JSON || path.join(__dirname, 'qu
         const GRID_SELECTOR = '#ctl00_ContentPlaceHolder1_pnlResults';
 
         console.log(`[*] Waiting for queue grid table selector: ${GRID_SELECTOR}...`);
-        await page.waitForSelector(GRID_SELECTOR, { visible: true, timeout: 45000 });
+        await page.waitForSelector(GRID_SELECTOR, { visible: true, timeout: TIMEOUT_MS });
 
         // A fresh login can show an empty results panel until Refresh View runs the query.
         const hasResults = await page.$(`${GRID_SELECTOR} table`);
@@ -103,7 +109,7 @@ const outputPath = process.env.DATATRACE_OUTPUT_JSON || path.join(__dirname, 'qu
                 page.waitForFunction(selector => {
                     const panel = document.querySelector(selector);
                     return panel && panel.querySelector('table');
-                }, { timeout: 90000 }, GRID_SELECTOR),
+                }, { timeout: TIMEOUT_MS }, GRID_SELECTOR),
                 refresh.click(),
             ]);
         }
@@ -206,7 +212,7 @@ const outputPath = process.env.DATATRACE_OUTPUT_JSON || path.join(__dirname, 'qu
         await page.waitForFunction((selector, previous) => {
             const grid = document.querySelector(selector);
             return grid && grid.innerText !== previous;
-        }, { timeout: 45000 }, GRID_SELECTOR, before);
+        }, { timeout: TIMEOUT_MS }, GRID_SELECTOR, before);
         await new Promise(resolve => setTimeout(resolve, 500));
         }
 
@@ -233,10 +239,10 @@ const outputPath = process.env.DATATRACE_OUTPUT_JSON || path.join(__dirname, 'qu
         }
 
     } catch (err) {
-        console.error("[!] Puppeteer Automation Error:", err.message);
+        console.error("[!] Puppeteer Automation Error:", err.stack || err.message);
         process.exitCode = 1;
     } finally {
-        await browser.close();
+        if (browser) await browser.close();
         console.log("[*] Browser closed. Scraping process finished.");
     }
-})().catch(err => { console.error(err.message); process.exitCode = 1; });
+})().catch(err => { console.error(err.stack || err.message); process.exitCode = 1; });

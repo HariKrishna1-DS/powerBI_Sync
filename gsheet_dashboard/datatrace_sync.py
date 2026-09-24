@@ -11,6 +11,45 @@ from openpyxl.worksheet.table import Table, TableStyleInfo
 from sync_config import BASE_DIR, SPREADSHEET_ID, WORKSHEET_GID, TARGET_GSHEET_URL
 
 
+ALL_PRODUCT_FIELDS = [
+    ('Order Number', 'Order Number'), ('External Product Order Number', None),
+    ('Originator Product Order Number', 'OPON'), ('Borrower', 'Borrower'),
+    ('Online/Ground', 'Online/ Ground'), ('Product', 'Product'), ('Last User', 'Last User'),
+    ('Skill Grade', 'Skill Grade'), ('State', 'St'), ('County', 'County'),
+    ('Municipality', 'Municipality'), ('Parcel ID', 'Parcel ID'), ('Task Name', 'Task Name'),
+    ('Task Status', 'Task Status'), ('Comment', 'Comment'), ('ETA', 'ETA'),
+    ('ETA Comments', 'ETA Comments'), ('Time Since Arrival (hours)', 'Queue Age Hours'),
+    ('Task Time In Queue (hours)', 'Task Time in Queue'),
+    ('WorkflowSuspended', '__workflow_suspended__'), ('TaskSuspended', '__task_suspended__'),
+    ('IsAutomated', None), ('IsBlocked', None), ('SLA Expiration', 'SLA Expiration*'),
+    ('Completed Time (hours)', 'Completed Time'), ('Vendor', 'Vendor'), ('Originator', 'Orig'),
+    ('ClientCode', 'Client'), ('RequestArrivalTime', 'Arrival Time'),
+    ('WorkflowSuspendReason', None), ('UserContextId', None), ('WorkflowSuspendTypeId', None),
+    ('WorkflowTaskSuspendTypeId', None), ('SuspendUntil', None),
+]
+FULL_TITLE_FIELDS = [
+    ('No', '__number__'), ('Received Date', 'Arrival Date'), ('Order number', 'Order Number'),
+    ('TraceQ id', None), ('State', 'St'), ('County', 'County'), ('Client', 'Client'),
+    ('Online/Gorund', 'Online/ Ground'), ('Product', 'Product'), ('Status', 'Task Status'),
+    ('SLA', 'ETA'), ('Comments', 'Comment'), ('Assignee', 'Last User'), ('Searcher', None),
+    ('Clarification Requested', None), ('Shift', None), ('Processed Date', 'Completed Time'),
+    ('Typer', None), ('Review/QC', None), ('Expense', None), ('In-Time', 'Arrival Time'),
+    ('Out Time', None), ('SLA Expiration', 'SLA Expiration*'), ('SLA', 'SLA Status'),
+    ('Free Site', None),
+]
+REMAINING_PRODUCT_FIELDS = [
+    ('No', '__number__'), ('Date', 'Arrival Date'), ('Order Number', 'Order Number'),
+    ('TraceQ Id', None), ('State', 'St'), ('County', 'County'), ('Client', 'Client'),
+    ('Online/Ground', 'Online/ Ground'), ('Product', 'Product'), ('Status', 'Task Status'),
+    ('ETA', 'ETA'), ('Comments', 'Comment'), ('Assignee', 'Last User'), ('Searcher', None),
+    ('Clarification Requested', None), ('Shift', None), ('Process date', 'Completed Time'),
+    ('Review/QC', None), ('Expense', None), ('In-Time', 'Arrival Time'), ('Out Time', None),
+    ('SLA Expiration', 'SLA Expiration*'), ('Free Site', None), ('review', None),
+]
+REPORT_SHEETS = [('All Products', ALL_PRODUCT_FIELDS), ('Full Title', FULL_TITLE_FIELDS),
+                 ('Remaining Products', REMAINING_PRODUCT_FIELDS)]
+
+
 def target_worksheet():
     import gspread
     from google.oauth2.service_account import Credentials
@@ -68,6 +107,33 @@ def powerbi_table(df, timestamp):
     return result
 
 
+def report_frame(df, fields, product=None):
+    source = df if product is None else df[df['Product'].fillna('').astype(str).str.strip().str.casefold().eq(product)]
+    if product == '__remaining__':
+        source = df[~df['Product'].fillna('').astype(str).str.strip().str.casefold().eq('full title')]
+    matrix = []
+    for number, (_, row) in enumerate(source.iterrows(), start=1):
+        values = []
+        for _, source_column in fields:
+            if source_column == '__number__':
+                value = number
+            elif source_column == '__workflow_suspended__':
+                value = str(row.get('Task Status', '')).strip().casefold() == 'workflow suspended'
+            elif source_column == '__task_suspended__':
+                value = str(row.get('Task Status', '')).strip().casefold() == 'task suspended'
+            else:
+                value = row.get(source_column, '') if source_column else ''
+            values.append(value)
+        matrix.append(values)
+    return pd.DataFrame(matrix, columns=[target for target, _ in fields])
+
+
+def report_frames(df):
+    return [report_frame(df, ALL_PRODUCT_FIELDS),
+            report_frame(df, FULL_TITLE_FIELDS, 'full title'),
+            report_frame(df, REMAINING_PRODUCT_FIELDS, '__remaining__')]
+
+
 def export_to_excel_and_csv(df, output_prefix=None):
     prefix = Path(output_prefix) if output_prefix else BASE_DIR / 'queue_data_sheet2'
     csv_path, excel_path = prefix.with_suffix('.csv'), prefix.with_suffix('.xlsx')
@@ -98,8 +164,9 @@ def sheet_cell(value):
     return {'userEnteredValue': {key: value}}
 
 
-def sync_dataframe(df, target=None):
-    validate_queue(df)
+def sync_dataframe(df, target=None, validate=True):
+    if validate:
+        validate_queue(df)
     book, sheet = target or target_worksheet()
     values = [list(df.columns)] + df.astype(object).values.tolist()
     requests = []
@@ -120,9 +187,24 @@ def sync_dataframe(df, target=None):
                            'worksheet protection, API quota and connectivity. Local exports are retained.') from exc
     received = sheet.get_all_values()
     if (len(received) != len(values) or not received or received[0] != list(df.columns)
-            or any(len(row) != len(df.columns) for row in received)):
+            or (validate and any(len(row) != len(df.columns) for row in received))):
         raise RuntimeError('Google Sheets write returned, but row/column verification failed. Check the worksheet before retrying.')
     return sheet.title
+
+
+def sync_workbook(df):
+    book, primary = target_worksheet()
+    synced = [sync_dataframe(df, (book, primary))]
+    worksheets = book.worksheets()
+    frames = report_frames(df)
+    for index, ((title, _), frame) in enumerate(zip(REPORT_SHEETS, frames), start=1):
+        if len(worksheets) <= index:
+            worksheets.append(book.add_worksheet(title=title, rows=1, cols=1))
+        sheet = worksheets[index]
+        if sheet.title != title:
+            sheet.update_title(title)
+        synced.append(sync_dataframe(frame, (book, sheet), validate=False))
+    return synced
 
 
 def read_target(gid=None, title=None):
@@ -141,8 +223,8 @@ def run_sync(on_progress=None):
     from dotenv import load_dotenv
     from preview_store import PreviewStore
     load_dotenv(BASE_DIR / '.env', override=True)
-    status = {'started_at': dt.datetime.now(dt.timezone.utc).isoformat(), 'scrape': 'pending',
-              'google_sheet': 'pending', 'rows': 0, 'error': None}
+    status = {'action': 'extract', 'started_at': dt.datetime.now(dt.timezone.utc).isoformat(),
+              'scrape': 'pending', 'google_sheet': 'not_synced', 'rows': 0, 'error': None}
     def progress(stage):
         status['stage'] = stage
         if on_progress:
@@ -177,9 +259,7 @@ def run_sync(on_progress=None):
         status['preview_name'] = preview['name']
         export_to_excel_and_csv(df)
         status['local_export'] = 'success'
-        progress('Syncing Google Sheets')
-        status['worksheet'] = sync_dataframe(df)
-        status.update(google_sheet='success', last_success_at=dt.datetime.now(dt.timezone.utc).isoformat())
+        status['last_success_at'] = dt.datetime.now(dt.timezone.utc).isoformat()
     except Exception as exc:
         status['error'] = str(exc)
         status['google_sheet' if status['scrape'] == 'success' else 'scrape'] = 'failed'
