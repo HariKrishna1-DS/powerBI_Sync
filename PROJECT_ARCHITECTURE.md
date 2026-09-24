@@ -34,6 +34,7 @@ run on the user's Windows computer.
 | Layer | Responsibility |
 | --- | --- |
 | Browser workspace | Preview selection, filters, charts, comparisons, exports, and sync controls |
+| Streamlit analytics dashboard | Interactive visual breakdown for Online/Ground, Client, and Product columns with KPI cards, Plotly charts, and filters |
 | Local application service | Coordinates extraction, imports, previews, comparisons, downloads, and sync jobs |
 | TitleVision automation | Opens Chromium, signs in, refreshes the queue, follows pagination, and extracts rows |
 | Data processing | Cleans queue records and produces Excel/CSV outputs and report-specific layouts |
@@ -49,7 +50,7 @@ in Power BI. Automatic Power BI publishing is not configured.
 
 | Area | Technologies |
 | --- | --- |
-| Interface | React, Vite, Recharts, Lucide |
+| Interface | React, Vite, Streamlit, Recharts, Plotly, Lucide |
 | Application service | Python, Flask, Waitress |
 | Browser automation | Node.js, Puppeteer, Chromium |
 | Data processing | pandas, openpyxl |
@@ -69,7 +70,8 @@ illustrations is not part of the application runtime.
 | Item | Link or status |
 | --- | --- |
 | Configured GitHub repository | <https://github.com/HariKrishna1-DS/powerBI_Sync> |
-| Local application | <http://localhost:8510> |
+| Local application (React workspace) | <http://localhost:8510> |
+| Streamlit dashboard | <http://localhost:8501> (`streamlit run gsheet_dashboard/streamlit_app.py`) |
 | Windows launcher | `gsheet_dashboard/run.bat` |
 | Setup guide | [SYNC_SETUP.md](gsheet_dashboard/SYNC_SETUP.md) |
 | Google Sheet target | <https://docs.google.com/spreadsheets/d/1xjQ3yaDpMgvp3cRSQM-SfF8UBnbTcW_HWpZp_aN5-a8/edit?gid=0> |
@@ -80,3 +82,4 @@ The GitHub URL is the repository configured in the local Git checkout. The curre
 workspace contains uncommitted changes, so the local application may be newer than
 the code currently available from that URL. The localhost link works only while the
 DataTrace server is running on the user's computer.
+
