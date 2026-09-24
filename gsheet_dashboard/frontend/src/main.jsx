@@ -68,6 +68,143 @@ function FilterPanel({column, rows, filters, setFilters, close}) {
     <div className="unique-values">{visible.map(([v,count])=><label key={v} className="check-row"><input type="checkbox" checked={!current.values || current.values.includes(v)} onChange={()=>toggle(v)}/><span>{label(v)}</span><small>{count.toLocaleString()}</small></label>)}{!visible.length && <p className="muted">No matching values.</p>}</div>
     <div className="print-values"><h2>{column} — Unique values</h2>{visible.map(([v,count])=><p key={v}>{label(v)}: {count}</p>)}</div>
   </aside>;
+}function OverviewDashboard({rows, columns, onSelect}) {
+  const ogCol = columns.includes('Online/ Ground') ? 'Online/ Ground' : columns.includes('Online/Ground') ? 'Online/Ground' : null;
+  const clientCol = columns.includes('Client') ? 'Client' : null;
+  const prodCol = columns.includes('Product') ? 'Product' : null;
+
+  const onlineCount = useMemo(() => ogCol ? rows.filter(r => str(r[ogCol]).toLowerCase().includes('online')).length : 0, [rows, ogCol]);
+  const groundCount = useMemo(() => ogCol ? rows.filter(r => str(r[ogCol]).toLowerCase().includes('ground')).length : 0, [rows, ogCol]);
+  const onlinePct = rows.length ? ((onlineCount / rows.length) * 100).toFixed(1) : 0;
+  const groundPct = rows.length ? ((groundCount / rows.length) * 100).toFixed(1) : 0;
+
+  const clientCounts = useMemo(() => {
+    if (!clientCol) return [];
+    const map = new Map();
+    rows.forEach(r => { const c = label(r[clientCol]); map.set(c, (map.get(c) || 0) + 1); });
+    return [...map].sort((a,b) => b[1] - a[1]);
+  }, [rows, clientCol]);
+
+  const productCounts = useMemo(() => {
+    if (!prodCol) return [];
+    const map = new Map();
+    rows.forEach(r => { const p = label(r[prodCol]); map.set(p, (map.get(p) || 0) + 1); });
+    return [...map].sort((a,b) => b[1] - a[1]);
+  }, [rows, prodCol]);
+
+  const fullTitleCount = useMemo(() => prodCol ? rows.filter(r => normalized(r[prodCol]) === 'full title').length : 0, [rows, prodCol]);
+  const fullTitlePct = rows.length ? ((fullTitleCount / rows.length) * 100).toFixed(1) : 0;
+
+  const ogPieData = [
+    { name: 'Online', count: onlineCount, color: '#147d72' },
+    { name: 'Ground', count: groundCount, color: '#d79a32' }
+  ].filter(d => d.count > 0);
+
+  const topClientsData = useMemo(() => clientCounts.slice(0, 8).map(([name, count]) => ({ name, count })), [clientCounts]);
+  const topProductsData = useMemo(() => productCounts.slice(0, 8).map(([name, count]) => ({ name, count })), [productCounts]);
+
+  const clientOgData = useMemo(() => {
+    if (!clientCol || !ogCol) return [];
+    const top6 = clientCounts.slice(0, 6).map(x => x[0]);
+    return top6.map(cName => {
+      const cRows = rows.filter(r => label(r[clientCol]) === cName);
+      const on = cRows.filter(r => str(r[ogCol]).toLowerCase().includes('online')).length;
+      const gr = cRows.filter(r => str(r[ogCol]).toLowerCase().includes('ground')).length;
+      return { name: cName, Online: on, Ground: gr };
+    });
+  }, [rows, clientCol, ogCol, clientCounts]);
+
+  return (
+    <section className="overview-dashboard">
+      <div className="section-heading">
+        <div>
+          <span className="eyebrow">COLUMN ANALYTICS DASHBOARD</span>
+          <h2>Online/Ground, Client & Product Breakdown</h2>
+        </div>
+      </div>
+
+      <div className="dashboard-grid">
+        <div className="dashboard-card">
+          <div className="card-head">
+            <h3>Online vs Ground Share</h3>
+            <small>{onlinePct}% Online · {groundPct}% Ground</small>
+          </div>
+          <div style={{ height: 250 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <PieChart>
+                <Pie className="clickable-series" isAnimationActive={false} data={ogPieData} dataKey="count" nameKey="name" cx="50%" cy="50%" outerRadius={85} innerRadius={50} onClick={entry => ogCol && onSelect({ column: ogCol, value: entry.name })}>
+                  {ogPieData.map(d => <Cell key={d.name} fill={d.color} />)}
+                </Pie>
+                <Tooltip />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="legend-pills">
+            {ogPieData.map(d => (
+              <span key={d.name} className="pill" onClick={() => ogCol && onSelect({ column: ogCol, value: d.name })}>
+                <i style={{ background: d.color }} /> {d.name}: <b>{d.count.toLocaleString()}</b> ({rows.length ? ((d.count/rows.length)*100).toFixed(1) : 0}%)
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className="dashboard-card">
+          <div className="card-head">
+            <h3>Top Clients by Queue Volume</h3>
+            <small>{clientCounts.length} active clients</small>
+          </div>
+          <div style={{ height: 280 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={topClientsData} layout="vertical" margin={{ top: 10, right: 25, left: 5, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e9edee" />
+                <XAxis type="number" tick={{ fontSize: 11 }} />
+                <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 11 }} />
+                <Tooltip cursor={{ fill: '#f0f5f3' }} />
+                <Bar className="clickable-series" isAnimationActive={false} dataKey="count" fill="#2563eb" radius={[0, 4, 4, 0]} onClick={entry => clientCol && onSelect({ column: clientCol, value: entry.name || entry.payload?.name })} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="dashboard-card">
+          <div className="card-head">
+            <h3>Product Category Breakdown</h3>
+            <small>{fullTitlePct}% Full Title share</small>
+          </div>
+          <div style={{ height: 280 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={topProductsData} margin={{ top: 10, right: 15, left: 0, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e9edee" />
+                <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} />
+                <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                <Tooltip cursor={{ fill: '#f0f5f3' }} />
+                <Bar className="clickable-series" isAnimationActive={false} dataKey="count" fill="#7c3aed" radius={[4, 4, 0, 0]} onClick={entry => prodCol && onSelect({ column: prodCol, value: entry.name || entry.payload?.name })} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        <div className="dashboard-card">
+          <div className="card-head">
+            <h3>Online vs Ground per Client</h3>
+            <small>Delivery breakdown for top clients</small>
+          </div>
+          <div style={{ height: 280 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={clientOgData} margin={{ top: 10, right: 15, left: 0, bottom: 5 }}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e9edee" />
+                <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
+                <Tooltip cursor={{ fill: '#f0f5f3' }} />
+                <Bar isAnimationActive={false} dataKey="Online" fill="#147d72" radius={[3, 3, 0, 0]} />
+                <Bar isAnimationActive={false} dataKey="Ground" fill="#d79a32" radius={[3, 3, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
 }
 
 function Chart({rows, columns, onSelect}) {
@@ -120,6 +257,28 @@ function App() {
       remaining: filtered.filter(row=>normalized(row.Product)!=='full title')
     };
   },[filtered,table.columns,view]);
+
+  const overviewMetrics = useMemo(() => {
+    if (view === 'changes') return [];
+    const ogC = table.columns.includes('Online/ Ground') ? 'Online/ Ground' : table.columns.includes('Online/Ground') ? 'Online/Ground' : null;
+    const clC = table.columns.includes('Client') ? 'Client' : null;
+    const prC = table.columns.includes('Product') ? 'Product' : null;
+
+    const onN = ogC ? filtered.filter(r => str(r[ogC]).toLowerCase().includes('online')).length : 0;
+    const grN = ogC ? filtered.filter(r => str(r[ogC]).toLowerCase().includes('ground')).length : 0;
+    const clN = clC ? new Set(filtered.map(r => label(r[clC]))).size : 0;
+    const ftN = prC ? filtered.filter(r => normalized(r[prC]) === 'full title').length : 0;
+
+    const tot = filtered.length || 1;
+    return [
+      ['Visible orders', filtered.length.toLocaleString(), 'green'],
+      ['Online queue', `${onN.toLocaleString()} (${((onN/tot)*100).toFixed(1)}%)`, 'green'],
+      ['Ground queue', `${grN.toLocaleString()} (${((grN/tot)*100).toFixed(1)}%)`, 'amber'],
+      ['Active clients', clN.toLocaleString(), 'gray'],
+      ['Full Title share', `${ftN.toLocaleString()} (${((ftN/tot)*100).toFixed(1)}%)`, 'gray']
+    ];
+  }, [view, filtered, table.columns]);
+
   async function extract(){setPending(true);setError('');try{await api('/api/extract',{method:'POST'});await refresh();}catch(e){setError(e.message);}finally{setPending(false);}}
   async function syncSheets(){setPending(true);setError('');try{await api('/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({preview:selected})});await refresh();}catch(e){setError(e.message);}finally{setPending(false);}}
   async function saveSchedule(){setSavingSchedule(true);setError('');try{const saved=await api('/api/sync-schedule',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(scheduleDraft)});setScheduleDraft({enabled:saved.enabled,time:saved.time});await refresh();}catch(e){setError(e.message);}finally{setSavingSchedule(false);}}
@@ -141,9 +300,9 @@ function App() {
       {view==='changes'&&compareError&&<div className="notice warning">{compareError}</div>}
       {view==='changes'&&!previous&&<div className="notice">Capture or import a second preview to compare changes.</div>}
       {view==='changes'&&diff&&<><p className="comparison-method">{diff.method}</p>{(diff.added_columns.length>0||diff.removed_columns.length>0)&&<div className="notice">Columns added: {diff.added_columns.join(', ')||'None'} · Columns removed: {diff.removed_columns.join(', ')||'None'}</div>}</>}
-      <div className="metrics">{(view==='changes'?[['Matched',diff?.record_counts?.matched??'—','green'],['Missing',diff?.record_counts?.missing??'—','red'],['Newly added',diff?.record_counts?.newly_added??'—','amber'],['Unchanged',diff?.record_counts?.unchanged??'—','gray']]:[['Visible orders',filtered.length.toLocaleString(),'green'],['Available',filtered.filter(r=>str(r['Task Status']).toLowerCase()==='available').length,'gray'],['Suspended',filtered.filter(r=>str(r['Task Status']).toLowerCase().includes('suspended')).length,'amber'],['Saved previews',state.previews.length,'gray']]).map(([title,value,color])=><div className={`metric ${color}`} key={title}><span>{title}</span><strong>{value}</strong></div>)}</div>
+      <div className="metrics">{(view==='changes'?[['Matched',diff?.record_counts?.matched??'—','green'],['Missing',diff?.record_counts?.missing??'—','red'],['Newly added',diff?.record_counts?.newly_added??'—','amber'],['Unchanged',diff?.record_counts?.unchanged??'—','gray']]:overviewMetrics).map(([title,value,color])=><div className={`metric ${color}`} key={title}><span>{title}</span><strong>{value}</strong></div>)}</div>
       <div className="filter-toolbar"><div className="search-input"><Search size={16}/><input aria-label="Search rows" placeholder="Search all columns" value={search} onChange={e=>setSearch(e.target.value)}/></div><select aria-label="Choose column filter" value={filterColumn||''} onChange={e=>setFilterColumn(e.target.value||null)}><option value="">Filter a column…</option>{table.columns.map(c=><option key={c}>{c}</option>)}</select>{Object.keys(filters).map(c=><button className="filter-chip" key={c} onClick={()=>setFilterColumn(c)}><Filter size={12}/>{c}</button>)}{Object.keys(filters).length>0&&<button className="text-button" onClick={()=>setFilters({})}>Clear filters</button>}<span className="row-tally">{filtered.length.toLocaleString()} / {table.rows.length.toLocaleString()} rows</span>{view!=='changes'&&preview.id&&<><a className="secondary" href={`/api/previews/${preview.id}/download/xlsx`}><ArrowDownToLine size={16}/>Excel</a><a className="secondary" href={`/api/previews/${preview.id}/download/csv`}>CSV</a></>}</div>
-      {(loading||(view==='changes'&&compareBusy))?<div className="loading"><LoaderCircle className="spin"/>Loading preview…</div>:<><div className={filterColumn?'data-layout with-filter':'data-layout'}><div className="data-main">{view==='overview'&&<><Chart rows={filtered} columns={table.columns} onSelect={setChartSelection}/>{chartSelection&&<div className="chart-drilldown"><DataTable rows={chartRows} columns={table.columns} filters={{}} openFilter={()=>{}} filterable={false} onClose={()=>setChartSelection(null)} name={`${chartSelection.value} · ${chartRows.length} orders`}/></div>}</>}
+      {(loading||(view==='changes'&&compareBusy))?<div className="loading"><LoaderCircle className="spin"/>Loading preview…</div>:<><div className={filterColumn?'data-layout with-filter':'data-layout'}><div className="data-main">{view==='overview'&&<><OverviewDashboard rows={filtered} columns={table.columns} onSelect={setChartSelection}/><Chart rows={filtered} columns={table.columns} onSelect={setChartSelection}/>{chartSelection&&<div className="chart-drilldown"><DataTable rows={chartRows} columns={table.columns} filters={{}} openFilter={()=>{}} filterable={false} onClose={()=>setChartSelection(null)} name={`${chartSelection.value} · ${chartRows.length} orders`}/></div>}</>}
         {productSplit ? <>
           <DataTable rows={filtered} columns={table.columns} filters={filters} openFilter={setFilterColumn} name={`${preview.name||'Queue'} - All Products`}/>
           <DataTable rows={productSplit.fullTitle} columns={table.columns} filters={filters} openFilter={setFilterColumn} name={`${preview.name||'Queue'} - Full Title`}/>
@@ -156,3 +315,4 @@ function App() {
   </div>;
 }
 createRoot(document.getElementById('root')).render(<App/>);
+
