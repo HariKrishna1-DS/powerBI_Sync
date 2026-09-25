@@ -299,8 +299,35 @@ def sync_dataframe(df, target=None, validate=True, row_backgrounds=None, color_s
     return sheet.title
 
 
+def retain_completed_orders(df, existing_values):
+    if not existing_values or 'Order Number' not in df.columns:
+        return df
+    headers = existing_values[0]
+    status_column = next((name for name in ('Task Status', 'Status') if name in headers), None)
+    if 'Order Number' not in headers or not status_column:
+        return df
+    records = [dict(zip(headers, row)) for row in existing_values[1:]]
+    completed = [row for row in records
+                 if str(row.get(status_column, '')).strip().casefold() == 'completed and delivered'
+                 and str(row.get('Order Number', '')).strip()]
+    ids = {str(row['Order Number']).strip() for row in completed}
+    result = df.copy()
+    incoming = result['Order Number'].astype(str).str.strip()
+    for column in ('Task Status', 'Status'):
+        if column in result.columns:
+            result.loc[incoming.isin(ids), column] = 'Completed and Delivered'
+    if 'Is Available' in result.columns:
+        result.loc[incoming.isin(ids), 'Is Available'] = False
+    missing = [row for row in completed if str(row['Order Number']).strip() not in set(incoming)]
+    if missing:
+        result = pd.concat([result, pd.DataFrame(missing).reindex(columns=df.columns).fillna('')], ignore_index=True)
+    return result
+
+
 def sync_workbook(df):
     book, primary = target_worksheet()
+    df = apply_status_rules(df, [{'source': 'Workflow Suspended', 'target': 'Awaiting for Clarification'}])
+    df = retain_completed_orders(df, primary.get_all_values())
     synced = [sync_dataframe(df, (book, primary), color_status=True)]
     worksheets = book.worksheets()
     frames = report_frames(df)

@@ -13,8 +13,9 @@ from flask import Flask, jsonify, request, send_file, send_from_directory
 import pandas as pd
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
-from datatrace_sync import run_sync, sync_workbook, apply_status_rules
+from datatrace_sync import run_sync, sync_workbook
 from preview_store import PreviewStore, compare
+from order_reporting import automatic_sync_frame, daily_orders, AUTOMATIC_RULES
 from sync_config import BASE_DIR, TARGET_GSHEET_URL
 
 
@@ -61,12 +62,16 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
     def save_schedule(schedule):
         schedule_path.write_text(json.dumps(schedule, indent=2), encoding='utf-8')
 
-    def begin_sync(trigger='manual', preview_id=None, status_rules=None):
+    def begin_sync(trigger='manual', preview_id=None, previous_id=None, keys=None, ignore=None):
         if not store.list():
             raise ValueError('Capture or import a preview before syncing Google Sheets.')
-        if preview_id is not None:
-            selected = store.get(int(preview_id))
-            apply_status_rules(pd.DataFrame(selected['rows'], columns=selected['columns']), status_rules or [])
+        selected_preview = store.get(int(preview_id)) if preview_id is not None else store.get(store.list()[0]['id'])
+        if previous_id is None:
+            previous_id = next((item['id'] for item in store.list() if item['id'] < selected_preview['id']), None)
+        if previous_id is not None and int(previous_id) >= selected_preview['id']:
+            raise ValueError('The previous preview must be older than the selected preview.')
+        previous_preview = store.get(int(previous_id)) if previous_id is not None else None
+        frame, completed_orders = automatic_sync_frame(selected_preview, previous_preview, keys, ignore)
         if not gate.acquire(blocking=False):
             return False
         with state_lock:
@@ -75,15 +80,14 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
 
         def work():
             try:
-                selected_preview = store.get(int(preview_id)) if preview_id is not None else store.get(store.list()[0]['id'])
-                frame = pd.DataFrame(selected_preview['rows'], columns=selected_preview['columns'])
-                frame = apply_status_rules(frame, status_rules or [])
                 worksheets = syncer(frame)
                 result = {'action': 'sync', 'trigger': trigger, 'error': None,
                           'google_sheet': 'success', 'preview_id': selected_preview['id'],
                           'preview_name': selected_preview['name'], 'rows': len(frame),
                           'worksheets': worksheets, 'stage': 'Finished'}
-                result['status_rules'] = status_rules or []
+                result['status_rules'] = AUTOMATIC_RULES
+                result['completed_orders'] = len(completed_orders)
+                result['previous_id'] = previous_id
                 with state_lock:
                     state.update(result=result, stage='Finished')
             except Exception as exc:
@@ -130,7 +134,11 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
         with schedule_lock:
             schedule = load_schedule()
         return jsonify(previews=store.list(), job=job, schedule=schedule, sheet_url=TARGET_GSHEET_URL,
-                       capabilities={'status_rules': True})
+                       capabilities={'status_rules': True, 'automatic_statuses': True})
+
+    @app.get('/api/daily-orders')
+    def get_daily_orders():
+        return jsonify(rows=daily_orders(store))
 
     @app.post('/api/extract')
     def extract():
@@ -166,10 +174,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
         preview_id = body.get('preview')
         if preview_id is None:
             raise ValueError('Select a preview before syncing Google Sheets.')
-        rules = body.get('status_rules', [])
-        if not isinstance(rules, list):
-            raise ValueError('Status rules must be a list.')
-        if not begin_sync('manual', preview_id, rules):
+        if not begin_sync('manual', preview_id, body.get('previous'), body.get('keys'), body.get('ignore')):
             return jsonify(error='An extraction or sync is already running.'), 409
         return jsonify(accepted=True), 202
 

@@ -57,6 +57,12 @@
 @media(max-width:700px){.workspace{display:block}.sidebar{position:static;width:100%;height:auto;border-right:0;border-bottom:1px solid #e0e6e3}.brand{padding:15px 18px;font-size:17px}.brand span{display:none}.brand-mark{width:30px;height:30px}.sidebar>.nav-label,.preview-heading,.sidebar-footer{display:none}nav{display:flex;padding:0 10px 8px;border:0}.nav-item{justify-content:center;padding:10px 9px;font-size:12px;gap:6px;margin:0}.preview-list{display:flex;overflow-x:auto;padding:0 12px 8px}.preview-item{min-width:156px;max-width:190px;padding:9px;flex-shrink:0}.no-previews{display:none}.topbar{padding:12px 16px;min-height:55px}.breadcrumb{font-size:11px}.breadcrumb span{padding:0 5px}.content{padding:23px 16px 0}.page-heading{flex-direction:column;gap:18px}h1{font-size:25px}.page-heading .primary{max-width:none;width:100%}.metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:20px;padding:20px 0}.metric{padding:0 15px}.metric:nth-child(odd){padding-left:0}.metric:nth-child(even){border:0}.metric strong{font-size:25px}.filter-toolbar{gap:8px}.search-input{flex:1;max-width:none;min-width:150px}.search-input input{width:100%}.row-tally{margin-left:0}.filter-toolbar>select{max-width:155px}.section-heading h2{font-size:15px}.chart-controls{gap:8px}.chart-controls select{max-width:140px}.zoom{width:70px}.compare-controls>label{min-width:120px;flex:1}.match-options{max-width:none}.match-options>div{max-width:calc(100vw - 40px)}.table-footer .inline{gap:4px}.empty-state{min-height:340px}.page-footer{font-size:9px}}
 @media print{body *{visibility:hidden}.filter-panel .print-values,.filter-panel .print-values *{visibility:visible}.filter-panel .print-values{display:block;position:absolute;left:0;top:0;width:100%;background:white;color:black}.print-values p{padding:7px 0}.filter-panel{position:static}}
 .status-report-table td{color:inherit}
+.automatic-statuses{padding:18px 0;border-bottom:1px solid #dce4de;margin-bottom:22px}
+.automatic-statuses>div{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin-top:12px;font-size:13px}
+.daily-orders{margin-bottom:28px;min-width:0}
+.daily-orders>.table-scroll{margin-bottom:28px}
+.daily-orders th,.daily-orders td{padding:12px;text-align:left}
+.daily-orders small{color:#708078}
 .metrics:has(.metric:nth-child(5)){grid-template-columns:repeat(5,minmax(180px,1fr));gap:0;overflow-x:auto}
 .metrics:has(.metric:nth-child(5)) .metric{padding:0 12px;border-right:1px solid #e1e7e3}
 .metrics:has(.metric:nth-child(5)) .metric:first-child{padding-left:0}

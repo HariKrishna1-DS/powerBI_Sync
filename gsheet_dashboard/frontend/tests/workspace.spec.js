@@ -11,7 +11,7 @@ async function fixtures(page) {
   await page.route('**/api/**',async route=>{
     const path=new URL(route.request().url()).pathname;
     let body;
-    if(path==='/api/state') body={previews:activeCaptures,job,schedule,sheet_url:'https://docs.google.com'};
+    if(path==='/api/state') body={previews:activeCaptures,job,schedule,capabilities:{automatic_statuses:true},sheet_url:'https://docs.google.com'};
     else if(path==='/api/extract') {runs++;job.run_id=runs;job.action='extract';job.result={action:'extract',error:'Test credentials missing'};body={accepted:true};}
     else if(path==='/api/sync') {syncs++;syncPreview=route.request().postDataJSON().preview;job.run_id++;job.action='sync';job.result={action:'sync',error:null,preview_name:`preview${syncPreview}`,rows:65,worksheets:['Sheet1','All Products','Full Title','Remaining Products']};body={accepted:true};}
     else if(path==='/api/sync-schedule') {schedule={...schedule,...route.request().postDataJSON()};body=schedule;}
@@ -78,7 +78,7 @@ test('column unique values, filters, charts, comparison and repeat run',async({p
   await expect(page.getByText('Orders added after it')).toBeVisible();
   await expect(page.getByRole('heading',{name:'Orders after ORD-0063'})).toBeVisible();
   await expect(page.getByRole('heading',{name:/Matched orders/})).toBeVisible();
-  await expect(page.getByRole('heading',{name:'Missing and newly added orders'})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Missing (Completed Orders) and newly added orders'})).toBeVisible();
   await expect(page.getByText('Newly added',{exact:true})).toBeVisible();
   await expect(page.getByRole('cell',{name:'Completed',exact:true})).toBeVisible();
   await page.screenshot({path:'test-results/changes-desktop.png',fullPage:true});

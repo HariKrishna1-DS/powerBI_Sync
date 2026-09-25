@@ -109,12 +109,14 @@ Open [http://localhost:8501](http://localhost:8501) in your browser.
 ### 🔄 Google Sheets Sync
 - Extraction saves previews locally; it does not automatically upload them.
 - Manual sync updates the configured primary tab, **All Products**, **Full Title**, **Remaining Products**, and **Status Report**.
-- Select an original **Status_1** and replacement **Status_2**, then click **+** for each rule. **Sync Filters** and **Sync preview to Sheets** upload the selected preview with those replacements.
+- Status rules are automatic on every manual or scheduled sync. **Workflow Suspended** becomes **Awaiting for Clarification**. Order numbers in both **Missing** and **Newly Added** comparison rows become **Completed and Delivered**; completion takes priority.
 - Status colors extend across complete data rows, and Google Sheets column filters are enabled. Status values are read back before success is reported.
-- Rules are saved per preview in browser local storage. Different browsers or ports do not share them. Original saved previews remain unchanged.
+- Manual Status_1/Status_2 controls are removed. Legacy browser rules are ignored. Original saved previews remain unchanged. A first capture has no completion comparison; later captures use the selected older preview, or the preceding saved capture for scheduled syncs. Order Number is required in both comparison inputs before automatic completion can sync.
+- Missing rows remain in the uploaded reports. Completed orders already present in the primary Google Sheets tab are retained on later syncs, including their completion status. The report tabs are regenerated from that combined data.
 - Search and dropdown slicers filter the displayed data; they do not restrict which rows are uploaded.
 - Optional daily automated local trigger to push the latest preview snapshot.
-- The scheduler runs only while the backend is running and uploads the original preview; it does not receive browser-local status replacement rules.
+- The scheduler runs only while the backend is running and applies the same automatic status rules to the latest capture.
+- **Daily Orders** shows one history row per saved capture, filterable by server-local capture date, with total, Missing (Completed Orders), Newly Added, and Unchanged counts against its preceding capture. Select a capture to inspect its data and missing/unchanged tables. First-capture comparison counts are unavailable, not zero. Totals are not summed across captures, avoiding double counting.
 - All five overview metrics share one line, with horizontal scrolling on narrow screens.
 
 ### 📈 Diff & Comparison Engine
@@ -266,6 +268,6 @@ or retiring the corresponding feature.
 ### Test environment notes
 
 Playwright's default base URL is port 8510. The status-rule test explicitly uses
-port 8511 and needs a dashboard there. The workspace suite's empty-state test expects
+port 8520 by default (override with `DASHBOARD_TEST_URL`) and needs a dashboard there. The workspace suite's empty-state test expects
 no saved previews, so the full suite is not suitable unchanged for a populated live
 workspace. Status-rule tests mock API writes and do not update the live sheet.

@@ -11,7 +11,8 @@ http://localhost:8510).
 - Compare any two previews, inspect field-level changes, and export DataTraceChanges to Power BI.
 - Click column headers for unique values, counts and custom filters.
 - Switch chart types, group by any column, and scroll or adjust the chart range.
-- Add Status_1 to Status_2 replacements with the + button, then use Sync Filters.
+- Sync automatically converts Workflow Suspended to Awaiting for Clarification, and both missing/newly added order numbers to Completed and Delivered. Existing completed orders are retained.
+- Daily Orders shows capture history, counts, and missing/unchanged order tables.
 - Sync colors complete data rows by status and updates the Status Report tab.
 
 See the [project README](../README.md#folder-and-file-review) for required folders,
