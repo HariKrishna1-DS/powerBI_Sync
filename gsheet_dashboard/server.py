@@ -265,22 +265,28 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
 
 
 def main():
+    import os
     parser = argparse.ArgumentParser()
-    parser.add_argument('--port', type=int, default=8510)
+    default_host = os.environ.get('HOST', '0.0.0.0' if (os.environ.get('RENDER') or os.environ.get('PORT')) else '127.0.0.1')
+    default_port = int(os.environ.get('PORT', 8510))
+    parser.add_argument('--host', type=str, default=default_host)
+    parser.add_argument('--port', type=int, default=default_port)
     args = parser.parse_args()
     from waitress import serve
+    host = args.host
     port = args.port
-    while port < args.port + 20:
-        with socket.socket() as probe:
-            try:
-                probe.bind(('127.0.0.1', port))
-                break
-            except OSError:
-                port += 1
-    else:
-        raise RuntimeError('No free dashboard port. Choose another port with --port.')
-    print(f'DataTrace Workspace: http://localhost:{port}', flush=True)
-    serve(create_app(start_scheduler=True), host='127.0.0.1', port=port, threads=8)
+    if host == '127.0.0.1':
+        while port < args.port + 20:
+            with socket.socket() as probe:
+                try:
+                    probe.bind((host, port))
+                    break
+                except OSError:
+                    port += 1
+        else:
+            raise RuntimeError('No free dashboard port. Choose another port with --port.')
+    print(f'DataTrace Workspace: http://{host}:{port}', flush=True)
+    serve(create_app(start_scheduler=True), host=host, port=port, threads=8)
 
 
 if __name__ == '__main__':

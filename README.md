@@ -161,6 +161,31 @@ powerBI_Sync/
 
 ---
 
+## ☁️ Deploying to Render
+
+This project includes a pre-configured [`Dockerfile`](file:///c:/Users/Harikrishna/Desktop/powerBI_Sync/Dockerfile) and [`render.yaml`](file:///c:/Users/Harikrishna/Desktop/powerBI_Sync/render.yaml) Blueprint to run both Python and Node.js Puppeteer (Headless Chromium) seamlessly on [Render.com](https://render.com).
+
+### Option 1: Automatic Deploy via Render Blueprint (Recommended)
+1. Push your repository code to GitHub (`https://github.com/HariKrishna1-DS/powerBI_Sync`).
+2. Log in to [Render Dashboard](https://dashboard.render.com/) and click **New + > Blueprint**.
+3. Connect your GitHub repository. Render will automatically detect [`render.yaml`](file:///c:/Users/Harikrishna/Desktop/powerBI_Sync/render.yaml).
+4. Fill in the environment variables when prompted (`DATATRACE_USERNAME`, `DATATRACE_PASSWORD`, `GOOGLE_SERVICE_ACCOUNT_JSON`).
+5. Click **Apply**.
+
+### Option 2: Manual Web Service Setup
+1. Create a **New Web Service** on Render.
+2. Connect your GitHub repository.
+3. Select **Docker** as the Runtime.
+4. Set the **Dockerfile Path** to `./Dockerfile`.
+5. Under **Environment Variables**, add:
+   - `DATATRACE_USERNAME` = `your_username`
+   - `DATATRACE_PASSWORD` = `your_password`
+   - `DATATRACE_HEADLESS` = `true`
+   - `GOOGLE_SERVICE_ACCOUNT_JSON` = contents of your `service_account.json`
+6. *(Optional)* Add a **Persistent Disk** mounted at `/app/gsheet_dashboard/previews` so your saved data previews persist across app restarts.
+
+---
+
 ## 📄 License & Notes
 
 DataTrace Workspace is designed as a local web application running on Windows endpoints. No external AI inference or third-party cloud analytics tools are used at runtime.

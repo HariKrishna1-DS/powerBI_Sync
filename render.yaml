@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: datatrace-workspace
+    env: docker
+    plan: free
+    region: oregon
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: DATATRACE_HEADLESS
+        value: "true"
+      - key: DATATRACE_USERNAME
+        sync: false
+      - key: DATATRACE_PASSWORD
+        sync: false
+      - key: DATATRACE_QUEUE_URL
+        sync: false
+      - key: GOOGLE_SERVICE_ACCOUNT_JSON
+        sync: false
+    disk:
+      name: datatrace-data
+      mountPath: /app/gsheet_dashboard/previews
+      sizeGB: 1
