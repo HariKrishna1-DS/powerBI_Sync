@@ -1,0 +1,17 @@
+.git
+.venv
+**/node_modules
+**/__pycache__
+**/*.pyc
+**/.env
+**/.env.*
+**/*service_account*.json
+**/.streamlit/secrets.toml
+gsheet_dashboard/previews
+gsheet_dashboard/frontend/dist
+gsheet_dashboard/frontend/test-results
+gsheet_dashboard/frontend/playwright-report
+gsheet_dashboard/queue_data*
+gsheet_dashboard/sync_status.json
+gsheet_dashboard/sync_schedule.json
+*.log

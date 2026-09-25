@@ -190,6 +190,29 @@ This project includes a pre-configured [`Dockerfile`](file:///c:/Users/Harikrish
 
 DataTrace Workspace is designed as a local web application running on Windows endpoints. No external AI inference or third-party cloud analytics tools are used at runtime.
 
+## Render Chromium launch errors
+
+If extraction reports `Failed to launch the browser process: Code: 1`, inspect
+the Render logs for Chromium's underlying error. The Docker image uses Node 22,
+system Chromium at `/usr/bin/chromium`, and these runtime settings:
+
+```text
+DATATRACE_HEADLESS=true
+PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+DATATRACE_CHROME_NO_SANDBOX=true
+```
+
+The no-sandbox setting is limited to Linux containers that explicitly enable it;
+local desktop runs keep their normal sandbox. Disabling Chromium's sandbox reduces
+browser isolation, so use this container only with the intended trusted portal.
+Linux launches also use disk-backed temporary storage instead of small `/dev/shm`.
+
+After pushing the updated Dockerfile and scraper support files, rebuild and deploy
+the service in Render. The image build runs `node gsheet_dashboard/check_browser.cjs`
+without portal credentials and must print `Chromium check passed`. The same command
+can diagnose browser startup in a running container. The Docker build excludes local
+credentials, dependencies, and previews; provide credentials through Render secrets.
+
 ## Folder and File Review
 
 Checked against the current project on September 25, 2026. No files were deleted

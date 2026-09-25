@@ -1,6 +1,7 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
+const {browserOptions} = require('./browser_options.cjs');
 
 require('dotenv').config({ path: path.join(__dirname, '.env'), quiet: true });
 const config = require('./sync_config.json');
@@ -18,15 +19,11 @@ const outputPath = process.env.DATATRACE_OUTPUT_JSON || path.join(__dirname, 'qu
 (async () => {
     let browser;
     try {
-        const headless = process.env.DATATRACE_HEADLESS !== 'false';
+        const options = browserOptions();
+        const headless = options.headless;
         console.log(`[*] Launching Puppeteer Chromium Browser (headless=${headless}, timeout=${TIMEOUT_MS}ms)...`);
-        console.log(`[*] Chromium executable: ${await puppeteer.executablePath()}`);
-        browser = await puppeteer.launch({
-            headless,
-            defaultViewport: null,
-            timeout: TIMEOUT_MS,
-            args: ['--start-maximized']
-        });
+        console.log(`[*] Chromium executable: ${options.executablePath || await puppeteer.executablePath()}`);
+        browser = await puppeteer.launch(options);
         console.log('[+] Chromium launched successfully.');
 
         const page = await browser.newPage();

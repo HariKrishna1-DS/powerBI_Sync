@@ -23,12 +23,13 @@ const puppeteer = require('puppeteer');
         return page;
     };
     let captured;
-    const fakeProcess = {env: {DATATRACE_USERNAME: 'fixture', DATATRACE_PASSWORD: 'fixture'}, exitCode: 0};
+    const fakeProcess = {env: {DATATRACE_USERNAME: 'fixture', DATATRACE_PASSWORD: 'fixture', DATATRACE_TIMEOUT_MS: '30000'}, exitCode: 0};
     try {
         await vm.runInNewContext(fs.readFileSync(path.join(__dirname, 'scrape_datatrace.js'), 'utf8'), {
             __dirname, console, setTimeout, process: fakeProcess,
             require(name) {
-                if (name === 'puppeteer') return {launch: async () => browser};
+                if (name === 'puppeteer') return {launch: async () => browser, executablePath: () => puppeteer.executablePath()};
+                if (name === './browser_options.cjs') return {browserOptions: () => require('./browser_options.cjs').browserOptions(fakeProcess.env, process.platform)};
                 if (name === 'dotenv') return {config() {}};
                 if (name === 'fs') return {writeFileSync: (_path, data) => {captured = JSON.parse(data);}};
                 return require(name);
