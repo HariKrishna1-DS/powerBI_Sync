@@ -13,7 +13,7 @@ from flask import Flask, jsonify, request, send_file, send_from_directory
 import pandas as pd
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
-from datatrace_sync import run_sync, sync_workbook
+from datatrace_sync import run_sync, sync_workbook, apply_status_rules
 from preview_store import PreviewStore, compare
 from sync_config import BASE_DIR, TARGET_GSHEET_URL
 
@@ -61,11 +61,12 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
     def save_schedule(schedule):
         schedule_path.write_text(json.dumps(schedule, indent=2), encoding='utf-8')
 
-    def begin_sync(trigger='manual', preview_id=None):
+    def begin_sync(trigger='manual', preview_id=None, status_rules=None):
         if not store.list():
             raise ValueError('Capture or import a preview before syncing Google Sheets.')
         if preview_id is not None:
-            store.get(int(preview_id))
+            selected = store.get(int(preview_id))
+            apply_status_rules(pd.DataFrame(selected['rows'], columns=selected['columns']), status_rules or [])
         if not gate.acquire(blocking=False):
             return False
         with state_lock:
@@ -76,11 +77,13 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
             try:
                 selected_preview = store.get(int(preview_id)) if preview_id is not None else store.get(store.list()[0]['id'])
                 frame = pd.DataFrame(selected_preview['rows'], columns=selected_preview['columns'])
+                frame = apply_status_rules(frame, status_rules or [])
                 worksheets = syncer(frame)
                 result = {'action': 'sync', 'trigger': trigger, 'error': None,
                           'google_sheet': 'success', 'preview_id': selected_preview['id'],
                           'preview_name': selected_preview['name'], 'rows': len(frame),
                           'worksheets': worksheets, 'stage': 'Finished'}
+                result['status_rules'] = status_rules or []
                 with state_lock:
                     state.update(result=result, stage='Finished')
             except Exception as exc:
@@ -126,7 +129,8 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
             job = dict(state)
         with schedule_lock:
             schedule = load_schedule()
-        return jsonify(previews=store.list(), job=job, schedule=schedule, sheet_url=TARGET_GSHEET_URL)
+        return jsonify(previews=store.list(), job=job, schedule=schedule, sheet_url=TARGET_GSHEET_URL,
+                       capabilities={'status_rules': True})
 
     @app.post('/api/extract')
     def extract():
@@ -162,7 +166,10 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
         preview_id = body.get('preview')
         if preview_id is None:
             raise ValueError('Select a preview before syncing Google Sheets.')
-        if not begin_sync('manual', preview_id):
+        rules = body.get('status_rules', [])
+        if not isinstance(rules, list):
+            raise ValueError('Status rules must be a list.')
+        if not begin_sync('manual', preview_id, rules):
             return jsonify(error='An extraction or sync is already running.'), 409
         return jsonify(accepted=True), 202
 

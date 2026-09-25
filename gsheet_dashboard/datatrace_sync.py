@@ -48,6 +48,22 @@ REMAINING_PRODUCT_FIELDS = [
 ]
 REPORT_SHEETS = [('All Products', ALL_PRODUCT_FIELDS), ('Full Title', FULL_TITLE_FIELDS),
                  ('Remaining Products', REMAINING_PRODUCT_FIELDS)]
+STATUS_COLORS = {
+    'available': '#d9ead3',
+    'in progress': '#00b050',
+    'qc in progress': '#f4b183',
+    'ready to send': '#ffff00',
+    'search in progress': '#ffffff',
+    'typing in progress': '#00b050',
+    'waiting for effective date': '#ffffff',
+    'assign to abs': '#a6a6a6',
+    'need to assign abs': '#a6a6a6',
+    'awaiting for clarification': '#a66ad3',
+    'cancelled': '#f4cccc',
+    'completed and delivered': '#fff2cc',
+    'task suspended': '#c9daf8',
+    'workflow suspended': '#c9daf8',
+}
 
 
 def target_worksheet():
@@ -134,6 +150,54 @@ def report_frames(df):
             report_frame(df, REMAINING_PRODUCT_FIELDS, '__remaining__')]
 
 
+def status_color(status):
+    key = str(status or '').strip().casefold()
+    if key in STATUS_COLORS:
+        return STATUS_COLORS[key]
+    hue = 0
+    for character in key:
+        hue = (hue * 31 + ord(character)) % 360
+    import colorsys
+    red, green, blue = colorsys.hls_to_rgb(hue / 360, 0.78, 0.58)
+    return '#%02x%02x%02x' % (round(red * 255), round(green * 255), round(blue * 255))
+
+
+def apply_status_rules(df, rules):
+    if not isinstance(rules, list):
+        raise ValueError('Status rules must be a list.')
+    mapping = {}
+    for rule in rules:
+        if not isinstance(rule, dict):
+            raise ValueError('Invalid status rule.')
+        source, target = rule.get('source'), rule.get('target')
+        if not isinstance(source, str) or not isinstance(target, str) or not source.strip() or not target.strip():
+            raise ValueError('Choose both statuses for each rule.')
+        key = source.strip().casefold()
+        if key in mapping:
+            raise ValueError('Each Status_1 can have only one replacement.')
+        mapping[key] = target.strip()
+    result = df.copy()
+    columns = [column for column in ('Task Status', 'Status') if column in result.columns]
+    if mapping and not columns:
+        raise ValueError('This preview has no status column.')
+    for column in columns:
+        result[column] = result[column].map(lambda value: mapping.get(str(value).strip().casefold(), value))
+    if 'Is Available' in result.columns and columns:
+        result['Is Available'] = result[columns[0]].astype(str).str.strip().str.casefold().eq('available')
+    return result
+
+
+def status_report_frame(df):
+    column = 'Task Status' if 'Task Status' in df.columns else 'Status' if 'Status' in df.columns else None
+    if not column:
+        return pd.DataFrame(columns=['Status', 'Orders', 'Share'])
+    counts = df[column].fillna('').astype(str).map(lambda value: value.strip() or '(Blank)').value_counts()
+    total = len(df) or 1
+    rows = [{'Status': status, 'Orders': int(count), 'Share': f'{(count / total) * 100:.1f}%'}
+            for status, count in counts.items()]
+    return pd.DataFrame(rows, columns=['Status', 'Orders', 'Share'])
+
+
 def export_to_excel_and_csv(df, output_prefix=None):
     prefix = Path(output_prefix) if output_prefix else BASE_DIR / 'queue_data_sheet2'
     csv_path, excel_path = prefix.with_suffix('.csv'), prefix.with_suffix('.xlsx')
@@ -152,23 +216,51 @@ def export_to_excel_and_csv(df, output_prefix=None):
     return str(excel_path), str(csv_path)
 
 
-def sheet_cell(value):
+def sheet_color(hex_color):
+    value = str(hex_color or '').lstrip('#')
+    if len(value) != 6:
+        return None
+    try:
+        red, green, blue = [int(value[index:index + 2], 16) / 255 for index in (0, 2, 4)]
+    except ValueError:
+        return None
+    return {'red': red, 'green': green, 'blue': blue}
+
+
+def sheet_cell(value, background=None):
     if pd.isna(value):
-        return {}
-    if isinstance(value, bool):
-        key = 'boolValue'
+        cell = {}
+    elif isinstance(value, bool):
+        cell = {'userEnteredValue': {'boolValue': value}}
     elif isinstance(value, (int, float)):
-        key = 'numberValue'
+        cell = {'userEnteredValue': {'numberValue': value}}
     else:
-        key, value = 'stringValue', str(value)
-    return {'userEnteredValue': {key: value}}
+        cell = {'userEnteredValue': {'stringValue': str(value)}}
+    color = sheet_color(background)
+    if color:
+        cell['userEnteredFormat'] = {'backgroundColor': color}
+    return cell
 
 
-def sync_dataframe(df, target=None, validate=True):
+def status_row_format_request(df, sheet_id):
+    column = next((name for name in ('Task Status', 'Status') if name in df.columns), None)
+    if column is None:
+        return None
+    return {'updateCells': {
+        'range': {'sheetId': sheet_id, 'startRowIndex': 1,
+                  'startColumnIndex': 0, 'endColumnIndex': len(df.columns)},
+        'rows': [{'values': [{'userEnteredFormat': {'backgroundColor': sheet_color(status_color(value))}}
+                            for _ in df.columns]} for value in df[column].fillna('')],
+        'fields': 'userEnteredFormat.backgroundColor'}}
+
+
+def sync_dataframe(df, target=None, validate=True, row_backgrounds=None, color_status=False):
     if validate:
         validate_queue(df)
     book, sheet = target or target_worksheet()
     values = [list(df.columns)] + df.astype(object).values.tolist()
+    include_format = row_backgrounds is not None
+    row_backgrounds = row_backgrounds or [None] * len(values)
     requests = []
     for dimension, required, existing in [('ROWS', len(values), sheet.row_count),
                                            ('COLUMNS', len(df.columns), sheet.col_count)]:
@@ -177,8 +269,16 @@ def sync_dataframe(df, target=None, validate=True):
                                                  'length': required - existing}})
     # Full-sheet range clears trailing values in the same atomic request.
     requests.append({'updateCells': {'range': {'sheetId': sheet.id},
-                     'rows': [{'values': [sheet_cell(v) for v in row]} for row in values],
-                     'fields': 'userEnteredValue'}})
+                     'rows': [{'values': [sheet_cell(v, row_backgrounds[index] if index < len(row_backgrounds) else None)
+                                          for v in row]} for index, row in enumerate(values)],
+                     'fields': 'userEnteredValue,userEnteredFormat.backgroundColor' if include_format else 'userEnteredValue'}})
+    if color_status:
+        status_format = status_row_format_request(df, sheet.id)
+        if status_format:
+            requests.append(status_format)
+        requests.append({'setBasicFilter': {'filter': {'range': {
+            'sheetId': sheet.id, 'startRowIndex': 0, 'endRowIndex': len(values),
+            'startColumnIndex': 0, 'endColumnIndex': len(df.columns)}}}})
     try:
         book.batch_update({'requests': requests})
     except Exception as exc:
@@ -186,6 +286,13 @@ def sync_dataframe(df, target=None, validate=True):
         raise RuntimeError(f'Google Sheets write failed. Share the target with {email} as Editor. Check '
                            'worksheet protection, API quota and connectivity. Local exports are retained.') from exc
     received = sheet.get_all_values()
+    for column in ('Task Status', 'Status'):
+        if column in df.columns:
+            offset = list(df.columns).index(column)
+            expected_statuses = df[column].fillna('').astype(str).tolist()
+            actual_statuses = [row[offset] if len(row) > offset else '' for row in received[1:]]
+            if actual_statuses != expected_statuses:
+                raise RuntimeError(f'Google Sheets status verification failed on {sheet.title}. Retry the sync.')
     if (len(received) != len(values) or not received or received[0] != list(df.columns)
             or (validate and any(len(row) != len(df.columns) for row in received))):
         raise RuntimeError('Google Sheets write returned, but row/column verification failed. Check the worksheet before retrying.')
@@ -194,7 +301,7 @@ def sync_dataframe(df, target=None, validate=True):
 
 def sync_workbook(df):
     book, primary = target_worksheet()
-    synced = [sync_dataframe(df, (book, primary))]
+    synced = [sync_dataframe(df, (book, primary), color_status=True)]
     worksheets = book.worksheets()
     frames = report_frames(df)
     for index, ((title, _), frame) in enumerate(zip(REPORT_SHEETS, frames), start=1):
@@ -203,7 +310,16 @@ def sync_workbook(df):
         sheet = worksheets[index]
         if sheet.title != title:
             sheet.update_title(title)
-        synced.append(sync_dataframe(frame, (book, sheet), validate=False))
+        synced.append(sync_dataframe(frame, (book, sheet), validate=False, color_status=True))
+    status_frame = status_report_frame(df)
+    index = len(REPORT_SHEETS) + 1
+    if len(worksheets) <= index:
+        worksheets.append(book.add_worksheet(title='Status Report', rows=1, cols=1))
+    sheet = worksheets[index]
+    if sheet.title != 'Status Report':
+        sheet.update_title('Status Report')
+    backgrounds = [None] + [status_color(value) for value in status_frame['Status'].tolist()]
+    synced.append(sync_dataframe(status_frame, (book, sheet), validate=False, row_backgrounds=backgrounds))
     return synced
 
 

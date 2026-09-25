@@ -11,6 +11,34 @@ import datatrace_sync as sync
 
 
 class SyncTests(unittest.TestCase):
+    def test_status_rules_replace_original_values_once(self):
+        source = pd.DataFrame({'Task Status': [' Workflow Suspended ', 'Available', 'Other'],
+                               'Is Available': [False, True, False]})
+        result = sync.apply_status_rules(source, [
+            {'source': 'Workflow Suspended', 'target': 'Available'},
+            {'source': 'Available', 'target': 'Search in Progress'}])
+        self.assertEqual(result['Task Status'].tolist(), ['Available', 'Search in Progress', 'Other'])
+        self.assertEqual(result['Is Available'].tolist(), [True, False, False])
+        self.assertEqual(source.iloc[1]['Task Status'], 'Available')
+        with self.assertRaises(ValueError):
+            sync.apply_status_rules(source, [{'source': 'Available', 'target': 'A'},
+                                            {'source': 'available', 'target': 'B'}])
+
+    def test_queue_status_cells_have_colors_and_filter(self):
+        df = pd.DataFrame({'Status': ['Awaiting for Clarification', 'Search in Progress'], 'Order': ['001', '002']})
+        book, sheet = Mock(), Mock(id=0, row_count=20, col_count=10, title='Queue')
+        sheet.get_all_values.return_value = [list(df.columns)] + df.values.tolist()
+        sync.sync_dataframe(df, (book, sheet), validate=False, color_status=True)
+        requests = book.batch_update.call_args.args[0]['requests']
+        color_update = requests[-2]['updateCells']
+        self.assertEqual(color_update['range']['startColumnIndex'], 0)
+        self.assertEqual(color_update['range']['endColumnIndex'], len(df.columns))
+        self.assertEqual(color_update['range']['startRowIndex'], 1)
+        self.assertEqual(color_update['fields'], 'userEnteredFormat.backgroundColor')
+        self.assertEqual(color_update['rows'][0]['values'][0], color_update['rows'][0]['values'][1])
+        self.assertEqual(color_update['rows'][0]['values'][0]['userEnteredFormat']['backgroundColor'], sync.sheet_color('#a66ad3'))
+        self.assertEqual(requests[-1]['setBasicFilter']['filter']['range']['endRowIndex'], 3)
+
     def frame(self):
         return pd.DataFrame([{'Arrival Time': '09/22/2026 01:00 PM',
                               'Task Status': 'Available', 'Parcel ID': '00123',
@@ -52,6 +80,21 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(remaining['No'].tolist(), [1])
         self.assertEqual(remaining['TraceQ Id'].tolist(), [''])
 
+    def test_status_report_counts_and_colors(self):
+        source = pd.DataFrame([
+            {'Task Status': 'Completed and delivered'},
+            {'Task Status': 'Completed and delivered'},
+            {'Task Status': 'Typing in Progress'},
+            {'Task Status': 'Awaiting for Clarification'},
+        ])
+        report = sync.status_report_frame(source)
+        self.assertEqual(list(report.columns), ['Status', 'Orders', 'Share'])
+        self.assertEqual(report.loc[0].to_dict(), {
+            'Status': 'Completed and delivered', 'Orders': 2, 'Share': '50.0%'
+        })
+        self.assertEqual(sync.status_color('Typing in Progress'), '#00b050')
+        self.assertEqual(sync.status_color('Awaiting for Clarification'), '#a66ad3')
+
     def test_atomic_replace_gid_zero_and_literals(self):
         df = self.frame()
         book, sheet = Mock(), Mock(id=0, row_count=1, col_count=1, title='Actual tab')
@@ -64,6 +107,15 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(update['fields'], 'userEnteredValue')
         self.assertEqual(update['rows'][1]['values'][2]['userEnteredValue'], {'stringValue': '00123'})
         self.assertEqual(update['rows'][1]['values'][3]['userEnteredValue'], {'stringValue': '=1+1'})
+
+    def test_status_report_sync_applies_row_backgrounds(self):
+        df = pd.DataFrame([{'Status': 'Ready to send', 'Orders': 1, 'Share': '100.0%'}])
+        book, sheet = Mock(), Mock(id=7, row_count=1, col_count=1, title='Status Report')
+        sheet.get_all_values.return_value = [list(df.columns)] + df.values.tolist()
+        sync.sync_dataframe(df, (book, sheet), validate=False, row_backgrounds=[None, '#ffff00'])
+        update = book.batch_update.call_args.args[0]['requests'][-1]['updateCells']
+        self.assertEqual(update['fields'], 'userEnteredValue,userEnteredFormat.backgroundColor')
+        self.assertIn('userEnteredFormat', update['rows'][1]['values'][0])
 
     def test_empty_data_never_writes(self):
         book = Mock()

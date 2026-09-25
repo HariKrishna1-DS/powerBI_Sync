@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Activity, ArrowDown, ArrowUp, ArrowDownToLine, ArrowLeftRight, BarChart3, Check, ChevronLeft, ChevronRight, Clock3, CloudUpload, Database, FileSpreadsheet, Filter, LoaderCircle, Play, Plus, Printer, Search, SlidersHorizontal, Table2, Trash2, Upload, X } from 'lucide-react';
+import { Activity, ArrowDown, ArrowUp, ArrowDownToLine, ArrowLeftRight, BarChart3, Check, ChevronLeft, ChevronRight, Clock3, CloudUpload, Database, FileSpreadsheet, Filter, LoaderCircle, Maximize2, Minimize2, Play, Plus, Printer, Search, SlidersHorizontal, Table2, Trash2, Upload, X } from 'lucide-react';
 import { ResponsiveContainer, BarChart, Bar, LineChart, Line, AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Brush } from 'recharts';
 import './style.css';
 
@@ -11,6 +11,34 @@ const str = value => value == null ? '' : String(value);
 const label = value => str(value) || '(Blank)';
 const normalized = value => str(value).trim().toLowerCase();
 const badgeClass = value => normalized(value).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+const STATUS_COLORS = {
+  'available': '#d9ead3',
+  'in progress': '#00b050',
+  'qc in progress': '#f4b183',
+  'ready to send': '#ffff00',
+  'search in progress': '#ffffff',
+  'typing in progress': '#00b050',
+  'waiting for effective date': '#ffffff',
+  'assign to abs': '#a6a6a6',
+  'need to assign abs': '#a6a6a6',
+  'awaiting for clarification': '#a66ad3',
+  'cancelled': '#f4cccc',
+  'completed and delivered': '#fff2cc',
+  'task suspended': '#c9daf8',
+  'workflow suspended': '#c9daf8'
+};
+function statusColor(value) {
+  const key = normalized(value);
+  if (STATUS_COLORS[key]) return STATUS_COLORS[key];
+  let hash = 0;
+  for (let i = 0; i < key.length; i += 1) hash = (hash * 31 + key.charCodeAt(i)) % 360;
+  return `hsl(${hash}, 58%, 78%)`;
+}
+function textColorForBg(color) {
+  if (!color.startsWith('#')) return '#1f2937';
+  const r = parseInt(color.slice(1, 3), 16), g = parseInt(color.slice(3, 5), 16), b = parseInt(color.slice(5, 7), 16);
+  return (r * 299 + g * 587 + b * 114) / 1000 > 155 ? '#111827' : '#ffffff';
+}
 async function api(url, options = {}) {
   const response = await fetch(url, options);
   if (!response.ok) { let body; try { body = await response.json(); } catch { body = {}; } throw Error(body.error || `Request failed (${response.status})`); }
@@ -44,6 +72,70 @@ function matches(row, filters, except) {
 }
 function IconButton({title, children, ...props}) { return <button className="icon-button" title={title} aria-label={title} {...props}>{children}</button>; }
 
+const REPORT_STATUSES = ['QC in Progress', 'Typing in Progress', 'Search in Progress', 'Completed and delivered', 'Awaiting for Clarification', 'Waiting for Effective Date', 'Ready to send', 'Assign to ABS', 'Need to Assign ABS', 'Cancelled', 'Need to add subscription (Paypal)'];
+
+function StatusRules({preview, rules, onChange, onSync, disabled}) {
+  const [source, setSource] = useState('');
+  const [target, setTarget] = useState('');
+  const column = preview.columns.includes('Task Status') ? 'Task Status' : 'Status';
+  const options = [...new Set(preview.rows.map(row => str(row[column]).trim()).filter(Boolean))].sort();
+  function add() {
+    if (!source || !target) return;
+    onChange([...rules, {source, target}]);
+    setSource(''); setTarget('');
+  }
+  return <section className="status-rules" aria-label="Status replacement rules">
+    <div className="section-heading"><div><span className="eyebrow">AI - STATUS REPORT</span><h2>Status replacements</h2></div><button className="primary" disabled={disabled || !rules.length} onClick={onSync}><CloudUpload size={16}/>Sync Filters</button></div>
+    <div className="status-rule-inputs">
+      <label>Status_1<select aria-label="Status_1" value={source} onChange={e=>setSource(e.target.value)} disabled={disabled}><option value="">Select original status</option>{options.filter(value=>!rules.some(rule=>normalized(rule.source)===normalized(value))).map(value=><option key={value}>{value}</option>)}</select></label>
+      <ArrowLeftRight size={18}/>
+      <label>Status_2<select aria-label="Status_2" value={target} onChange={e=>setTarget(e.target.value)} disabled={disabled}><option value="">Select replacement status</option>{REPORT_STATUSES.map(value=><option key={value}>{value}</option>)}</select></label>
+      <IconButton title="Add status rule" onClick={add} disabled={disabled || !source || !target}><Plus size={20}/></IconButton>
+    </div>
+    <div className="status-rule-list">{rules.map((rule,index)=><div className="status-rule" key={rule.source}><span>{rule.source}</span><span aria-label="replaced with">&#8594;</span><span className="status-rule-target" style={{background:statusColor(rule.target),color:textColorForBg(statusColor(rule.target))}}>{rule.target}</span><small>{preview.rows.filter(row=>normalized(row[column])===normalized(rule.source)).length} rows</small><IconButton title={`Remove ${rule.source} rule`} disabled={disabled} onClick={()=>onChange(rules.filter((_,i)=>i!==index))}><X size={16}/></IconButton></div>)}</div>
+  </section>;
+}
+
+function SideDrawer({ title, rows, columns, onClose }) {
+  if (!title) return null;
+  return (
+    <div className="drawer-backdrop" onClick={onClose}>
+      <div className="side-drawer" onClick={e => e.stopPropagation()}>
+        <div className="drawer-header">
+          <div>
+            <h3>{title}</h3>
+            <p>{rows.length.toLocaleString()} matching records</p>
+          </div>
+          <IconButton title="Close drawer" onClick={onClose}><X size={19}/></IconButton>
+        </div>
+        <div className="drawer-body">
+          <DataTable rows={rows} columns={columns} filters={{}} openFilter={() => {}} filterable={false} name={title} onClose={onClose} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MaximizedModal({ title, subtitle, children, onClose }) {
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="maximized-modal" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <div>
+            <h3>{title}</h3>
+            {subtitle && <p style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>{subtitle}</p>}
+          </div>
+          <IconButton title="Close modal" onClick={onClose}><X size={20}/></IconButton>
+        </div>
+        <div className="modal-body">
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 function FilterPanel({column, rows, filters, setFilters, close}) {
   const [search, setSearch] = useState('');
   const current = filters[column] || {};
@@ -72,106 +164,165 @@ function FilterPanel({column, rows, filters, setFilters, close}) {
   const ogCol = columns.includes('Online/ Ground') ? 'Online/ Ground' : columns.includes('Online/Ground') ? 'Online/Ground' : null;
   const clientCol = columns.includes('Client') ? 'Client' : null;
   const prodCol = columns.includes('Product') ? 'Product' : null;
+  const statusCol = columns.includes('Task Status') ? 'Task Status' : columns.includes('Status') ? 'Status' : null;
 
-  const onlineCount = useMemo(() => ogCol ? rows.filter(r => str(r[ogCol]).toLowerCase().includes('online')).length : 0, [rows, ogCol]);
-  const groundCount = useMemo(() => ogCol ? rows.filter(r => str(r[ogCol]).toLowerCase().includes('ground')).length : 0, [rows, ogCol]);
-  const onlinePct = rows.length ? ((onlineCount / rows.length) * 100).toFixed(1) : 0;
-  const groundPct = rows.length ? ((groundCount / rows.length) * 100).toFixed(1) : 0;
+  // Slicer State
+  const [selectedClients, setSelectedClients] = useState([]);
+  const [selectedOg, setSelectedOg] = useState([]);
+  const [selectedProducts, setSelectedProducts] = useState([]);
+  const [showSlicers, setShowSlicers] = useState(true);
 
-  const clientCounts = useMemo(() => {
+  // Maximize Modal State
+  const [maximized, setMaximized] = useState(null);
+
+  // Extract Slicer Options from base rows
+  const allClients = useMemo(() => {
     if (!clientCol) return [];
     const map = new Map();
     rows.forEach(r => { const c = label(r[clientCol]); map.set(c, (map.get(c) || 0) + 1); });
     return [...map].sort((a,b) => b[1] - a[1]);
   }, [rows, clientCol]);
 
-  const productCounts = useMemo(() => {
+  const allOg = useMemo(() => {
+    if (!ogCol) return [];
+    const on = rows.filter(r => str(r[ogCol]).toLowerCase().includes('online')).length;
+    const gr = rows.filter(r => str(r[ogCol]).toLowerCase().includes('ground')).length;
+    return [['Online', on], ['Ground', gr]].filter(x => x[1] > 0);
+  }, [rows, ogCol]);
+
+  const allProducts = useMemo(() => {
     if (!prodCol) return [];
     const map = new Map();
     rows.forEach(r => { const p = label(r[prodCol]); map.set(p, (map.get(p) || 0) + 1); });
     return [...map].sort((a,b) => b[1] - a[1]);
   }, [rows, prodCol]);
 
-  const fullTitleCount = useMemo(() => prodCol ? rows.filter(r => normalized(r[prodCol]) === 'full title').length : 0, [rows, prodCol]);
-  const fullTitlePct = rows.length ? ((fullTitleCount / rows.length) * 100).toFixed(1) : 0;
+  // Apply Slicers to filter rows
+  const filteredRows = useMemo(() => {
+    return rows.filter(r => {
+      if (selectedClients.length > 0 && clientCol) {
+        if (!selectedClients.includes(label(r[clientCol]))) return false;
+      }
+      if (selectedOg.length > 0 && ogCol) {
+        const val = str(r[ogCol]).toLowerCase().includes('online') ? 'Online' : str(r[ogCol]).toLowerCase().includes('ground') ? 'Ground' : 'Other';
+        if (!selectedOg.includes(val)) return false;
+      }
+      if (selectedProducts.length > 0 && prodCol) {
+        if (!selectedProducts.includes(label(r[prodCol]))) return false;
+      }
+      return true;
+    });
+  }, [rows, selectedClients, selectedOg, selectedProducts, clientCol, ogCol, prodCol]);
+
+  // Metrics calculation
+  const onlineCount = useMemo(() => ogCol ? filteredRows.filter(r => str(r[ogCol]).toLowerCase().includes('online')).length : 0, [filteredRows, ogCol]);
+  const groundCount = useMemo(() => ogCol ? filteredRows.filter(r => str(r[ogCol]).toLowerCase().includes('ground')).length : 0, [filteredRows, ogCol]);
+  const onlinePct = filteredRows.length ? ((onlineCount / filteredRows.length) * 100).toFixed(1) : 0;
+  const groundPct = filteredRows.length ? ((groundCount / filteredRows.length) * 100).toFixed(1) : 0;
+
+  const clientCounts = useMemo(() => {
+    if (!clientCol) return [];
+    const map = new Map();
+    filteredRows.forEach(r => { const c = label(r[clientCol]); map.set(c, (map.get(c) || 0) + 1); });
+    return [...map].sort((a,b) => b[1] - a[1]);
+  }, [filteredRows, clientCol]);
+
+  const productCounts = useMemo(() => {
+    if (!prodCol) return [];
+    const map = new Map();
+    filteredRows.forEach(r => { const p = label(r[prodCol]); map.set(p, (map.get(p) || 0) + 1); });
+    return [...map].sort((a,b) => b[1] - a[1]);
+  }, [filteredRows, prodCol]);
+
+  const statusCounts = useMemo(() => {
+    if (!statusCol) return [];
+    const map = new Map();
+    filteredRows.forEach(r => {
+      const status = label(r[statusCol]);
+      map.set(status, (map.get(status) || 0) + 1);
+    });
+    return [...map]
+      .sort((a,b) => b[1] - a[1] || a[0].localeCompare(b[0], undefined, {numeric: true}))
+      .map(([name, count]) => ({name, count, percent: filteredRows.length ? ((count / filteredRows.length) * 100).toFixed(1) : '0.0'}));
+  }, [filteredRows, statusCol]);
+
+  const fullTitleCount = useMemo(() => prodCol ? filteredRows.filter(r => normalized(r[prodCol]) === 'full title').length : 0, [filteredRows, prodCol]);
+  const fullTitlePct = filteredRows.length ? ((fullTitleCount / filteredRows.length) * 100).toFixed(1) : 0;
 
   const ogPieData = [
     { name: 'Online', count: onlineCount, color: '#147d72' },
     { name: 'Ground', count: groundCount, color: '#d79a32' }
   ].filter(d => d.count > 0);
 
-  const topClientsData = useMemo(() => clientCounts.slice(0, 8).map(([name, count]) => ({ name, count })), [clientCounts]);
-  const topProductsData = useMemo(() => productCounts.slice(0, 8).map(([name, count]) => ({ name, count })), [productCounts]);
+  const topClientsData = useMemo(() => clientCounts.slice(0, 10).map(([name, count]) => ({ name, count })), [clientCounts]);
+  const topProductsData = useMemo(() => productCounts.slice(0, 10).map(([name, count]) => ({ name, count })), [productCounts]);
 
   const clientOgData = useMemo(() => {
     if (!clientCol || !ogCol) return [];
     const top6 = clientCounts.slice(0, 6).map(x => x[0]);
     return top6.map(cName => {
-      const cRows = rows.filter(r => label(r[clientCol]) === cName);
+      const cRows = filteredRows.filter(r => label(r[clientCol]) === cName);
       const on = cRows.filter(r => str(r[ogCol]).toLowerCase().includes('online')).length;
       const gr = cRows.filter(r => str(r[ogCol]).toLowerCase().includes('ground')).length;
       return { name: cName, Online: on, Ground: gr };
     });
-  }, [rows, clientCol, ogCol, clientCounts]);
+  }, [filteredRows, clientCol, ogCol, clientCounts]);
 
-  return (
-    <section className="overview-dashboard">
-      <div className="section-heading">
-        <div>
-          <span className="eyebrow">COLUMN ANALYTICS DASHBOARD</span>
-          <h2>Online/Ground, Client & Product Breakdown</h2>
-        </div>
-      </div>
+  const toggleSlicerItem = (list, setList, val) => {
+    if (list.includes(val)) setList(list.filter(x => x !== val));
+    else setList([...list, val]);
+  };
 
-      <div className="dashboard-grid">
-        <div className="dashboard-card">
-          <div className="card-head">
-            <h3>Online vs Ground Share</h3>
-            <small>{onlinePct}% Online · {groundPct}% Ground</small>
-          </div>
-          <div style={{ height: 250 }}>
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie className="clickable-series" isAnimationActive={false} data={ogPieData} dataKey="count" nameKey="name" cx="50%" cy="50%" outerRadius={85} innerRadius={50} onClick={entry => ogCol && onSelect({ column: ogCol, value: entry.name })}>
-                  {ogPieData.map(d => <Cell key={d.name} fill={d.color} />)}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="legend-pills">
-            {ogPieData.map(d => (
-              <span key={d.name} className="pill" onClick={() => ogCol && onSelect({ column: ogCol, value: d.name })}>
-                <i style={{ background: d.color }} /> {d.name}: <b>{d.count.toLocaleString()}</b> ({rows.length ? ((d.count/rows.length)*100).toFixed(1) : 0}%)
-              </span>
-            ))}
-          </div>
-        </div>
+  const clearAllSlicers = () => {
+    setSelectedClients([]);
+    setSelectedOg([]);
+    setSelectedProducts([]);
+  };
 
-        <div className="dashboard-card">
-          <div className="card-head">
-            <h3>Top Clients by Queue Volume</h3>
-            <small>{clientCounts.length} active clients</small>
-          </div>
-          <div style={{ height: 280 }}>
+  const activeSlicerCount = selectedClients.length + selectedOg.length + selectedProducts.length;
+
+  const renderChartContent = (chartId, isModal = false) => {
+    const height = isModal ? 460 : chartId === 'pie' ? 250 : 280;
+    switch (chartId) {
+      case 'pie':
+        return (
+          <>
+            <div style={{ height }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie className="clickable-series" isAnimationActive={false} data={ogPieData} dataKey="count" nameKey="name" cx="50%" cy="50%" outerRadius={isModal ? 140 : 85} innerRadius={isModal ? 80 : 50} onClick={entry => ogCol && onSelect({ column: ogCol, value: entry.name })}>
+                    {ogPieData.map(d => <Cell key={d.name} fill={d.color} />)}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="legend-pills">
+              {ogPieData.map(d => (
+                <span key={d.name} className="pill" onClick={() => ogCol && onSelect({ column: ogCol, value: d.name })}>
+                  <i style={{ background: d.color }} /> {d.name}: <b>{d.count.toLocaleString()}</b> ({filteredRows.length ? ((d.count/filteredRows.length)*100).toFixed(1) : 0}%)
+                </span>
+              ))}
+            </div>
+          </>
+        );
+      case 'clients':
+        return (
+          <div style={{ height }}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={topClientsData} layout="vertical" margin={{ top: 10, right: 25, left: 5, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e9edee" />
                 <XAxis type="number" tick={{ fontSize: 11 }} />
-                <YAxis type="category" dataKey="name" width={110} tick={{ fontSize: 11 }} />
+                <YAxis type="category" dataKey="name" width={isModal ? 150 : 110} tick={{ fontSize: 11 }} />
                 <Tooltip cursor={{ fill: '#f0f5f3' }} />
                 <Bar className="clickable-series" isAnimationActive={false} dataKey="count" fill="#2563eb" radius={[0, 4, 4, 0]} onClick={entry => clientCol && onSelect({ column: clientCol, value: entry.name || entry.payload?.name })} />
               </BarChart>
             </ResponsiveContainer>
           </div>
-        </div>
-
-        <div className="dashboard-card">
-          <div className="card-head">
-            <h3>Product Category Breakdown</h3>
-            <small>{fullTitlePct}% Full Title share</small>
-          </div>
-          <div style={{ height: 280 }}>
+        );
+      case 'products':
+        return (
+          <div style={{ height }}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={topProductsData} margin={{ top: 10, right: 15, left: 0, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e9edee" />
@@ -182,30 +333,188 @@ function FilterPanel({column, rows, filters, setFilters, close}) {
               </BarChart>
             </ResponsiveContainer>
           </div>
-        </div>
-
-        <div className="dashboard-card">
-          <div className="card-head">
-            <h3>Online vs Ground per Client</h3>
-            <small>Delivery breakdown for top clients</small>
-          </div>
-          <div style={{ height: 280 }}>
+        );
+      case 'clientOg':
+        return (
+          <div style={{ height }}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={clientOgData} margin={{ top: 10, right: 15, left: 0, bottom: 5 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e9edee" />
                 <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
                 <Tooltip cursor={{ fill: '#f0f5f3' }} />
-                <Bar isAnimationActive={false} dataKey="Online" fill="#147d72" radius={[3, 3, 0, 0]} />
-                <Bar isAnimationActive={false} dataKey="Ground" fill="#d79a32" radius={[3, 3, 0, 0]} />
+                <Bar className="clickable-series" isAnimationActive={false} dataKey="Online" fill="#147d72" radius={[3, 3, 0, 0]} onClick={entry => clientCol && onSelect({ column: clientCol, value: entry.name || entry.payload?.name })} />
+                <Bar className="clickable-series" isAnimationActive={false} dataKey="Ground" fill="#d79a32" radius={[3, 3, 0, 0]} onClick={entry => clientCol && onSelect({ column: clientCol, value: entry.name || entry.payload?.name })} />
               </BarChart>
             </ResponsiveContainer>
           </div>
+        );
+      default:
+        return null;
+    }
+  };
+
+  return (
+    <section className="overview-dashboard">
+      <div className="section-heading">
+        <div>
+          <span className="eyebrow">COLUMN ANALYTICS DASHBOARD</span>
+          <h2>Online/Ground, Client & Product Breakdown</h2>
+        </div>
+        <div className="inline">
+          <button className="secondary" onClick={() => setShowSlicers(!showSlicers)}>
+            <SlidersHorizontal size={15} /> Filter Slicers {activeSlicerCount > 0 ? `(${activeSlicerCount})` : ''}
+          </button>
+          {activeSlicerCount > 0 && (
+            <button className="text-button" onClick={clearAllSlicers}>
+              Clear Slicers
+            </button>
+          )}
         </div>
       </div>
+
+      {showSlicers && (
+        <div className="slicer-panel">
+          <div className="slicer-panel-head">
+            <h4><Filter size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} /> Power BI Slicers</h4>
+            {activeSlicerCount > 0 && <small style={{ color: '#147d72', fontWeight: 600 }}>{filteredRows.length.toLocaleString()} matching rows</small>}
+          </div>
+          <div className="slicer-grid">
+            <details className="dropdown-slicer">
+              <summary>Client <span>{selectedClients.length ? `${selectedClients.length} selected` : 'All'}</span></summary>
+              <div className="dropdown-slicer-options"><button className="text-button" onClick={()=>setSelectedClients([])}>All clients</button>
+              {allClients.map(([name, count]) => (
+                <label key={name} className="slicer-item">
+                  <input type="checkbox" checked={selectedClients.includes(name)} onChange={() => toggleSlicerItem(selectedClients, setSelectedClients, name)} />
+                  <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</span>
+                  <small style={{ color: '#94a3b8' }}>{count}</small>
+                </label>
+              ))}
+              </div>
+            </details>
+
+            <details className="dropdown-slicer">
+              <summary>Online / Ground <span>{selectedOg.length ? selectedOg.join(', ') : 'All'}</span></summary>
+              <div className="dropdown-slicer-options"><button className="text-button" onClick={()=>setSelectedOg([])}>All queues</button>
+              {allOg.map(([name, count]) => (
+                <label key={name} className="slicer-item">
+                  <input type="checkbox" checked={selectedOg.includes(name)} onChange={() => toggleSlicerItem(selectedOg, setSelectedOg, name)} />
+                  <span style={{ flex: 1 }}>{name}</span>
+                  <small style={{ color: '#94a3b8' }}>{count}</small>
+                </label>
+              ))}
+              </div>
+            </details>
+
+            <details className="dropdown-slicer">
+              <summary>Product Category <span>{selectedProducts.length ? `${selectedProducts.length} selected` : 'All'}</span></summary>
+              <div className="dropdown-slicer-options"><button className="text-button" onClick={()=>setSelectedProducts([])}>All products</button>
+              {allProducts.map(([name, count]) => (
+                <label key={name} className="slicer-item">
+                  <input type="checkbox" checked={selectedProducts.includes(name)} onChange={() => toggleSlicerItem(selectedProducts, setSelectedProducts, name)} />
+                  <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</span>
+                  <small style={{ color: '#94a3b8' }}>{count}</small>
+                </label>
+              ))}
+              </div>
+            </details>
+          </div>
+        </div>
+      )}
+
+      {statusCol && (
+        <section className="status-report">
+          <div className="section-heading">
+            <div>
+              <span className="eyebrow">AI - STATUS REPORT</span>
+              <h2>Status Report</h2>
+            </div>
+            <span className="row-tally">{statusCounts.length.toLocaleString()} statuses</span>
+          </div>
+          <div className="status-report-scroll">
+            <table className="status-report-table">
+              <thead><tr><th>Status</th><th>Orders</th><th>Share</th></tr></thead>
+              <tbody>{statusCounts.map(item => {
+                const bg = statusColor(item.name);
+                return <tr key={item.name} style={{backgroundColor:bg,color:textColorForBg(bg)}}><td>{item.name}</td><td>{item.count.toLocaleString()}</td><td>{item.percent}%</td></tr>;
+              })}</tbody>
+            </table>
+            {!statusCounts.length && <div className="table-empty">No status values match the current filters.</div>}
+          </div>
+        </section>
+      )}
+
+      <div className="dashboard-grid">
+        <div className="dashboard-card">
+          <div className="card-head">
+            <div>
+              <h3>Online vs Ground Share</h3>
+              <small>{onlinePct}% Online · {groundPct}% Ground</small>
+            </div>
+            <div className="card-actions">
+              <button className="card-icon-btn" title="Maximize chart" onClick={() => setMaximized({ id: 'pie', title: 'Online vs Ground Share', subtitle: `${onlinePct}% Online · ${groundPct}% Ground` })}>
+                <Maximize2 size={15} />
+              </button>
+            </div>
+          </div>
+          {renderChartContent('pie')}
+        </div>
+
+        <div className="dashboard-card">
+          <div className="card-head">
+            <div>
+              <h3>Top Clients by Queue Volume</h3>
+              <small>{clientCounts.length} active clients</small>
+            </div>
+            <div className="card-actions">
+              <button className="card-icon-btn" title="Maximize chart" onClick={() => setMaximized({ id: 'clients', title: 'Top Clients by Queue Volume', subtitle: `${clientCounts.length} active clients` })}>
+                <Maximize2 size={15} />
+              </button>
+            </div>
+          </div>
+          {renderChartContent('clients')}
+        </div>
+
+        <div className="dashboard-card">
+          <div className="card-head">
+            <div>
+              <h3>Product Category Breakdown</h3>
+              <small>{fullTitlePct}% Full Title share</small>
+            </div>
+            <div className="card-actions">
+              <button className="card-icon-btn" title="Maximize chart" onClick={() => setMaximized({ id: 'products', title: 'Product Category Breakdown', subtitle: `${fullTitlePct}% Full Title share` })}>
+                <Maximize2 size={15} />
+              </button>
+            </div>
+          </div>
+          {renderChartContent('products')}
+        </div>
+
+        <div className="dashboard-card">
+          <div className="card-head">
+            <div>
+              <h3>Online vs Ground per Client</h3>
+              <small>Delivery breakdown for top clients</small>
+            </div>
+            <div className="card-actions">
+              <button className="card-icon-btn" title="Maximize chart" onClick={() => setMaximized({ id: 'clientOg', title: 'Online vs Ground per Client', subtitle: 'Delivery breakdown for top clients' })}>
+                <Maximize2 size={15} />
+              </button>
+            </div>
+          </div>
+          {renderChartContent('clientOg')}
+        </div>
+      </div>
+
+      {maximized && (
+        <MaximizedModal title={maximized.title} subtitle={maximized.subtitle} onClose={() => setMaximized(null)}>
+          {renderChartContent(maximized.id, true)}
+        </MaximizedModal>
+      )}
     </section>
   );
 }
+
 
 function Chart({rows, columns, onSelect}) {
   const [type, setType] = useState('bar'), [group, setGroup] = useState(''), [width, setWidth] = useState(56);
@@ -234,6 +543,7 @@ function DataTable({rows, columns, filters, openFilter, name, filterable=true, o
 }
 
 function App() {
+  const [rulesByPreview, setRulesByPreview] = useState(()=>{try {return JSON.parse(localStorage.getItem('datatrace-status-rules') || '{}');} catch {return {};}});
   const [state,setState]=useState({previews:[],job:{running:false,stage:'Ready'}}), [selected,setSelected]=useState(null), [preview,setPreview]=useState(EMPTY), [view,setView]=useState('overview');
   const [previous,setPrevious]=useState(''), [diff,setDiff]=useState(null), [keys,setKeys]=useState([]), [ignore,setIgnore]=useState(DEFAULT_IGNORE), [compareBusy,setCompareBusy]=useState(false), [compareError,setCompareError]=useState('');
   const [filters,setFilters]=useState({}), [filterColumn,setFilterColumn]=useState(null), [search,setSearch]=useState(''), [error,setError]=useState(''), [pending,setPending]=useState(false), [loading,setLoading]=useState(false), [uploading,setUploading]=useState(false);
@@ -245,7 +555,22 @@ function App() {
   useEffect(()=>{setFilters({});setFilterColumn(null);setSearch('');setChartSelection(null);},[view,previous,selected]);
   useEffect(()=>{setDiff(null);setCompareBusy(false);setCompareError('');if(!previous||!selected||Number(previous)===selected)return;let cancelled=false;setCompareBusy(true);api('/api/compare',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({previous:Number(previous),latest:selected,keys,ignore})}).then(data=>{if(!cancelled)setDiff(data);}).catch(e=>{if(!cancelled)setCompareError(e.message);}).finally(()=>{if(!cancelled)setCompareBusy(false);});return()=>{cancelled=true;};},[previous,selected,keys,ignore]);
   const comparisonTable = diff?.record_columns ? {columns:diff.record_columns,rows:[...diff.matched_rows,...diff.unmatched_rows]} : EMPTY;
-  const table = view==='changes' ? comparisonTable : preview;
+  const statusRules = Array.isArray(rulesByPreview[selected]) ? rulesByPreview[selected] : [];
+  function changeStatusRules(rules) {
+    const next = {...rulesByPreview, [selected]:rules};
+    setRulesByPreview(next);
+    try {localStorage.setItem('datatrace-status-rules', JSON.stringify(next));} catch {setError('Status rules could not be saved in this browser.');}
+  }
+  const mappedPreview = useMemo(()=>{
+    const mapping = new Map(statusRules.map(rule=>[normalized(rule.source),rule.target]));
+    return {...preview, rows:preview.rows.map(row=>{
+      const next = {...row};
+      for (const column of ['Task Status','Status']) if (column in next) next[column] = mapping.get(normalized(row[column])) ?? row[column];
+      if ('Is Available' in next) next['Is Available'] = normalized(next['Task Status'] ?? next.Status)==='available';
+      return next;
+    })};
+  },[preview,rulesByPreview,selected]);
+  const table = view==='changes' ? comparisonTable : mappedPreview;
   const filtered = useMemo(()=>table.rows.filter(row=>matches(row,filters)&&(!search||table.columns.some(c=>str(row[c]).toLowerCase().includes(search.toLowerCase())))),[table,filters,search]);
   const matchedComparison = view==='changes' ? filtered.filter(row=>['Unchanged','Matched - changed'].includes(row['Comparison Status'])) : [];
   const unmatchedComparison = view==='changes' ? filtered.filter(row=>['Missing','Newly Added'].includes(row['Comparison Status'])) : [];
@@ -280,7 +605,7 @@ function App() {
   }, [view, filtered, table.columns]);
 
   async function extract(){setPending(true);setError('');try{await api('/api/extract',{method:'POST'});await refresh();}catch(e){setError(e.message);}finally{setPending(false);}}
-  async function syncSheets(){setPending(true);setError('');try{await api('/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({preview:selected})});await refresh();}catch(e){setError(e.message);}finally{setPending(false);}}
+  async function syncSheets(){setPending(true);setError('');try{const backend=await api('/api/state');if(statusRules.length&&!backend.capabilities?.status_rules)throw Error('This dashboard server needs to be restarted before it can sync status replacements.');await api('/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({preview:selected,status_rules:statusRules})});await refresh();}catch(e){setError(e.message);}finally{setPending(false);}}
   async function saveSchedule(){setSavingSchedule(true);setError('');try{const saved=await api('/api/sync-schedule',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(scheduleDraft)});setScheduleDraft({enabled:saved.enabled,time:saved.time});await refresh();}catch(e){setError(e.message);}finally{setSavingSchedule(false);}}
   async function importFile(e){const file=e.target.files[0];if(!file)return;setUploading(true);setError('');try{const body=new FormData();body.append('file',file);await api('/api/import',{method:'POST',body});await refresh();}catch(e){setError(e.message);}finally{setUploading(false);e.target.value='';}}
   function choosePrevious(value){setPrevious(value);if(!value)return;const index=state.previews.findIndex(p=>p.id===Number(value));const newer=state.previews[index-1];if(newer)setSelected(newer.id);}
@@ -292,6 +617,7 @@ function App() {
     <aside className="sidebar"><div className="brand"><div className="brand-mark"><Activity size={23}/></div><div>DataTrace<span>WORKSPACE</span></div></div><div className="nav-label">WORKSPACE</div><nav>{[['overview','Overview',BarChart3],['sheets','Data sheets',Table2],['changes','Changes',ArrowLeftRight]].map(([id,title,Icon])=><button className={view===id?'nav-item selected':'nav-item'} key={id} onClick={()=>setView(id)}><Icon size={18}/>{title}{id==='changes'&&diff&&<small>{diff.record_counts?diff.record_counts.missing+diff.record_counts.newly_added:diff.counts.added+diff.counts.removed}</small>}</button>)}</nav><div className="preview-heading"><span className="nav-label">SAVED PREVIEWS</span><span>{state.previews.length}</span></div><div className="preview-list">{state.previews.map(p=><div key={p.id} className={`preview-item ${selected===p.id?'selected':''}`}><button className="preview-select" onClick={()=>{setSelected(p.id);const index=state.previews.findIndex(x=>x.id===p.id);setPrevious(String(state.previews[index+1]?.id||''));}}><FileSpreadsheet size={17}/><div><strong>{p.name}</strong><small>{p.row_count.toLocaleString()} rows · {new Date(p.created).toLocaleDateString()}</small></div>{p.id===state.previews[0].id&&<i>Latest</i>}</button><IconButton title={`Delete ${p.name}`} onClick={event=>deletePreview(event,p.id)}><Trash2 size={15}/></IconButton></div>)}{!state.previews.length&&<p className="no-previews">No saved previews</p>}</div><div className="sidebar-footer"><span className="status-dot"/>Local workspace<a href={state.sheet_url} target="_blank" rel="noreferrer">Google Sheet ↗</a></div></aside>
     <main><header className="topbar"><div className="breadcrumb">Workspace <span>/</span> {view==='overview'?'Overview':view==='sheets'?'Data sheets':'Changes'}</div><div className="inline"><span className={`run-state ${running?'running':''}`}>{running&&<LoaderCircle size={14} className="spin"/>}{state.job.stage}</span><button className="secondary" onClick={()=>upload.current.click()} disabled={uploading}><Upload size={16}/>{uploading?'Importing…':'Import file'}</button><input ref={upload} type="file" hidden accept=".csv,.xlsx" onChange={importFile}/></div></header>
       <div className="content"><div className="page-heading"><div><span className="eyebrow">DATATRACE QUEUE</span><h1>{view==='changes'?'Preview comparison':view==='sheets'?'Data sheets':'Queue overview'}</h1><p className="muted">{preview.name?`${preview.name} · ${new Date(preview.created).toLocaleString()} · ${preview.source}`:'No data captured yet'}</p></div><div className="page-actions"><button className="secondary" onClick={syncSheets} disabled={running||!selected}>{state.job.action==='sync'&&running?<LoaderCircle size={17} className="spin"/>:<CloudUpload size={17}/>}<span>{state.job.action==='sync'&&running?'Syncing…':`Sync ${preview.name||'preview'} to Sheets`}</span></button><details className="sync-schedule"><summary><Clock3 size={16}/>Sync trigger</summary><div><label className="check-row"><input type="checkbox" checked={scheduleDraft.enabled} onChange={e=>setScheduleDraft({...scheduleDraft,enabled:e.target.checked})}/>Daily sync enabled</label><label>Local time<input aria-label="Daily sync time" type="time" value={scheduleDraft.time} onChange={e=>setScheduleDraft({...scheduleDraft,time:e.target.value})}/></label><button className="primary" onClick={saveSchedule} disabled={savingSchedule}>{savingSchedule?'Saving…':'Save trigger'}</button>{state.schedule?.last_triggered_date&&<small>Last triggered {state.schedule.last_triggered_date}</small>}</div></details><button className="primary" onClick={extract} disabled={running}>{state.job.action==='extract'&&running?<LoaderCircle size={17} className="spin"/>:<Play size={17}/>}<span>{state.job.action==='extract'&&running?'Extracting queue…':'Run AutoLogin & Extract Queue'}</span></button></div></div>
+      {view==='overview' && !loading && selected && <StatusRules key={selected} preview={preview} rules={statusRules} onChange={changeStatusRules} onSync={syncSheets} disabled={running}/>}
       {error&&<div className="notice error" role="alert">{error}<IconButton title="Dismiss error" onClick={()=>setError('')}><X size={16}/></IconButton></div>}
       {result?.error&&<div className="notice warning" role="status">{result.preview_name&&<strong>{result.preview_name} saved. </strong>}{result.error}</div>}
       {result&&!result.error&&!running&&<div className="notice success"><Check size={16}/>{result.action==='sync'?`${result.preview_name} synced · ${result.rows} rows · ${result.worksheets?.length||0} Google Sheets tabs updated`:`${result.preview_name} saved locally · ${result.rows} rows · Google Sheets not changed`}</div>}
