@@ -120,7 +120,7 @@ class PreviewTests(unittest.TestCase):
         self.assertEqual(state['job']['result']['trigger'], 'manual')
         self.assertEqual(state['job']['result']['preview_name'], 'preview1')
         self.assertEqual(syncer.call_count, 1)
-        self.assertEqual(syncer.call_args.args[0].iloc[0]['Task Status'], 'Available')
+        self.assertEqual(syncer.call_args.args[0].iloc[0]['Task Status'], 'Search In Progress')
         saved = client.post('/api/sync-schedule', json={'enabled': True, 'time': '14:30'})
         self.assertEqual(saved.status_code, 200)
         self.assertEqual(saved.json['time'], '14:30')

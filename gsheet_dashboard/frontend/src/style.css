@@ -60,6 +60,12 @@
 .automatic-statuses{padding:18px 0;border-bottom:1px solid #dce4de;margin-bottom:22px}
 .automatic-statuses>div{display:flex;align-items:center;flex-wrap:wrap;gap:12px;margin-top:12px;font-size:13px}
 .daily-orders{margin-bottom:28px;min-width:0}
+.daily-chart{min-width:0;margin:0 0 28px;padding:18px;background:#fff;border:1px solid #dce5e1;border-radius:6px}
+.daily-chart .card-head h3{margin:0;font-size:15px}
+.daily-chart-legend{display:flex;flex-wrap:wrap;gap:10px 20px;margin:12px 0 18px;font-size:12px;color:#586b64}
+.daily-chart-legend span{display:inline-flex;align-items:center;gap:7px}
+.daily-chart-legend i{width:10px;height:10px;border-radius:2px;flex-shrink:0}
+.daily-chart-scroll{width:100%;max-width:100%;overflow-x:auto}
 .daily-orders>.table-scroll{margin-bottom:28px}
 .daily-orders th,.daily-orders td{padding:12px;text-align:left}
 .daily-orders small{color:#708078}

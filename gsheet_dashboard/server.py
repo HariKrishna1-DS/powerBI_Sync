@@ -13,7 +13,7 @@ from flask import Flask, jsonify, request, send_file, send_from_directory
 import pandas as pd
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
-from datatrace_sync import run_sync, sync_workbook
+from datatrace_sync import run_sync, sync_workbook, apply_status_rules
 from preview_store import PreviewStore, compare
 from order_reporting import automatic_sync_frame, daily_orders, AUTOMATIC_RULES
 from sync_config import BASE_DIR, TARGET_GSHEET_URL
@@ -224,10 +224,12 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
 
     @app.get('/api/previews/<int:number>/download/<kind>')
     def download(number, kind):
-        store.get(number)
+        preview = store.get(number)
         if kind not in ('csv', 'xlsx'):
             raise ValueError('Unsupported download format.')
-        return send_from_directory(store.root, f'preview{number}.{kind}', as_attachment=True)
+        frame = apply_status_rules(pd.DataFrame(preview['rows'], columns=preview['columns']), [])
+        stream = workbook(frame, 'Orders') if kind == 'xlsx' else BytesIO(frame.to_csv(index=False).encode('utf-8-sig'))
+        return send_file(stream, as_attachment=True, download_name=f'preview{number}.{kind}')
 
     @app.post('/api/compare')
     def comparison():

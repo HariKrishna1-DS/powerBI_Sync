@@ -10,6 +10,9 @@ import pandas as pd
 from openpyxl.worksheet.table import Table, TableStyleInfo
 from sync_config import BASE_DIR, SPREADSHEET_ID, WORKSHEET_GID, TARGET_GSHEET_URL
 
+# Product list from the September 2026 C-O and Update production report, Sheet1 column I.
+REMAINING_PRODUCTS = json.loads(Path(__file__).with_name('remaining_products.json').read_text(encoding='utf-8'))
+
 
 ALL_PRODUCT_FIELDS = [
     ('Order Number', 'Order Number'), ('External Product Order Number', None),
@@ -25,7 +28,7 @@ ALL_PRODUCT_FIELDS = [
     ('Completed Time (hours)', 'Completed Time'), ('Vendor', 'Vendor'), ('Originator', 'Orig'),
     ('ClientCode', 'Client'), ('RequestArrivalTime', 'Arrival Time'),
     ('WorkflowSuspendReason', None), ('UserContextId', None), ('WorkflowSuspendTypeId', None),
-    ('WorkflowTaskSuspendTypeId', None), ('SuspendUntil', None),
+    ('WorkflowTaskSuspendTypeId', None), ('SuspendUntil', None), ('Out Time', 'Out Time'),
 ]
 FULL_TITLE_FIELDS = [
     ('No', '__number__'), ('Received Date', 'Arrival Date'), ('Order number', 'Order Number'),
@@ -34,7 +37,7 @@ FULL_TITLE_FIELDS = [
     ('SLA', 'ETA'), ('Comments', 'Comment'), ('Assignee', 'Last User'), ('Searcher', None),
     ('Clarification Requested', None), ('Shift', None), ('Processed Date', 'Completed Time'),
     ('Typer', None), ('Review/QC', None), ('Expense', None), ('In-Time', 'Arrival Time'),
-    ('Out Time', None), ('SLA Expiration', 'SLA Expiration*'), ('SLA', 'SLA Status'),
+    ('Out Time', 'Out Time'), ('SLA Expiration', 'SLA Expiration*'), ('SLA', 'SLA Status'),
     ('Free Site', None),
 ]
 REMAINING_PRODUCT_FIELDS = [
@@ -43,7 +46,7 @@ REMAINING_PRODUCT_FIELDS = [
     ('Online/Ground', 'Online/ Ground'), ('Product', 'Product'), ('Status', 'Task Status'),
     ('ETA', 'ETA'), ('Comments', 'Comment'), ('Assignee', 'Last User'), ('Searcher', None),
     ('Clarification Requested', None), ('Shift', None), ('Process date', 'Completed Time'),
-    ('Review/QC', None), ('Expense', None), ('In-Time', 'Arrival Time'), ('Out Time', None),
+    ('Review/QC', None), ('Expense', None), ('In-Time', 'Arrival Time'), ('Out Time', 'Out Time'),
     ('SLA Expiration', 'SLA Expiration*'), ('Free Site', None), ('review', None),
 ]
 REPORT_SHEETS = [('All Products', ALL_PRODUCT_FIELDS), ('Full Title', FULL_TITLE_FIELDS),
@@ -55,6 +58,7 @@ STATUS_COLORS = {
     'ready to send': '#ffff00',
     'search in progress': '#ffffff',
     'typing in progress': '#00b050',
+    'typing is progress': '#00b050',
     'waiting for effective date': '#ffffff',
     'assign to abs': '#a6a6a6',
     'need to assign abs': '#a6a6a6',
@@ -126,7 +130,8 @@ def powerbi_table(df, timestamp):
 def report_frame(df, fields, product=None):
     source = df if product is None else df[df['Product'].fillna('').astype(str).str.strip().str.casefold().eq(product)]
     if product == '__remaining__':
-        source = df[~df['Product'].fillna('').astype(str).str.strip().str.casefold().eq('full title')]
+        products = df['Product'].fillna('').astype(str).str.split().str.join(' ').str.casefold()
+        source = df[products.isin({value.casefold() for value in REMAINING_PRODUCTS})]
     matrix = []
     for number, (_, row) in enumerate(source.iterrows(), start=1):
         values = []
@@ -162,7 +167,7 @@ def status_color(status):
     return '#%02x%02x%02x' % (round(red * 255), round(green * 255), round(blue * 255))
 
 
-def apply_status_rules(df, rules):
+def apply_status_rules(df, rules, reporting_date=None):
     if not isinstance(rules, list):
         raise ValueError('Status rules must be a list.')
     mapping = {}
@@ -182,6 +187,20 @@ def apply_status_rules(df, rules):
         raise ValueError('This preview has no status column.')
     for column in columns:
         result[column] = result[column].map(lambda value: mapping.get(str(value).strip().casefold(), value))
+        if 'Task Name' in result.columns:
+            tasks = result['Task Name'].astype(str).str.strip().str.casefold().str.replace(' ', '', regex=False)
+            available = result[column].astype(str).str.strip().str.casefold().eq('available')
+            result.loc[available & tasks.eq('search'), column] = 'Search In Progress'
+            result.loc[available & tasks.eq('typingmodule'), column] = 'Typing is Progress'
+            result.loc[tasks.isin(['crsp2', 'searchfix', 'n/a']), column] = 'Completed and Delivered'
+    if columns:
+        if 'Out Time' not in result.columns:
+            result['Out Time'] = ''
+        completed = result[columns[0]].astype(str).str.strip().str.casefold().eq('completed and delivered')
+        today = reporting_date or df.attrs.get('reporting_date') or dt.date.today().isoformat()
+        # A missing-order date assigned by the comparison survives the sync pass.
+        keep_today = result['Out Time'].astype(str).eq(today)
+        result.loc[completed & ~keep_today, 'Out Time'] = 'Completed'
     if 'Is Available' in result.columns and columns:
         result['Is Available'] = result[columns[0]].astype(str).str.strip().str.casefold().eq('available')
     return result
@@ -286,7 +305,7 @@ def sync_dataframe(df, target=None, validate=True, row_backgrounds=None, color_s
         raise RuntimeError(f'Google Sheets write failed. Share the target with {email} as Editor. Check '
                            'worksheet protection, API quota and connectivity. Local exports are retained.') from exc
     received = sheet.get_all_values()
-    for column in ('Task Status', 'Status'):
+    for column in ('Task Status', 'Status', 'Out Time'):
         if column in df.columns:
             offset = list(df.columns).index(column)
             expected_statuses = df[column].fillna('').astype(str).tolist()
@@ -310,14 +329,9 @@ def retain_completed_orders(df, existing_values):
     completed = [row for row in records
                  if str(row.get(status_column, '')).strip().casefold() == 'completed and delivered'
                  and str(row.get('Order Number', '')).strip()]
-    ids = {str(row['Order Number']).strip() for row in completed}
     result = df.copy()
     incoming = result['Order Number'].astype(str).str.strip()
-    for column in ('Task Status', 'Status'):
-        if column in result.columns:
-            result.loc[incoming.isin(ids), column] = 'Completed and Delivered'
-    if 'Is Available' in result.columns:
-        result.loc[incoming.isin(ids), 'Is Available'] = False
+    # Current queue statuses take precedence over historical sheet completion.
     missing = [row for row in completed if str(row['Order Number']).strip() not in set(incoming)]
     if missing:
         result = pd.concat([result, pd.DataFrame(missing).reindex(columns=df.columns).fillna('')], ignore_index=True)
@@ -326,11 +340,32 @@ def retain_completed_orders(df, existing_values):
 
 def sync_workbook(df):
     book, primary = target_worksheet()
-    df = apply_status_rules(df, [{'source': 'Workflow Suspended', 'target': 'Awaiting for Clarification'}])
-    df = retain_completed_orders(df, primary.get_all_values())
-    synced = [sync_dataframe(df, (book, primary), color_status=True)]
+    original = df.attrs.get('original_capture')
+    raw = pd.DataFrame(original['rows'], columns=original['columns']).fillna('') if original else df.copy()
+    report_date = df.attrs.get('reporting_date')
+    capture_date = df.attrs.get('capture_date')
     worksheets = book.worksheets()
+    df = retain_completed_orders(df, primary.get_all_values())
+    if original:
+        # Raw tabs no longer store automated completion history. Keep it in the reports.
+        for title, fields in REPORT_SHEETS[1:]:
+            sheet = next((sheet for sheet in worksheets if sheet.title == title), None)
+            values = sheet.get_all_values() if sheet else []
+            if not values:
+                continue
+            mapping = [(index, source) for index, name in enumerate(values[0])
+                       for target, source in fields if name == target and source and not source.startswith('__')]
+            records = [{source: row[index] if index < len(row) else '' for index, source in mapping}
+                       for row in values[1:]]
+            if records:
+                history = pd.DataFrame(records).fillna('')
+                df = retain_completed_orders(df, [list(history.columns)] + history.values.tolist())
+    if report_date and capture_date and 'Out Time' in df.columns:
+        df.loc[df['Out Time'].astype(str).eq(capture_date), 'Out Time'] = report_date
+    df = apply_status_rules(df, [{'source': 'Workflow Suspended', 'target': 'Awaiting for Clarification'}], reporting_date=report_date)
+    synced = [sync_dataframe(raw, (book, primary), color_status=True)]
     frames = report_frames(df)
+    frames[0] = report_frame(raw, ALL_PRODUCT_FIELDS)
     for index, ((title, _), frame) in enumerate(zip(REPORT_SHEETS, frames), start=1):
         if len(worksheets) <= index:
             worksheets.append(book.add_worksheet(title=title, rows=1, cols=1))

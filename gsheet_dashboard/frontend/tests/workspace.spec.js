@@ -34,6 +34,9 @@ test('column unique values, filters, charts, comparison and repeat run',async({p
   const errors=[];page.on('pageerror',error=>errors.push(error.message));
   const activity=await fixtures(page);
   await page.goto('/');
+  await expect(page.getByRole('heading',{name:'Queue overview',exact:true})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'preview3 - All Products',exact:true})).toHaveCount(0);
+  await page.getByRole('button',{name:'Data sheets',exact:true}).click();
   await expect(page.getByRole('heading',{name:'preview3 - All Products',exact:true})).toBeVisible();
   await expect(page.getByRole('heading',{name:'preview3 - Full Title',exact:true})).toBeVisible();
   await expect(page.getByRole('heading',{name:'preview3 - Remaining Products',exact:true})).toBeVisible();
@@ -41,16 +44,17 @@ test('column unique values, filters, charts, comparison and repeat run',async({p
   const panel=page.getByRole('complementary',{name:'Column filters'});
   await expect(panel.getByRole('checkbox',{name:'UpdateSearch'})).toBeVisible();
   await panel.getByRole('checkbox',{name:'UpdateSearch'}).uncheck();
-  await expect(page.locator('.row-tally')).toHaveText('33 / 65 rows');
+  await expect(page.locator('.filter-toolbar .row-tally')).toHaveText('33 / 65 rows');
   await panel.getByRole('button',{name:'Reset column'}).click();
   await panel.getByLabel('Condition').selectOption('contains');
   await panel.getByLabel('Filter value').fill('Update');
-  await expect(page.locator('.row-tally')).toHaveText('32 / 65 rows');
+  await expect(page.locator('.filter-toolbar .row-tally')).toHaveText('32 / 65 rows');
   const downloadEvent = page.waitForEvent('download');
   await page.getByRole('button',{name:'Filtered CSV'}).first().click();
   expect((await downloadEvent).suggestedFilename()).toContain('filtered.csv');
   await panel.getByRole('button',{name:'Reset column'}).click();
   await panel.getByRole('button',{name:'Close filter'}).click();
+  await page.getByRole('button',{name:'Overview',exact:true}).click();
   for(const type of ['line','area','horizontal','pie','donut','bar']) {
     await page.getByLabel('Chart type').selectOption(type);
     await expect(page.locator('.recharts-surface').first()).toBeVisible();
@@ -61,6 +65,7 @@ test('column unique values, filters, charts, comparison and repeat run',async({p
   await page.locator('.recharts-bar-rectangle path').first().click();
   await expect(page.locator('.chart-drilldown')).toBeVisible();
   await page.getByRole('button',{name:'Close chart details'}).click();
+  await page.getByRole('button',{name:'Data sheets',exact:true}).click();
   await page.locator('.preview-select').filter({hasText:'preview2'}).click();
   await expect(page.getByRole('heading',{name:'preview2 - All Products',exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Sync preview2 to Sheets'}).click();
@@ -78,7 +83,7 @@ test('column unique values, filters, charts, comparison and repeat run',async({p
   await expect(page.getByText('Orders added after it')).toBeVisible();
   await expect(page.getByRole('heading',{name:'Orders after ORD-0063'})).toBeVisible();
   await expect(page.getByRole('heading',{name:/Matched orders/})).toBeVisible();
-  await expect(page.getByRole('heading',{name:'Missing (Completed Orders) and newly added orders'})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'New orders'})).toHaveCount(0);
   await expect(page.getByText('Newly added',{exact:true})).toBeVisible();
   await expect(page.getByRole('cell',{name:'Completed',exact:true})).toBeVisible();
   await page.screenshot({path:'test-results/changes-desktop.png',fullPage:true});
@@ -94,7 +99,7 @@ test('column unique values, filters, charts, comparison and repeat run',async({p
 
 test('mobile layout and filters stay inside viewport',async({page})=>{
   await fixtures(page);await page.setViewportSize({width:390,height:844});await page.goto('/');
-  await expect(page.getByRole('heading',{name:'preview3 - Full Title',exact:true})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Queue overview',exact:true})).toBeVisible();
   await page.getByLabel('Choose column filter').selectOption('Task Name');
   await expect(page.getByRole('complementary',{name:'Column filters'})).toBeVisible();
   expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBeTruthy();

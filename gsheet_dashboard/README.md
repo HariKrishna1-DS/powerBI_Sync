@@ -11,7 +11,7 @@ http://localhost:8510).
 - Compare any two previews, inspect field-level changes, and export DataTraceChanges to Power BI.
 - Click column headers for unique values, counts and custom filters.
 - Switch chart types, group by any column, and scroll or adjust the chart range.
-- Sync automatically converts Workflow Suspended to Awaiting for Clarification, and both missing/newly added order numbers to Completed and Delivered. Existing completed orders are retained.
+- Sync automatically converts Workflow Suspended to Awaiting for Clarification, and only missing order numbers to Completed and Delivered. New orders keep their current status. Historical completed orders are retained only when absent from the current queue.
 - Daily Orders shows capture history, counts, and missing/unchanged order tables.
 - Sync colors complete data rows by status and updates the Status Report tab.
 
