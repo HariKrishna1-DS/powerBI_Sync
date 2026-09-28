@@ -28,7 +28,7 @@ def automatic_sync_frame(latest, previous=None, keys=None, ignore=None):
         present = {str(row.get('Order Number', '')).strip() for row in rows} - {''}
         rows += [row for row in previous['rows']
                  if str(row.get('Order Number', '')).strip() in completed_orders - present]
-    frame = apply_status_rules(pd.DataFrame(rows, columns=columns).fillna(''), AUTOMATIC_RULES)
+    frame = apply_status_rules(pd.DataFrame(rows, columns=columns).fillna(''), AUTOMATIC_RULES, reporting_date=day)
     if completed_orders:
         mask = frame['Order Number'].astype(str).str.strip().isin(completed_orders)
         for column in ('Task Status', 'Status'):
@@ -41,6 +41,30 @@ def automatic_sync_frame(latest, previous=None, keys=None, ignore=None):
     frame.attrs['capture_date'] = datetime.fromisoformat(latest['created']).astimezone().date().isoformat()
     frame.attrs['original_capture'] = {'columns': list(latest['columns']), 'rows': latest['rows']}
     return frame, sorted(completed_orders)
+
+
+def completion_history(store, latest_id):
+    dates = {}
+    previous = None
+    for item in reversed(store.list()):
+        if item['id'] > latest_id:
+            continue
+        preview = store.get(item['id'])
+        if 'Order Number' not in preview['columns']:
+            previous = None
+            continue
+        if not any(column in preview['columns'] for column in ('Task Status','Status')):
+            previous = preview
+            continue
+        frame, _ = automatic_sync_frame(preview, previous)
+        status = 'Task Status' if 'Task Status' in frame.columns else 'Status'
+        for row in frame.to_dict('records'):
+            if str(row.get(status, '')).strip().casefold() == COMPLETED.casefold():
+                identity = str(row.get('Order Number', '')).strip()
+                if identity:
+                    dates.setdefault(identity, row['Out Time'])
+        previous = preview
+    return dates
 
 
 def daily_orders(store):
@@ -67,7 +91,7 @@ def daily_orders(store):
         arrivals = {identity: arrival_date(row) for identity, row in orders.items()}
         new = {identity for identity, date in arrivals.items() if date == day} if any(arrivals.values()) else unique - snapshots[0]
         unchanged = set.intersection(*snapshots)
-        frame = apply_status_rules(pd.DataFrame(list(orders.values()), columns=columns).fillna(''), [])
+        frame = apply_status_rules(pd.DataFrame(list(orders.values()), columns=columns).fillna(''), [], reporting_date=day)
         rows = frame.to_dict('records')
         for row in rows:
             if str(row.get('Order Number', '')).strip() in missing:

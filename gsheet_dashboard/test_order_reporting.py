@@ -9,7 +9,7 @@ from unittest.mock import Mock, patch
 import pandas as pd
 
 from datatrace_sync import retain_completed_orders, status_color, apply_status_rules
-from order_reporting import automatic_sync_frame, daily_orders
+from order_reporting import automatic_sync_frame, daily_orders, completion_history
 from preview_store import PreviewStore
 from server import create_app
 
@@ -140,11 +140,13 @@ class OrderReportingTests(unittest.TestCase):
             {'Order Number':'3','Task Name':'N/A','Task Status':'Workflow Suspended','Product':'Current Owner'},
             {'Order Number':'4','Task Name':'Search','Task Status':'Completed and Delivered','Product':'Full Title'},
         ])
-        result = apply_status_rules(source, [])
+        result = apply_status_rules(source, [], reporting_date='2026-09-27')
         self.assertEqual(result['Task Status'].tolist(), ['Completed and Delivered']*4)
-        self.assertEqual(result['Out Time'].tolist(), ['Completed']*4)
+        self.assertEqual(result['Out Time'].tolist(), ['2026-09-27']*4)
         for report in report_frames(result):
-            self.assertTrue(report['Out Time'].eq('Completed').all())
+            self.assertTrue(report['Out Time'].eq('2026-09-27').all())
+        next_day = apply_status_rules(result, [], reporting_date='2026-09-28')
+        self.assertEqual(next_day['Out Time'].tolist(), ['2026-09-27']*4)
 
     def test_only_missing_today_gets_today_out_time(self):
         today = datetime.now().date().isoformat()
@@ -179,7 +181,7 @@ class OrderReportingTests(unittest.TestCase):
         self.assertEqual(reporting_date(latest), '2026-09-27')
         self.assertIsNone(arrival_date({'Arrival Time':'09/27'}))
 
-    def test_sheet_sync_corrects_capture_date_out_times(self):
+    def test_sheet_sync_preserves_historical_out_times(self):
         import datatrace_sync as sync
         frame = pd.DataFrame([{'Order Number':'new','Product':'Current Owner','Task Status':'Completed and Delivered','Out Time':'2026-09-27'}])
         frame.attrs.update(reporting_date='2026-09-27',capture_date='2026-09-28')
@@ -190,9 +192,19 @@ class OrderReportingTests(unittest.TestCase):
         with patch.object(sync,'target_worksheet',return_value=(book,primary)), patch.object(sync,'sync_dataframe',return_value='OK') as upload:
             sync.sync_workbook(frame)
         sent = upload.call_args_list[3].args[0]
-        self.assertEqual(sent['Out Time'].tolist(), ['2026-09-27','2026-09-27'])
-        for call in upload.call_args_list[1:4]:
-            self.assertTrue(call.args[0]['Out Time'].eq('2026-09-27').all())
+        self.assertEqual(sent['Out Time'].tolist(), ['2026-09-27','2026-09-28'])
+
+    def test_existing_completion_date_wins_over_new_sync_date(self):
+        incoming = pd.DataFrame([{'Order Number':'1','Task Status':'Completed and Delivered','Out Time':'2026-09-28'}])
+        existing = [['Order Number','Task Status','Out Time'], ['1','Completed and Delivered','2026-09-25']]
+        retained = retain_completed_orders(incoming, existing)
+        result = apply_status_rules(retained, [], reporting_date='2026-09-29')
+        self.assertEqual(result.iloc[0]['Out Time'], '2026-09-25')
+
+    def test_history_recovers_first_observed_completion_date(self):
+        dates = completion_history(self.store, self.after['id'])
+        self.assertEqual(dates['003'], self.after['created'][:10])
+        self.assertNotIn('004', dates)
 
     def test_remaining_excludes_attorneys_and_home_builders_only(self):
         from datatrace_sync import report_frames

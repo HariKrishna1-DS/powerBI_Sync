@@ -15,7 +15,7 @@ from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from datatrace_sync import run_sync, sync_workbook, apply_status_rules
 from preview_store import PreviewStore, compare
-from order_reporting import automatic_sync_frame, daily_orders, AUTOMATIC_RULES
+from order_reporting import automatic_sync_frame, daily_orders, AUTOMATIC_RULES, completion_history
 from sync_config import BASE_DIR, TARGET_GSHEET_URL
 
 
@@ -72,6 +72,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
             raise ValueError('The previous preview must be older than the selected preview.')
         previous_preview = store.get(int(previous_id)) if previous_id is not None else None
         frame, completed_orders = automatic_sync_frame(selected_preview, previous_preview, keys, ignore)
+        frame.attrs['completion_dates'] = completion_history(store, selected_preview['id'])
         if not gate.acquire(blocking=False):
             return False
         with state_lock:

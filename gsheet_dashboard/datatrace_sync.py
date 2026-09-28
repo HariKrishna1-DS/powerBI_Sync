@@ -167,6 +167,16 @@ def status_color(status):
     return '#%02x%02x%02x' % (round(red * 255), round(green * 255), round(blue * 255))
 
 
+def completion_date(value):
+    text = str(value or '').strip()
+    for pattern in ('%Y-%m-%d', '%m/%d/%Y', '%m/%d/%y'):
+        try:
+            return dt.datetime.strptime(text, pattern).date().isoformat()
+        except ValueError:
+            continue
+    return None
+
+
 def apply_status_rules(df, rules, reporting_date=None):
     if not isinstance(rules, list):
         raise ValueError('Status rules must be a list.')
@@ -198,9 +208,8 @@ def apply_status_rules(df, rules, reporting_date=None):
             result['Out Time'] = ''
         completed = result[columns[0]].astype(str).str.strip().str.casefold().eq('completed and delivered')
         today = reporting_date or df.attrs.get('reporting_date') or dt.date.today().isoformat()
-        # A missing-order date assigned by the comparison survives the sync pass.
-        keep_today = result['Out Time'].astype(str).eq(today)
-        result.loc[completed & ~keep_today, 'Out Time'] = 'Completed'
+        dated = result['Out Time'].map(completion_date).notna()
+        result.loc[completed & ~dated, 'Out Time'] = today
     if 'Is Available' in result.columns and columns:
         result['Is Available'] = result[columns[0]].astype(str).str.strip().str.casefold().eq('available')
     return result
@@ -331,6 +340,13 @@ def retain_completed_orders(df, existing_values):
                  and str(row.get('Order Number', '')).strip()]
     result = df.copy()
     incoming = result['Order Number'].astype(str).str.strip()
+    dates = {str(row['Order Number']).strip(): completion_date(row.get('Out Time')) for row in completed}
+    status = next((column for column in ('Task Status','Status') if column in result.columns), None)
+    if status:
+        prior_dates = incoming.map(dates)
+        mask = result[status].astype(str).str.strip().str.casefold().eq('completed and delivered') & prior_dates.notna()
+        if mask.any():
+            result.loc[mask, 'Out Time'] = prior_dates[mask]
     # Current queue statuses take precedence over historical sheet completion.
     missing = [row for row in completed if str(row['Order Number']).strip() not in set(incoming)]
     if missing:
@@ -343,9 +359,25 @@ def sync_workbook(df):
     original = df.attrs.get('original_capture')
     raw = pd.DataFrame(original['rows'], columns=original['columns']).fillna('') if original else df.copy()
     report_date = df.attrs.get('reporting_date')
-    capture_date = df.attrs.get('capture_date')
+    recovered_dates = df.attrs.get('completion_dates', {})
+    existing_dates = {}
+    undated_history = set()
     worksheets = book.worksheets()
-    df = retain_completed_orders(df, primary.get_all_values())
+    primary_values = primary.get_all_values()
+    def remember_dates(values):
+        if not values:
+            return
+        for values_row in values[1:]:
+            row = dict(zip(values[0], values_row))
+            identity = str(row.get('Order Number', '')).strip()
+            date = completion_date(row.get('Out Time'))
+            completed = str(row.get('Task Status', row.get('Status', ''))).strip().casefold() == 'completed and delivered'
+            if identity and date and completed:
+                existing_dates.setdefault(identity, date)
+            elif identity and completed:
+                undated_history.add(identity)
+    remember_dates(primary_values)
+    df = retain_completed_orders(df, primary_values)
     if original:
         # Raw tabs no longer store automated completion history. Keep it in the reports.
         for title, fields in REPORT_SHEETS[1:]:
@@ -359,10 +391,18 @@ def sync_workbook(df):
                        for row in values[1:]]
             if records:
                 history = pd.DataFrame(records).fillna('')
-                df = retain_completed_orders(df, [list(history.columns)] + history.values.tolist())
-    if report_date and capture_date and 'Out Time' in df.columns:
-        df.loc[df['Out Time'].astype(str).eq(capture_date), 'Out Time'] = report_date
+                history_values = [list(history.columns)] + history.values.tolist()
+                remember_dates(history_values)
+                df = retain_completed_orders(df, history_values)
     df = apply_status_rules(df, [{'source': 'Workflow Suspended', 'target': 'Awaiting for Clarification'}], reporting_date=report_date)
+    status = next((column for column in ('Task Status','Status') if column in df.columns), None)
+    if status and 'Order Number' in df.columns:
+        dates = df['Order Number'].astype(str).str.strip().map({**recovered_dates, **existing_dates})
+        mask = df[status].astype(str).str.strip().str.casefold().eq('completed and delivered') & dates.notna()
+        df.loc[mask, 'Out Time'] = dates[mask]
+        unknown = undated_history - set(existing_dates) - set(recovered_dates)
+        unknown_mask = df['Order Number'].astype(str).str.strip().isin(unknown) & df[status].astype(str).str.strip().str.casefold().eq('completed and delivered')
+        df.loc[unknown_mask, 'Out Time'] = 'Completed'
     synced = [sync_dataframe(raw, (book, primary), color_status=True)]
     frames = report_frames(df)
     frames[0] = report_frame(raw, ALL_PRODUCT_FIELDS)
