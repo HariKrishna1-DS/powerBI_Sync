@@ -62,7 +62,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
     def save_schedule(schedule):
         schedule_path.write_text(json.dumps(schedule, indent=2), encoding='utf-8')
 
-    def begin_sync(trigger='manual', preview_id=None, previous_id=None, keys=None, ignore=None):
+    def begin_sync(trigger='manual', preview_id=None, previous_id=None, keys=None, ignore=None, remaining_products=None):
         if not store.list():
             raise ValueError('Capture or import a preview before syncing Google Sheets.')
         selected_preview = store.get(int(preview_id)) if preview_id is not None else store.get(store.list()[0]['id'])
@@ -71,8 +71,14 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
         if previous_id is not None and int(previous_id) >= selected_preview['id']:
             raise ValueError('The previous preview must be older than the selected preview.')
         previous_preview = store.get(int(previous_id)) if previous_id is not None else None
-        frame, completed_orders = automatic_sync_frame(selected_preview, previous_preview, keys, ignore)
+        frame, completed_orders = automatic_sync_frame(selected_preview, previous_preview, keys, ignore, store=store)
         frame.attrs['completion_dates'] = completion_history(store, selected_preview['id'])
+        if remaining_products is not None:
+            frame.attrs['selected_products'] = remaining_products
+            try:
+                (BASE_DIR / 'remaining_products.json').write_text(json.dumps(remaining_products, indent=2), encoding='utf-8')
+            except Exception:
+                pass
         if not gate.acquire(blocking=False):
             return False
         with state_lock:
@@ -134,8 +140,38 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
             job = dict(state)
         with schedule_lock:
             schedule = load_schedule()
+        remaining_products = []
+        try:
+            path = BASE_DIR / 'remaining_products.json'
+            if path.exists():
+                remaining_products = json.loads(path.read_text(encoding='utf-8'))
+        except Exception:
+            pass
+        daily_reports = daily_orders(store)
+        daily_completed_ids = list(dict.fromkeys(oid for r in daily_reports for oid in r['missing_ids']))
         return jsonify(previews=store.list(), job=job, schedule=schedule, sheet_url=TARGET_GSHEET_URL,
+                       remaining_products=remaining_products,
+                       daily_completed_ids=daily_completed_ids,
                        capabilities={'status_rules': True, 'automatic_statuses': True})
+
+    @app.get('/api/remaining-products')
+    def get_remaining_products():
+        try:
+            path = BASE_DIR / 'remaining_products.json'
+            if path.exists():
+                return jsonify(products=json.loads(path.read_text(encoding='utf-8')))
+        except Exception:
+            pass
+        return jsonify(products=[])
+
+    @app.post('/api/remaining-products')
+    def save_remaining_products():
+        body = request.get_json(silent=True) or {}
+        products = body.get('products') if body.get('products') is not None else body.get('remaining_products')
+        if not isinstance(products, list):
+            raise ValueError('products must be a list.')
+        (BASE_DIR / 'remaining_products.json').write_text(json.dumps(products, indent=2), encoding='utf-8')
+        return jsonify(saved=True, products=products)
 
     @app.get('/api/daily-orders')
     def get_daily_orders():
@@ -175,7 +211,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
         preview_id = body.get('preview')
         if preview_id is None:
             raise ValueError('Select a preview before syncing Google Sheets.')
-        if not begin_sync('manual', preview_id, body.get('previous'), body.get('keys'), body.get('ignore')):
+        if not begin_sync('manual', preview_id, body.get('previous'), body.get('keys'), body.get('ignore'), body.get('remaining_products')):
             return jsonify(error='An extraction or sync is already running.'), 409
         return jsonify(accepted=True), 202
 

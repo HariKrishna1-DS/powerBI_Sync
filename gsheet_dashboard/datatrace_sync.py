@@ -40,15 +40,7 @@ FULL_TITLE_FIELDS = [
     ('Out Time', 'Out Time'), ('SLA Expiration', 'SLA Expiration*'), ('SLA', 'SLA Status'),
     ('Free Site', None),
 ]
-REMAINING_PRODUCT_FIELDS = [
-    ('No', '__number__'), ('Date', 'Arrival Date'), ('Order Number', 'Order Number'),
-    ('TraceQ Id', None), ('State', 'St'), ('County', 'County'), ('Client', 'Client'),
-    ('Online/Ground', 'Online/ Ground'), ('Product', 'Product'), ('Status', 'Task Status'),
-    ('ETA', 'ETA'), ('Comments', 'Comment'), ('Assignee', 'Last User'), ('Searcher', None),
-    ('Clarification Requested', None), ('Shift', None), ('Process date', 'Completed Time'),
-    ('Review/QC', None), ('Expense', None), ('In-Time', 'Arrival Time'), ('Out Time', 'Out Time'),
-    ('SLA Expiration', 'SLA Expiration*'), ('Free Site', None), ('review', None),
-]
+REMAINING_PRODUCT_FIELDS = list(ALL_PRODUCT_FIELDS)
 REPORT_SHEETS = [('All Products', ALL_PRODUCT_FIELDS), ('Full Title', FULL_TITLE_FIELDS),
                  ('Remaining Products', REMAINING_PRODUCT_FIELDS)]
 STATUS_COLORS = {
@@ -127,11 +119,43 @@ def powerbi_table(df, timestamp):
     return result
 
 
-def report_frame(df, fields, product=None):
-    source = df if product is None else df[df['Product'].fillna('').astype(str).str.strip().str.casefold().eq(product)]
+def _product_match_mask(series, selected_set):
+    if not selected_set:
+        return pd.Series(True, index=series.index)
+    direct_mask = series.isin(selected_set)
+    unmatched_indices = series[~direct_mask].index
+    if len(unmatched_indices) == 0:
+        return direct_mask
+    mask = direct_mask.copy()
+    cleaned_selected = [s.rstrip('.').strip() for s in selected_set if s.rstrip('.').strip()]
+    for idx, val in series[unmatched_indices].items():
+        v_clean = val.rstrip('.').strip()
+        if not v_clean:
+            continue
+        for s, s_clean in zip(selected_set, cleaned_selected):
+            if s == val or (v_clean and (s.startswith(v_clean) or val.startswith(s_clean))):
+                mask[idx] = True
+                break
+    return mask
+
+
+def report_frame(df, fields, product=None, selected_products=None):
     if product == '__remaining__':
         products = df['Product'].fillna('').astype(str).str.split().str.join(' ').str.casefold()
-        source = df[products.isin({value.casefold() for value in REMAINING_PRODUCTS})]
+        not_full = ~products.isin({'full title', 'full search'})
+        if selected_products is not None and len(selected_products) > 0:
+            selected_set = {str(p).strip().casefold() for p in selected_products}
+            match_mask = _product_match_mask(products, selected_set)
+            source = df[match_mask & not_full]
+        else:
+            source = df[not_full]
+    elif product == 'full title':
+        products = df['Product'].fillna('').astype(str).str.split().str.join(' ').str.casefold()
+        source = df[products.isin({'full title', 'full search'})]
+    elif product is not None:
+        source = df[df['Product'].fillna('').astype(str).str.strip().str.casefold().eq(product)]
+    else:
+        source = df
     matrix = []
     for number, (_, row) in enumerate(source.iterrows(), start=1):
         values = []
@@ -149,10 +173,10 @@ def report_frame(df, fields, product=None):
     return pd.DataFrame(matrix, columns=[target for target, _ in fields])
 
 
-def report_frames(df):
+def report_frames(df, selected_products=None):
     return [report_frame(df, ALL_PRODUCT_FIELDS),
             report_frame(df, FULL_TITLE_FIELDS, 'full title'),
-            report_frame(df, REMAINING_PRODUCT_FIELDS, '__remaining__')]
+            report_frame(df, REMAINING_PRODUCT_FIELDS, '__remaining__', selected_products=selected_products)]
 
 
 def status_color(status):
@@ -327,7 +351,7 @@ def sync_dataframe(df, target=None, validate=True, row_backgrounds=None, color_s
     return sheet.title
 
 
-def retain_completed_orders(df, existing_values):
+def retain_completed_orders(df, existing_values, valid_completed_ids=None):
     if not existing_values or 'Order Number' not in df.columns:
         return df
     headers = existing_values[0]
@@ -338,6 +362,8 @@ def retain_completed_orders(df, existing_values):
     completed = [row for row in records
                  if str(row.get(status_column, '')).strip().casefold() == 'completed and delivered'
                  and str(row.get('Order Number', '')).strip()]
+    if valid_completed_ids is not None:
+        completed = [row for row in completed if str(row.get('Order Number', '')).strip() in valid_completed_ids]
     result = df.copy()
     incoming = result['Order Number'].astype(str).str.strip()
     dates = {str(row['Order Number']).strip(): completion_date(row.get('Out Time')) for row in completed}
@@ -354,11 +380,21 @@ def retain_completed_orders(df, existing_values):
     return result
 
 
-def sync_workbook(df):
+def sync_workbook(df, selected_products=None):
     book, primary = target_worksheet()
+    if selected_products is None:
+        selected_products = df.attrs.get('selected_products')
+    if selected_products is None:
+        try:
+            stored = json.loads(Path(__file__).with_name('remaining_products.json').read_text(encoding='utf-8'))
+            if isinstance(stored, list) and stored:
+                selected_products = stored
+        except Exception:
+            pass
     original = df.attrs.get('original_capture')
     raw = pd.DataFrame(original['rows'], columns=original['columns']).fillna('') if original else df.copy()
     report_date = df.attrs.get('reporting_date')
+    valid_ids = df.attrs.get('valid_completed_ids')
     recovered_dates = df.attrs.get('completion_dates', {})
     existing_dates = {}
     undated_history = set()
@@ -370,6 +406,8 @@ def sync_workbook(df):
         for values_row in values[1:]:
             row = dict(zip(values[0], values_row))
             identity = str(row.get('Order Number', '')).strip()
+            if valid_ids is not None and identity not in valid_ids:
+                continue
             date = completion_date(row.get('Out Time'))
             completed = str(row.get('Task Status', row.get('Status', ''))).strip().casefold() == 'completed and delivered'
             if identity and date and completed:
@@ -377,7 +415,7 @@ def sync_workbook(df):
             elif identity and completed:
                 undated_history.add(identity)
     remember_dates(primary_values)
-    df = retain_completed_orders(df, primary_values)
+    df = retain_completed_orders(df, primary_values, valid_completed_ids=valid_ids)
     if original:
         # Raw tabs no longer store automated completion history. Keep it in the reports.
         for title, fields in REPORT_SHEETS[1:]:
@@ -393,7 +431,7 @@ def sync_workbook(df):
                 history = pd.DataFrame(records).fillna('')
                 history_values = [list(history.columns)] + history.values.tolist()
                 remember_dates(history_values)
-                df = retain_completed_orders(df, history_values)
+                df = retain_completed_orders(df, history_values, valid_completed_ids=valid_ids)
     df = apply_status_rules(df, [{'source': 'Workflow Suspended', 'target': 'Awaiting for Clarification'}], reporting_date=report_date)
     status = next((column for column in ('Task Status','Status') if column in df.columns), None)
     if status and 'Order Number' in df.columns:
@@ -404,7 +442,7 @@ def sync_workbook(df):
         unknown_mask = df['Order Number'].astype(str).str.strip().isin(unknown) & df[status].astype(str).str.strip().str.casefold().eq('completed and delivered')
         df.loc[unknown_mask, 'Out Time'] = 'Completed'
     synced = [sync_dataframe(raw, (book, primary), color_status=True)]
-    frames = report_frames(df)
+    frames = report_frames(df, selected_products=selected_products)
     frames[0] = report_frame(raw, ALL_PRODUCT_FIELDS)
     for index, ((title, _), frame) in enumerate(zip(REPORT_SHEETS, frames), start=1):
         if len(worksheets) <= index:
@@ -412,6 +450,7 @@ def sync_workbook(df):
         sheet = worksheets[index]
         if sheet.title != title:
             sheet.update_title(title)
+        sheet.clear()
         synced.append(sync_dataframe(frame, (book, sheet), validate=False, color_status=True))
     status_frame = status_report_frame(df)
     index = len(REPORT_SHEETS) + 1

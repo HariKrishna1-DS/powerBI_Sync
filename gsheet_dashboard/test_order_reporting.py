@@ -52,6 +52,7 @@ class OrderReportingTests(unittest.TestCase):
         self.assertEqual(rows[0]['Missing (Completed Orders)'], 1)
         self.assertEqual(rows[0]['Unchanged'], 2)
         self.assertEqual(rows[0]['Newly Orders'], 1)
+        self.assertEqual(rows[0]['Awaiting for Clarification'], 1)
         self.assertEqual(rows[0]['Previews'], ['preview1', 'preview2'])
 
     def test_daily_duplicates_reappearance_and_dates(self):
@@ -206,23 +207,23 @@ class OrderReportingTests(unittest.TestCase):
         self.assertEqual(dates['003'], self.after['created'][:10])
         self.assertNotIn('004', dates)
 
-    def test_remaining_excludes_attorneys_and_home_builders_only(self):
+    def test_remaining_includes_all_products_except_full_title(self):
         from datatrace_sync import report_frames
         products = ['Full Title','Attorney','Attroney Review','Home Builders','HomeBuilders','Current Owner']
         frame = pd.DataFrame([{'Order Number':str(i),'Product':value} for i,value in enumerate(products)])
         all_products, full_title, remaining = report_frames(frame)
         self.assertEqual(len(all_products), 6)
         self.assertEqual(len(full_title), 1)
-        self.assertEqual(remaining['Product'].tolist(), ['Current Owner'])
+        self.assertEqual(remaining['Product'].tolist(), ['Attorney','Attroney Review','Home Builders','HomeBuilders','Current Owner'])
 
-    def test_remaining_matches_reference_product_list_exactly(self):
-        from datatrace_sync import report_frames, REMAINING_PRODUCTS
-        products = REMAINING_PRODUCTS + [' current   OWNER ', 'Update Full Title', 'Unknown', '', 'Attorney', 'Home Builders']
+    def test_remaining_includes_all_non_full_title_or_full_search_products(self):
+        from datatrace_sync import report_frames
+        products = ['Current Owner', 'Two Owner', 'Update Full Title', 'Full Search', 'Full Title', 'Unknown', 'Attorney', 'Home Builders']
         frame = pd.DataFrame([{'Order Number':str(i),'Product':product} for i,product in enumerate(products)])
-        all_products, _, remaining = report_frames(frame)
-        self.assertEqual(len(REMAINING_PRODUCTS), 15)
+        all_products, full_title, remaining = report_frames(frame)
         self.assertEqual(len(all_products), len(products))
-        self.assertEqual(remaining['Product'].tolist(), REMAINING_PRODUCTS + [' current   OWNER '])
+        self.assertEqual(full_title['Product'].tolist(), ['Full Search', 'Full Title'])
+        self.assertEqual(remaining['Product'].tolist(), ['Current Owner', 'Two Owner', 'Update Full Title', 'Unknown', 'Attorney', 'Home Builders'])
 
     def test_raw_tabs_keep_extracted_tasks_and_statuses(self):
         import datatrace_sync as sync
@@ -249,4 +250,16 @@ class OrderReportingTests(unittest.TestCase):
         self.assertEqual(all_sent['Task Status'].tolist(), raw['Task Status'].tolist())
         self.assertEqual(full_sent['Order number'].tolist(), ['1','historic'])
         self.assertEqual(full_sent['Status'].tolist(), ['Search In Progress','Completed and Delivered'])
-        self.assertEqual(remaining_sent['Status'].tolist(), ['Completed and Delivered','Awaiting for Clarification'])
+        self.assertEqual(remaining_sent['Task Status'].tolist(), ['Completed and Delivered','Awaiting for Clarification'])
+
+    def test_daily_orders_governs_completed_and_delivered_not_preview_diff(self):
+        p1 = self.store.save(pd.DataFrame([
+            {'Order Number':'O-1', 'Arrival Time':'09/27/2026 10:00 AM', 'Task Status':'Task Suspended', 'Product':'Full Title'}
+        ]))
+        p2 = self.store.save(pd.DataFrame([
+            {'Order Number':'O-2', 'Arrival Time':'09/28/2026 10:00 AM', 'Task Status':'Available', 'Product':'Full Title'}
+        ]))
+        frame, completed = automatic_sync_frame(p2, store=self.store)
+        self.assertEqual(completed, [])
+        self.assertEqual(frame['Order Number'].tolist(), ['O-2'])
+        self.assertEqual(frame['Task Status'].tolist(), ['Available'])

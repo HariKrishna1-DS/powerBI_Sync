@@ -138,7 +138,7 @@ function FilterPanel({column, rows, filters, setFilters, close}) {
     <div className="unique-values">{visible.map(([v,count])=><label key={v} className="check-row"><input type="checkbox" checked={!current.values || current.values.includes(v)} onChange={()=>toggle(v)}/><span>{label(v)}</span><small>{count.toLocaleString()}</small></label>)}{!visible.length && <p className="muted">No matching values.</p>}</div>
     <div className="print-values"><h2>{column} — Unique values</h2>{visible.map(([v,count])=><p key={v}>{label(v)}: {count}</p>)}</div>
   </aside>;
-}function OverviewDashboard({rows, columns, onSelect}) {
+}function OverviewDashboard({rows, columns, onSelect, selectedProducts, setSelectedProducts}) {
   const ogCol = columns.includes('Online/ Ground') ? 'Online/ Ground' : columns.includes('Online/Ground') ? 'Online/Ground' : null;
   const clientCol = columns.includes('Client') ? 'Client' : null;
   const prodCol = columns.includes('Product') ? 'Product' : null;
@@ -147,7 +147,9 @@ function FilterPanel({column, rows, filters, setFilters, close}) {
   // Slicer State
   const [selectedClients, setSelectedClients] = useState([]);
   const [selectedOg, setSelectedOg] = useState([]);
-  const [selectedProducts, setSelectedProducts] = useState([]);
+  const [localProducts, setLocalProducts] = useState([]);
+  const activeSelectedProducts = selectedProducts !== undefined ? selectedProducts : localProducts;
+  const updateSelectedProducts = setSelectedProducts !== undefined ? setSelectedProducts : setLocalProducts;
   const [showSlicers, setShowSlicers] = useState(true);
 
   // Maximize Modal State
@@ -171,7 +173,12 @@ function FilterPanel({column, rows, filters, setFilters, close}) {
   const allProducts = useMemo(() => {
     if (!prodCol) return [];
     const map = new Map();
-    rows.forEach(r => { const p = label(r[prodCol]); map.set(p, (map.get(p) || 0) + 1); });
+    rows.forEach(r => {
+      const p = label(r[prodCol]);
+      if (p && !['full title', 'full search'].includes(normalized(p))) {
+        map.set(p, (map.get(p) || 0) + 1);
+      }
+    });
     return [...map].sort((a,b) => b[1] - a[1]);
   }, [rows, prodCol]);
 
@@ -185,12 +192,12 @@ function FilterPanel({column, rows, filters, setFilters, close}) {
         const val = str(r[ogCol]).toLowerCase().includes('online') ? 'Online' : str(r[ogCol]).toLowerCase().includes('ground') ? 'Ground' : 'Other';
         if (!selectedOg.includes(val)) return false;
       }
-      if (selectedProducts.length > 0 && prodCol) {
-        if (!selectedProducts.includes(label(r[prodCol]))) return false;
+      if (activeSelectedProducts.length > 0 && prodCol) {
+        if (!activeSelectedProducts.includes(label(r[prodCol]))) return false;
       }
       return true;
     });
-  }, [rows, selectedClients, selectedOg, selectedProducts, clientCol, ogCol, prodCol]);
+  }, [rows, selectedClients, selectedOg, activeSelectedProducts, clientCol, ogCol, prodCol]);
 
   // Metrics calculation
   const onlineCount = useMemo(() => ogCol ? filteredRows.filter(r => str(r[ogCol]).toLowerCase().includes('online')).length : 0, [filteredRows, ogCol]);
@@ -385,15 +392,28 @@ function FilterPanel({column, rows, filters, setFilters, close}) {
             </details>
 
             <details className="dropdown-slicer">
-              <summary>Product Category <span>{selectedProducts.length ? `${selectedProducts.length} selected` : 'All'}</span></summary>
-              <div className="dropdown-slicer-options"><button className="text-button" onClick={()=>setSelectedProducts([])}>All products</button>
-              {allProducts.map(([name, count]) => (
-                <label key={name} className="slicer-item">
-                  <input type="checkbox" checked={selectedProducts.includes(name)} onChange={() => toggleSlicerItem(selectedProducts, setSelectedProducts, name)} />
-                  <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</span>
-                  <small style={{ color: '#94a3b8' }}>{count}</small>
+              <summary>Remaining Products <span>{selectedProducts.length ? `${selectedProducts.length} selected` : 'All'}</span></summary>
+              <div className="dropdown-slicer-options">
+                <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                  <button className="text-button" onClick={()=>setSelectedProducts(allProducts.map(x=>x[0]))}>All products</button>
+                  <button className="text-button" onClick={()=>setSelectedProducts([])}>Clear</button>
+                </div>
+                <label className="slicer-item" style={{ fontWeight: 600, borderBottom: '1px solid #e2e8f0', paddingBottom: 6, marginBottom: 6 }}>
+                  <input
+                    type="checkbox"
+                    checked={allProducts.length > 0 && selectedProducts.length === allProducts.length}
+                    onChange={e => setSelectedProducts(e.target.checked ? allProducts.map(x=>x[0]) : [])}
+                  />
+                  <span style={{ flex: 1 }}>All products</span>
+                  <small style={{ color: '#94a3b8' }}>{allProducts.reduce((sum, p) => sum + p[1], 0)}</small>
                 </label>
-              ))}
+                {allProducts.map(([name, count]) => (
+                  <label key={name} className="slicer-item">
+                    <input type="checkbox" checked={selectedProducts.includes(name)} onChange={() => toggleSlicerItem(selectedProducts, setSelectedProducts, name)} />
+                    <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</span>
+                    <small style={{ color: '#94a3b8' }}>{count}</small>
+                  </label>
+                ))}
               </div>
             </details>
           </div>
@@ -515,7 +535,7 @@ function DataTable({rows, columns, filters, openFilter, name, filterable=true, o
   const sorted = useMemo(()=>sort ? [...rows].sort((a,b)=>str(a[sort.column]).localeCompare(str(b[sort.column]),undefined,{numeric:true})*(sort.desc?-1:1)) : rows,[rows,sort]);
   const pages = Math.max(1,Math.ceil(rows.length/size)), safePage = Math.min(page,pages-1);
   return <section className="table-section"><div className="section-heading"><h2>{name}</h2><div className="inline"><button className="secondary" disabled={!rows.length} onClick={()=>csvDownload(sorted,columns,`${name}-filtered.csv`)}><ArrowDownToLine size={16}/>Filtered CSV</button>{onClose&&<IconButton title="Close chart details" onClick={onClose}><X size={17}/></IconButton>}</div></div>
-    <div className="table-scroll"><table><thead><tr>{columns.map(c=><th key={c}><div className="th-inner">{filterable?<button className={filters[c]?'column-button active-filter':'column-button'} title={`Filter ${c} and view unique values`} onClick={()=>openFilter(c)}>{c}<Filter size={13}/></button>:<span className="column-label">{c}</span>}<IconButton title={`Sort ${c}`} onClick={()=>setSort({column:c,desc:sort?.column===c?!sort.desc:false})}>{sort?.column===c&&sort.desc?<ArrowDown size={13}/>:<ArrowUp size={13}/>}</IconButton></div></th>)}</tr></thead><tbody>{sorted.slice(safePage*size,(safePage+1)*size).map((row,i)=><tr key={i}>{columns.map(c=><td key={c} title={str(row[c])}>{c==='Change'||c==='Comparison Status'?<span className={`badge ${badgeClass(row[c])}`}>{c==='Comparison Status'&&row[c]==='Missing'?'Missing (Completed Orders)':str(row[c])}</span>:label(row[c])}</td>)}</tr>)}</tbody></table>{!rows.length&&<div className="table-empty">No matching rows</div>}</div>
+    <div className="table-scroll"><table><thead><tr>{columns.map(c=><th key={c}><div className="th-inner">{filterable?<button className={filters[c]?'column-button active-filter':'column-button'} title={`Filter ${c} and view unique values`} onClick={()=>openFilter(c)}>{c}<Filter size={13}/></button>:<span className="column-label">{c}</span>}<IconButton title={`Sort ${c}`} onClick={()=>setSort({column:c,desc:sort?.column===c?!sort.desc:false})}>{sort?.column===c&&sort.desc?<ArrowDown size={13}/>:<ArrowUp size={13}/>}</IconButton></div></th>)}</tr></thead><tbody>{sorted.slice(safePage*size,(safePage+1)*size).map((row,i)=><tr key={i}>{columns.map(c=><td key={c} title={str(row[c])}>{c==='Change'||c==='Comparison Status'?<span className={`badge ${badgeClass(row[c])}`}>{c==='Comparison Status'&&row[c]==='Missing'?'Missing Previews':str(row[c])}</span>:label(row[c])}</td>)}</tr>)}</tbody></table>{!rows.length&&<div className="table-empty">No matching rows</div>}</div>
     <footer className="table-footer"><span>{rows.length.toLocaleString()} rows</span><div className="inline"><label>Rows <select aria-label="Rows per page" value={size} onChange={e=>setSize(Number(e.target.value))}>{[25,50,100,250].map(n=><option key={n}>{n}</option>)}</select></label><IconButton title="Previous page" disabled={safePage===0} onClick={()=>setPage(safePage-1)}><ChevronLeft size={16}/></IconButton><span>{safePage+1} / {pages}</span><IconButton title="Next page" disabled={safePage+1===pages} onClick={()=>setPage(safePage+1)}><ChevronRight size={16}/></IconButton></div></footer>
   </section>;
 }
@@ -534,7 +554,8 @@ const DAILY_SERIES = [
   {name:'Today Orders',color:'#147d72'},
   {name:'Missing (Completed Orders)',color:'#bd6268'},
   {name:'Newly Orders',color:'#d79a32'},
-  {name:'Unchanged',color:'#596cc0'}
+  {name:'Unchanged',color:'#596cc0'},
+  {name:'Awaiting for Clarification',color:'#a66ad3'}
 ];
 
 function DailyOrdersChart({history, selectedDate, onSelect}) {
@@ -574,14 +595,15 @@ function DailyOrders({preview}) {
     ['Today Orders',rows],
     ['Missing (Completed Orders)',rows.filter(row=>selectedDay?.missing_ids.includes(str(row['Order Number']).trim()))],
     ['Newly Orders',rows.filter(row=>selectedDay?.new_ids.includes(str(row['Order Number']).trim()))],
-    ['Unchanged',rows.filter(row=>selectedDay?.unchanged_ids.includes(str(row['Order Number']).trim()))]
+    ['Unchanged',rows.filter(row=>selectedDay?.unchanged_ids.includes(str(row['Order Number']).trim()))],
+    ['Awaiting for Clarification',rows.filter(row=>normalized(row['Task Status'] ?? row.Status)==='awaiting for clarification')]
   ];
-  const names=['Today Orders','Missing (Completed Orders)','Newly Orders','Unchanged'];
+  const names=['Today Orders','Missing (Completed Orders)','Newly Orders','Unchanged','Awaiting for Clarification'];
   return <section className="daily-orders">
     {error&&<div className="notice error">{error}</div>}
     {loading?<div className="loading"><LoaderCircle className="spin"/>Loading daily orders...</div>:<>
       <div className="section-heading"><h2>Daily capture history</h2><label>Date<select aria-label="Daily orders date" value={selectedDay?.Date||''} onChange={e=>{setDate(e.target.value);setSearch('');}}>{history.map(day=><option key={day.Date}>{day.Date}</option>)}</select></label></div>
-      <div className="metrics">{names.map((name,index)=><div className={`metric ${['green','red','amber','gray'][index]}`} key={name}><span>{name}</span><strong>{selectedDay?.[name]??0}</strong></div>)}</div>
+      <div className="metrics">{names.map((name,index)=><div className={`metric ${['green','red','amber','gray','purple'][index]}`} key={name}><span>{name}</span><strong>{selectedDay?.[name]??0}</strong></div>)}</div>
       <DailyOrdersChart history={history} selectedDate={selectedDay?.Date} onSelect={value=>{if(value){setDate(value);setSearch('');}}}/>
       <div className="table-scroll"><table><thead><tr>{['Date','Previews',...names].map(name=><th key={name}>{name}</th>)}</tr></thead><tbody>{history.map(day=><tr key={day.Date}><td><button className="text-button" onClick={()=>{setDate(day.Date);setSearch('');}}>{day.Date}</button></td><td>{day.Previews.join(', ')}</td>{names.map(name=><td key={name}>{day[name]}</td>)}</tr>)}</tbody></table></div>
       <div className="filter-toolbar"><div className="search-input"><Search size={16}/><input aria-label="Search daily orders" placeholder="Search all columns" value={search} onChange={e=>setSearch(e.target.value)}/></div></div>
@@ -595,9 +617,24 @@ function App() {
   const [previous,setPrevious]=useState(''), [diff,setDiff]=useState(null), [keys,setKeys]=useState([]), [ignore,setIgnore]=useState(DEFAULT_IGNORE), [compareBusy,setCompareBusy]=useState(false), [compareError,setCompareError]=useState('');
   const [filters,setFilters]=useState({}), [filterColumn,setFilterColumn]=useState(null), [search,setSearch]=useState(''), [error,setError]=useState(''), [pending,setPending]=useState(false), [loading,setLoading]=useState(false), [uploading,setUploading]=useState(false);
   const [chartSelection,setChartSelection]=useState(null), [scheduleDraft,setScheduleDraft]=useState({enabled:false,time:'09:00'}), [savingSchedule,setSavingSchedule]=useState(false);
-  const upload=useRef(), seen=useRef(null), scheduleLoaded=useRef(false);
+  const [selectedRemainingProducts, setSelectedRemainingProducts] = useState([]);
+  const upload=useRef(), seen=useRef(null), scheduleLoaded=useRef(false), remainingLoaded=useRef(false);
   const [compareAttempt,setCompareAttempt]=useState(0);
-  async function refresh() {const next=await api('/api/state');setState(next);if(next.schedule&&!scheduleLoaded.current){setScheduleDraft({enabled:next.schedule.enabled,time:next.schedule.time});scheduleLoaded.current=true;}if(next.previews.length && next.previews[0].id!==seen.current){seen.current=next.previews[0].id;setSelected(next.previews[0].id);setPrevious(String(next.previews[1]?.id || ''));}}
+  const handleProductSelectionChange = (newSelection) => {
+    setSelectedRemainingProducts(newSelection);
+    api('/api/remaining-products', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ remaining_products: newSelection })
+    }).catch(console.error);
+  };
+  async function refresh() {
+    const next=await api('/api/state');
+    setState(next);
+    if(next.schedule&&!scheduleLoaded.current){setScheduleDraft({enabled:next.schedule.enabled,time:next.schedule.time});scheduleLoaded.current=true;}
+    if(Array.isArray(next.remaining_products)&&!remainingLoaded.current){setSelectedRemainingProducts(next.remaining_products);remainingLoaded.current=true;}
+    if(next.previews.length && next.previews[0].id!==seen.current){seen.current=next.previews[0].id;setSelected(next.previews[0].id);setPrevious(String(next.previews[1]?.id || ''));}
+  }
   useEffect(()=>{let active=true;const poll=async()=>{try{if(active)await refresh();}catch(e){if(active)setError(e.message);}};poll();const timer=setInterval(poll,1800);return()=>{active=false;clearInterval(timer);};},[]);
   useEffect(()=>{if(!selected)return;let cancelled=false;setLoading(true);setPreview(EMPTY);setFilters({});setFilterColumn(null);setSearch('');setKeys([]);api(`/api/previews/${selected}`).then(data=>{if(!cancelled)setPreview(data);}).catch(e=>{if(!cancelled)setError(e.message);}).finally(()=>{if(!cancelled)setLoading(false);});return()=>{cancelled=true;};},[selected]);
   useEffect(()=>{setFilters({});setFilterColumn(null);setSearch('');setChartSelection(null);},[view,previous,selected]);
@@ -622,8 +659,8 @@ function App() {
     comparePreviews();
     return()=>{cancelled=true;};
   },[previous,selected,keys,ignore,compareAttempt,view]);
-  const comparisonTable = diff?.record_columns ? {columns:diff.record_columns,rows:[...diff.matched_rows,...diff.unmatched_rows].map(completionStatus)} : EMPTY;
-  const completedOrderIds = useMemo(()=>new Set((diff?.unmatched_rows || []).filter(row=>row['Comparison Status']==='Missing').map(row=>str(row['Order Number']).trim()).filter(Boolean)),[diff]);
+  const comparisonTable = diff?.record_columns ? {columns:diff.record_columns,rows:[...diff.matched_rows,...diff.unmatched_rows]} : EMPTY;
+  const completedOrderIds = useMemo(()=>new Set((state.daily_completed_ids || []).map(id=>str(id).trim()).filter(Boolean)),[state.daily_completed_ids]);
   const mappedPreview = useMemo(()=>({...preview, columns:[...new Set([...preview.columns,'Out Time'])], rows:preview.rows.map(row=>{
     const next = {...row};
     for (const column of ['Task Status','Status']) if (column in next) {
@@ -646,11 +683,16 @@ function App() {
   const chartRows = useMemo(()=>chartSelection?filtered.filter(row=>label(row[chartSelection.column])===chartSelection.value):[],[chartSelection,filtered]);
   const productSplit = useMemo(()=>{
     if(['changes','daily'].includes(view) || !table.columns.includes('Product')) return null;
+    let remainingRows = filtered.filter(row=>!['full title', 'full search'].includes(normalized(row.Product)));
+    if (selectedRemainingProducts.length > 0) {
+      const spSet = new Set(selectedRemainingProducts.map(p => p.toLowerCase()));
+      remainingRows = remainingRows.filter(row => spSet.has(label(row.Product).toLowerCase()));
+    }
     return {
-      fullTitle: filtered.filter(row=>normalized(row.Product)==='full title'),
-      remaining: filtered.filter(row=>remainingProducts.some(product=>normalized(product)===normalized(row.Product).replace(/\s+/g,' ')))
+      fullTitle: filtered.filter(row=>['full title', 'full search'].includes(normalized(row.Product))),
+      remaining: remainingRows
     };
-  },[filtered,table.columns,view]);
+  },[filtered,table.columns,view,selectedRemainingProducts]);
 
   const overviewMetrics = useMemo(() => {
     if (view === 'changes') return [];
@@ -661,7 +703,7 @@ function App() {
     const onN = ogC ? filtered.filter(r => str(r[ogC]).toLowerCase().includes('online')).length : 0;
     const grN = ogC ? filtered.filter(r => str(r[ogC]).toLowerCase().includes('ground')).length : 0;
     const clN = clC ? new Set(filtered.map(r => label(r[clC]))).size : 0;
-    const ftN = prC ? filtered.filter(r => normalized(r[prC]) === 'full title').length : 0;
+    const ftN = prC ? filtered.filter(r => ['full title', 'full search'].includes(normalized(r[prC]))).length : 0;
 
     const tot = filtered.length || 1;
     return [
@@ -674,7 +716,7 @@ function App() {
   }, [view, filtered, table.columns]);
 
   async function extract(){setPending(true);setError('');try{await api('/api/extract',{method:'POST'});await refresh();}catch(e){setError(e.message);}finally{setPending(false);}}
-  async function syncSheets(){setPending(true);setError('');try{const backend=await api('/api/state');if(!backend.capabilities?.automatic_statuses)throw Error('Restart or redeploy the dashboard backend to enable automatic statuses.');await api('/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({preview:selected,previous:previous?Number(previous):null,keys,ignore})});await refresh();}catch(e){setError(e.message);}finally{setPending(false);}}
+  async function syncSheets(){setPending(true);setError('');try{const backend=await api('/api/state');if(!backend.capabilities?.automatic_statuses)throw Error('Restart or redeploy the dashboard backend to enable automatic statuses.');await api('/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({preview:selected,previous:previous?Number(previous):null,keys,ignore,remaining_products:selectedRemainingProducts.length>0?selectedRemainingProducts:null})});await refresh();}catch(e){setError(e.message);}finally{setPending(false);}}
   async function saveSchedule(){setSavingSchedule(true);setError('');try{const saved=await api('/api/sync-schedule',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(scheduleDraft)});setScheduleDraft({enabled:saved.enabled,time:saved.time});await refresh();}catch(e){setError(e.message);}finally{setSavingSchedule(false);}}
   async function importFile(e){const file=e.target.files[0];if(!file)return;setUploading(true);setError('');try{const body=new FormData();body.append('file',file);await api('/api/import',{method:'POST',body});await refresh();}catch(e){setError(e.message);}finally{setUploading(false);e.target.value='';}}
   function choosePrevious(value){setPrevious(value);if(!value)return;const index=state.previews.findIndex(p=>p.id===Number(value));const newer=state.previews[index-1];if(newer)setSelected(newer.id);}
@@ -695,15 +737,15 @@ function App() {
       {view==='changes'&&compareError&&<div className="notice warning" role="alert">{compareError}<button className="secondary" onClick={()=>setCompareAttempt(value=>value+1)}>Retry comparison</button></div>}
       {view==='changes'&&!previous&&<div className="notice">Capture or import a second preview to compare changes.</div>}
       {view==='changes'&&diff&&<><p className="comparison-method">{diff.method}</p>{(diff.added_columns.length>0||diff.removed_columns.length>0)&&<div className="notice">Columns added: {diff.added_columns.join(', ')||'None'} · Columns removed: {diff.removed_columns.join(', ')||'None'}</div>}</>}
-      {view!=='daily'&&<div className="metrics">{(view==='changes'?[['Matched',diff?.record_counts?.matched??'—','green'],['Missing (Completed Orders)',diff?.record_counts?.missing??'—','red'],['Newly added',diff?.record_counts?.newly_added??'—','amber'],['Unchanged',diff?.record_counts?.unchanged??'—','gray']]:view==='daily'?[['Daily orders',preview.rows.length,'green'],['Missing (Completed Orders)',diff?.record_counts?.missing??'—','red'],['Newly added',diff?.record_counts?.newly_added??'—','amber'],['Unchanged',diff?.record_counts?.unchanged??'—','gray']]:overviewMetrics).map(([title,value,color])=><div className={`metric ${color}`} key={title}><span>{title}</span><strong>{value}</strong></div>)}</div>}
+      {view!=='daily'&&<div className="metrics">{(view==='changes'?[['Matched',diff?.record_counts?.matched??'—','green'],['Missing Previews',diff?.record_counts?.missing??'—','red'],['Newly added',diff?.record_counts?.newly_added??'—','amber'],['Unchanged',diff?.record_counts?.unchanged??'—','gray']]:view==='daily'?[['Daily orders',preview.rows.length,'green'],['Missing (Completed Orders)',diff?.record_counts?.missing??'—','red'],['Newly added',diff?.record_counts?.newly_added??'—','amber'],['Unchanged',diff?.record_counts?.unchanged??'—','gray']]:overviewMetrics).map(([title,value,color])=><div className={`metric ${color}`} key={title}><span>{title}</span><strong>{value}</strong></div>)}</div>}
       {view!=='daily'&&<div className="filter-toolbar"><div className="search-input"><Search size={16}/><input aria-label="Search rows" placeholder="Search all columns" value={search} onChange={e=>setSearch(e.target.value)}/></div><select aria-label="Choose column filter" value={filterColumn||''} onChange={e=>setFilterColumn(e.target.value||null)}><option value="">Filter a column…</option>{table.columns.map(c=><option key={c}>{c}</option>)}</select>{Object.keys(filters).map(c=><button className="filter-chip" key={c} onClick={()=>setFilterColumn(c)}><Filter size={12}/>{c}</button>)}{Object.keys(filters).length>0&&<button className="text-button" onClick={()=>setFilters({})}>Clear filters</button>}<span className="row-tally">{filtered.length.toLocaleString()} / {table.rows.length.toLocaleString()} rows</span>{view!=='changes'&&preview.id&&<><a className="secondary" href={`/api/previews/${preview.id}/download/xlsx`}><ArrowDownToLine size={16}/>Excel</a><a className="secondary" href={`/api/previews/${preview.id}/download/csv`}>CSV</a></>}</div>}
-      {(loading||(view==='changes'&&compareBusy))?<div className="loading"><LoaderCircle className="spin"/>Loading preview…</div>:<><div className={filterColumn?'data-layout with-filter':'data-layout'}><div className="data-main">{view==='overview'&&<><OverviewDashboard rows={filtered} columns={table.columns} onSelect={setChartSelection}/><Chart rows={filtered} columns={table.columns} onSelect={setChartSelection}/>{chartSelection&&<div className="chart-drilldown"><DataTable rows={chartRows} columns={table.columns} filters={{}} openFilter={()=>{}} filterable={false} onClose={()=>setChartSelection(null)} name={`${chartSelection.value} · ${chartRows.length} orders`}/></div>}</>}
+      {(loading||(view==='changes'&&compareBusy))?<div className="loading"><LoaderCircle className="spin"/>Loading preview…</div>:<><div className={filterColumn?'data-layout with-filter':'data-layout'}><div className="data-main">{view==='overview'&&<><OverviewDashboard rows={filtered} columns={table.columns} onSelect={setChartSelection} selectedProducts={selectedRemainingProducts} setSelectedProducts={handleProductSelectionChange}/><Chart rows={filtered} columns={table.columns} onSelect={setChartSelection}/>{chartSelection&&<div className="chart-drilldown"><DataTable rows={chartRows} columns={table.columns} filters={{}} openFilter={()=>{}} filterable={false} onClose={()=>setChartSelection(null)} name={`${chartSelection.value} · ${chartRows.length} orders`}/></div>}</>}
         {view==='daily'&&<DailyOrders preview={preview}/>}
         {['overview','daily'].includes(view) ? null : productSplit ? <>
           <DataTable rows={filtered} columns={table.columns} filters={filters} openFilter={setFilterColumn} name={`${preview.name||'Queue'} - All Products`}/>
           <DataTable rows={productSplit.fullTitle} columns={table.columns} filters={filters} openFilter={setFilterColumn} name={`${preview.name||'Queue'} - Full Title`}/>
           <DataTable rows={productSplit.remaining} columns={table.columns} filters={filters} openFilter={setFilterColumn} name={`${preview.name||'Queue'} - Remaining Products`}/>
-        </> : <>{view==='changes'&&diff?.order_append&&<section className="order-append"><div className="order-append-summary"><div><span>Previous last order</span><strong>{diff.order_append.anchor_order||'Not available'}</strong></div><div><span>First new order</span><strong>{diff.order_append.first_added_order||'—'}</strong></div><div><span>Latest new order</span><strong>{diff.order_append.latest_added_order||'—'}</strong></div><div><span>Orders added after it</span><strong>{diff.order_append.available?diff.order_append.count:'—'}</strong></div></div>{diff.order_append.available&&<DataTable rows={diff.order_append.rows} columns={diff.order_append.columns} filters={{}} openFilter={()=>{}} filterable={false} name={`Orders after ${diff.order_append.anchor_order}`}/>}</section>}{view==='changes'?<><DataTable rows={matchedComparison} columns={table.columns} filters={filters} openFilter={setFilterColumn} name={`Matched orders · ${diff?.previous||'Previous'} and ${diff?.latest||'Latest'}`}/><DataTable rows={missingComparison} columns={table.columns} filters={filters} openFilter={setFilterColumn} name="Missing (Completed Orders)"/></>:<DataTable rows={filtered} columns={table.columns} filters={filters} openFilter={setFilterColumn} name={preview.name||'Queue'}/>}</>}
+        </> : <>{view==='changes'&&diff?.order_append&&<section className="order-append"><div className="order-append-summary"><div><span>Previous last order</span><strong>{diff.order_append.anchor_order||'Not available'}</strong></div><div><span>First new order</span><strong>{diff.order_append.first_added_order||'—'}</strong></div><div><span>Latest new order</span><strong>{diff.order_append.latest_added_order||'—'}</strong></div><div><span>Orders added after it</span><strong>{diff.order_append.available?diff.order_append.count:'—'}</strong></div></div>{diff.order_append.available&&<DataTable rows={diff.order_append.rows} columns={diff.order_append.columns} filters={{}} openFilter={()=>{}} filterable={false} name={`Orders after ${diff.order_append.anchor_order}`}/>}</section>}{view==='changes'?<><DataTable rows={matchedComparison} columns={table.columns} filters={filters} openFilter={setFilterColumn} name={`Matched orders · ${diff?.previous||'Previous'} and ${diff?.latest||'Latest'}`}/><DataTable rows={missingComparison} columns={table.columns} filters={filters} openFilter={setFilterColumn} name="Missing Previews"/></>:<DataTable rows={filtered} columns={table.columns} filters={filters} openFilter={setFilterColumn} name={preview.name||'Queue'}/>}</>}
       </div>{filterColumn&&<FilterPanel key={filterColumn} column={filterColumn} rows={table.rows} filters={filters} setFilters={setFilters} close={()=>setFilterColumn(null)}/>}</div></>}
       </>}
       <footer className="page-footer"><span>DataTrace Workspace</span><span>{state.previews.length} saved previews · Local storage</span></footer></div>

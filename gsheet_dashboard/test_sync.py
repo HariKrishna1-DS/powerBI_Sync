@@ -73,12 +73,29 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(list(all_products.columns), [name for name, _ in sync.ALL_PRODUCT_FIELDS])
         self.assertEqual(list(full_title.columns), [name for name, _ in sync.FULL_TITLE_FIELDS])
         self.assertEqual(list(remaining.columns), [name for name, _ in sync.REMAINING_PRODUCT_FIELDS])
+        self.assertEqual(list(remaining.columns), [name for name, _ in sync.ALL_PRODUCT_FIELDS])
         self.assertEqual(all_products['Order Number'].tolist(), ['A-1', 'A-2'])
         self.assertEqual(all_products['Originator Product Order Number'].tolist(), ['101', '102'])
         self.assertEqual(full_title['Order number'].tolist(), ['A-1'])
         self.assertEqual(remaining['Order Number'].tolist(), ['A-2'])
-        self.assertEqual(remaining['No'].tolist(), [1])
-        self.assertEqual(remaining['TraceQ Id'].tolist(), [''])
+        self.assertEqual(remaining['Product'].tolist(), ['Current Owner'])
+        self.assertEqual(remaining['Task Status'].tolist(), ['Task Suspended'])
+
+    def test_report_frames_with_selected_products(self):
+        source = pd.DataFrame([
+            {'Order Number': 'A-1', 'Product': 'Full Title', 'St': 'NJ', 'Client': 'ONE',
+             'Online/ Ground': 'Ground', 'Task Status': 'Available'},
+            {'Order Number': 'A-2', 'Product': 'Current Owner', 'St': 'NY', 'Client': 'TWO',
+             'Online/ Ground': 'Online', 'Task Status': 'Task Suspended'},
+            {'Order Number': 'A-3', 'Product': 'Tax Search', 'St': 'TX', 'Client': 'THREE',
+             'Online/ Ground': 'Online', 'Task Status': 'Available'},
+        ])
+        _, _, remaining_filtered = sync.report_frames(source, selected_products=['Tax Search'])
+        self.assertEqual(remaining_filtered['Order Number'].tolist(), ['A-3'])
+        self.assertEqual(remaining_filtered['Product'].tolist(), ['Tax Search'])
+
+        _, _, remaining_all = sync.report_frames(source, selected_products=None)
+        self.assertEqual(remaining_all['Order Number'].tolist(), ['A-2', 'A-3'])
 
     def test_status_report_counts_and_colors(self):
         source = pd.DataFrame([
