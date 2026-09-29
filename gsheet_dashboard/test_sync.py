@@ -73,13 +73,13 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(list(all_products.columns), [name for name, _ in sync.ALL_PRODUCT_FIELDS])
         self.assertEqual(list(full_title.columns), [name for name, _ in sync.FULL_TITLE_FIELDS])
         self.assertEqual(list(remaining.columns), [name for name, _ in sync.REMAINING_PRODUCT_FIELDS])
-        self.assertEqual(list(remaining.columns), [name for name, _ in sync.ALL_PRODUCT_FIELDS])
+        self.assertEqual(list(remaining.columns), [name for name, _ in sync.FULL_TITLE_FIELDS])
         self.assertEqual(all_products['Order Number'].tolist(), ['A-1', 'A-2'])
         self.assertEqual(all_products['Originator Product Order Number'].tolist(), ['101', '102'])
-        self.assertEqual(full_title['Order number'].tolist(), ['A-1'])
+        self.assertEqual(full_title['Order Number'].tolist(), ['A-1'])
         self.assertEqual(remaining['Order Number'].tolist(), ['A-2'])
         self.assertEqual(remaining['Product'].tolist(), ['Current Owner'])
-        self.assertEqual(remaining['Task Status'].tolist(), ['Task Suspended'])
+        self.assertEqual(remaining['Status'].tolist(), ['Task Suspended'])
 
     def test_report_frames_with_selected_products(self):
         source = pd.DataFrame([

@@ -248,9 +248,9 @@ class OrderReportingTests(unittest.TestCase):
         pd.testing.assert_frame_equal(primary_sent, raw)
         self.assertEqual(all_sent['Task Name'].tolist(), raw['Task Name'].tolist())
         self.assertEqual(all_sent['Task Status'].tolist(), raw['Task Status'].tolist())
-        self.assertEqual(full_sent['Order number'].tolist(), ['1','historic'])
+        self.assertEqual(full_sent['Order Number'].tolist(), ['1','historic'])
         self.assertEqual(full_sent['Status'].tolist(), ['Search In Progress','Completed and Delivered'])
-        self.assertEqual(remaining_sent['Task Status'].tolist(), ['Completed and Delivered','Awaiting for Clarification'])
+        self.assertEqual(remaining_sent['Status'].tolist(), ['Completed and Delivered','Awaiting for Clarification'])
 
     def test_daily_orders_governs_completed_and_delivered_not_preview_diff(self):
         p1 = self.store.save(pd.DataFrame([

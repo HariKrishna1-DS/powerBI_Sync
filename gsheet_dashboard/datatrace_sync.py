@@ -30,17 +30,18 @@ ALL_PRODUCT_FIELDS = [
     ('WorkflowSuspendReason', None), ('UserContextId', None), ('WorkflowSuspendTypeId', None),
     ('WorkflowTaskSuspendTypeId', None), ('SuspendUntil', None), ('Out Time', 'Out Time'),
 ]
-FULL_TITLE_FIELDS = [
-    ('No', '__number__'), ('Received Date', 'Arrival Date'), ('Order number', 'Order Number'),
-    ('TraceQ id', None), ('State', 'St'), ('County', 'County'), ('Client', 'Client'),
-    ('Online/Gorund', 'Online/ Ground'), ('Product', 'Product'), ('Status', 'Task Status'),
-    ('SLA', 'ETA'), ('Comments', 'Comment'), ('Assignee', 'Last User'), ('Searcher', None),
-    ('Clarification Requested', None), ('Shift', None), ('Processed Date', 'Completed Time'),
-    ('Typer', None), ('Review/QC', None), ('Expense', None), ('In-Time', 'Arrival Time'),
-    ('Out Time', 'Out Time'), ('SLA Expiration', 'SLA Expiration*'), ('SLA', 'SLA Status'),
-    ('Free Site', None),
+SLICED_PRODUCT_FIELDS = [
+    ('No', '__number__'), ('Date', 'Arrival Date'), ('Order Number', 'Order Number'),
+    ('TraceQ Id', 'TraceQ Id'), ('State', 'St'), ('County', 'County'), ('Client', 'Client'),
+    ('Online/Ground', 'Online/ Ground'), ('Product', 'Product'), ('Status', 'Task Status'),
+    ('ETA', 'ETA'), ('Comments', 'Comment'), ('Assignee', 'Last User'), ('Searcher', 'Searcher'),
+    ('Clarification Requested', 'Clarification Requested'), ('Shift', 'Shift'),
+    ('Process date', 'Completed Time'), ('Review/QC', 'Review/QC'), ('Expense', 'Expense'),
+    ('In-Time', 'Arrival Time'), ('Out Time', 'Out Time'), ('SLA Expiration', 'SLA Expiration*'),
+    ('Free Site', 'Free Site'), ('review', 'review'),
 ]
-REMAINING_PRODUCT_FIELDS = list(ALL_PRODUCT_FIELDS)
+FULL_TITLE_FIELDS = list(SLICED_PRODUCT_FIELDS)
+REMAINING_PRODUCT_FIELDS = list(SLICED_PRODUCT_FIELDS)
 REPORT_SHEETS = [('All Products', ALL_PRODUCT_FIELDS), ('Full Title', FULL_TITLE_FIELDS),
                  ('Remaining Products', REMAINING_PRODUCT_FIELDS)]
 STATUS_COLORS = {
@@ -159,7 +160,7 @@ def report_frame(df, fields, product=None, selected_products=None):
     matrix = []
     for number, (_, row) in enumerate(source.iterrows(), start=1):
         values = []
-        for _, source_column in fields:
+        for target, source_column in fields:
             if source_column == '__number__':
                 value = number
             elif source_column == '__workflow_suspended__':
@@ -167,7 +168,27 @@ def report_frame(df, fields, product=None, selected_products=None):
             elif source_column == '__task_suspended__':
                 value = str(row.get('Task Status', '')).strip().casefold() == 'task suspended'
             else:
-                value = row.get(source_column, '') if source_column else ''
+                value = ''
+                if source_column and source_column in row and pd.notna(row[source_column]):
+                    value = row[source_column]
+                elif target and target in row and pd.notna(row[target]):
+                    value = row[target]
+                elif source_column:
+                    aliases = {
+                        'Arrival Date': ['Date'],
+                        'St': ['State'],
+                        'Online/ Ground': ['Online/Ground', 'Online/Gorund'],
+                        'Comment': ['Comments', 'ETA Comments'],
+                        'Last User': ['Assignee'],
+                        'Completed Time': ['Process date', 'Processed Date'],
+                        'Arrival Time': ['In-Time'],
+                        'SLA Expiration*': ['SLA Expiration'],
+                        'Task Status': ['Status'],
+                    }
+                    for alt in aliases.get(source_column, []):
+                        if alt in row and pd.notna(row[alt]):
+                            value = row[alt]
+                            break
             values.append(value)
         matrix.append(values)
     return pd.DataFrame(matrix, columns=[target for target, _ in fields])
@@ -319,6 +340,15 @@ def sync_dataframe(df, target=None, validate=True, row_backgrounds=None, color_s
         if required > existing:
             requests.append({'appendDimension': {'sheetId': sheet.id, 'dimension': dimension,
                                                  'length': required - existing}})
+    if sheet.col_count > len(df.columns):
+        requests.append({'deleteDimension': {
+            'range': {
+                'sheetId': sheet.id,
+                'dimension': 'COLUMNS',
+                'startIndex': len(df.columns),
+                'endIndex': sheet.col_count
+            }
+        }})
     # Full-sheet range clears trailing values in the same atomic request.
     requests.append({'updateCells': {'range': {'sheetId': sheet.id},
                      'rows': [{'values': [sheet_cell(v, row_backgrounds[index] if index < len(row_backgrounds) else None)
@@ -423,8 +453,11 @@ def sync_workbook(df, selected_products=None):
             values = sheet.get_all_values() if sheet else []
             if not values:
                 continue
-            mapping = [(index, source) for index, name in enumerate(values[0])
-                       for target, source in fields if name == target and source and not source.startswith('__')]
+            field_map = {target.strip().casefold(): source for target, source in fields if source and not source.startswith('__')}
+            field_map['order number'] = 'Order Number'
+            field_map['status'] = 'Task Status'
+            mapping = [(index, field_map[str(name).strip().casefold()]) for index, name in enumerate(values[0])
+                       if str(name).strip().casefold() in field_map]
             records = [{source: row[index] if index < len(row) else '' for index, source in mapping}
                        for row in values[1:]]
             if records:
