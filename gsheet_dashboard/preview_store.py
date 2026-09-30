@@ -44,6 +44,16 @@ class PreviewStore:
             export_to_excel_and_csv(frame, self.root / f'preview{number}')
         return self.get(number)
 
+    def restore(self, number, columns, rows, source='Google Sheets recovery'):
+        """Recover the last synced numbered preview after ephemeral storage is lost."""
+        if number < 1 or not columns or not rows:
+            raise ValueError('A numbered preview with rows is required for recovery.')
+        created = datetime.now(timezone.utc).isoformat()
+        with self.connect() as db:
+            db.execute('INSERT OR IGNORE INTO previews(id,created,source,columns_json,rows_json) '
+                       'VALUES(?,?,?,?,?)', (number, created, source, json.dumps(columns), json.dumps(rows)))
+        return self.get(number)
+
     def list(self):
         with self.connect() as db:
             return [{'id': i, 'name': f'preview{i}', 'created': created, 'source': source,

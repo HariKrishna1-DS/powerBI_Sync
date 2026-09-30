@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from io import BytesIO
 import json
+import os
 from pathlib import Path
 import tempfile
 import threading
@@ -142,6 +143,52 @@ class ScheduledCaptureTests(unittest.TestCase):
         with patch.object(sync, 'target_worksheet', return_value=(book, primary)), patch.object(sync, 'sync_dataframe') as upload:
             sync.sync_workbook(frame)
         self.assertEqual(set(upload.call_args.args[0]['Preview']), {'preview25'})
+
+    def test_render_recovers_latest_numbered_preview_from_sheet(self):
+        primary = Mock()
+        primary.get_all_values.return_value = [
+            ['Order Number', 'Product', 'Task Status', 'Out Time', 'Free Site'],
+            ['001', 'Full Title', 'Completed and Delivered', '09/30/2026', 'Missed']]
+        status = Mock()
+        status.get_all_values.return_value = [['Preview'], ['preview27']]
+        settings = Mock()
+        settings.acell.return_value.value = ''
+        book = Mock()
+        product = Mock()
+        product.get_all_values.return_value = [primary.get_all_values.return_value[0], primary.get_all_values.return_value[1]]
+        empty_product = Mock()
+        empty_product.get_all_values.return_value = []
+        book.worksheet.side_effect = lambda title: {'Status Report': status, '__DataTrace_Config': settings,
+                                                     'Full Title': product, 'Remaining Products': empty_product}[title]
+        with patch.dict(os.environ, {'RENDER': 'true'}), patch('server.target_worksheet', return_value=(book, primary)):
+            client = create_app(self.store.root).test_client()
+            response = client.get('/api/state')
+            self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
+            state = response.json
+            report = client.get('/api/monthly-orders').json
+        self.assertEqual(state['previews'][0]['name'], 'preview27')
+        self.assertEqual(client.get('/api/previews/27').json['rows'][0]['Order Number'], '001')
+        self.assertEqual(report['rows'][0]['SLA Missed'], 1)
+
+    def test_render_schedule_survives_local_file_loss(self):
+        settings = Mock()
+        cloud = {'value': json.dumps({'enabled': False, 'times': ['09:00']})}
+        settings.acell.side_effect = lambda cell: Mock(value=cloud['value'])
+        settings.update_acell.side_effect = lambda cell, value: cloud.update(value=value)
+        book = Mock()
+        book.worksheet.side_effect = lambda title: settings if title == '__DataTrace_Config' else Mock(get_all_values=Mock(return_value=[]))
+        with patch.dict(os.environ, {'RENDER': 'true'}), patch('server.target_worksheet', return_value=(book, Mock())):
+            with patch('server.datetime') as clock:
+                clock.strptime = datetime.strptime
+                clock.now.return_value = datetime(2026, 9, 30, 13, 1, tzinfo=IST)
+                client = create_app(self.store.root).test_client()
+                saved = client.post('/api/sync-schedule', json={'enabled': True, 'times': ['13:00', '14:00']})
+                self.assertEqual(saved.status_code, 200)
+                self.assertEqual(json.loads(cloud['value'])['times'], ['13:00', '14:00'])
+            (self.root / 'sync_schedule.json').unlink()
+            restored = create_app(self.store.root).test_client().get('/api/state').json['schedule']
+        self.assertTrue(restored['enabled'])
+        self.assertEqual(restored['times'], ['13:00', '14:00'])
 
 
 if __name__ == '__main__':

@@ -2,6 +2,8 @@
 import argparse
 from datetime import datetime, timedelta, timezone
 import json
+import os
+import re
 import socket
 from io import BytesIO
 from pathlib import Path
@@ -20,6 +22,7 @@ from order_reporting import automatic_sync_frame, daily_orders, monthly_orders, 
 from sync_config import BASE_DIR, TARGET_GSHEET_URL
 
 IST = timezone(timedelta(hours=5, minutes=30), 'IST')
+SETTINGS_SHEET = '__DataTrace_Config'
 
 
 def workbook(frame, name):
@@ -51,9 +54,56 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
     schedule_lock = threading.Lock()
     state = {'running': False, 'stage': 'Ready', 'action': None, 'result': None, 'run_id': 0}
     schedule_path = store.root.parent / 'sync_schedule.json'
+    cloud_schedule_loaded = False
+    preview_recovery_lock = threading.Lock()
+
+    def recover_latest_preview():
+        if not os.environ.get('RENDER') or store.list():
+            return
+        with preview_recovery_lock:
+            if store.list():
+                return
+            try:
+                book, primary = target_worksheet()
+                status = book.worksheet('Status Report').get_all_values()
+                if not status or 'Preview' not in status[0]:
+                    return
+                index = status[0].index('Preview')
+                names = {row[index] for row in status[1:] if len(row) > index and row[index]}
+                if len(names) != 1:
+                    return
+                match = re.fullmatch(r'preview([1-9]\d*)', names.pop())
+                if not match:
+                    return
+                values = primary.get_all_values()
+                if len(values) < 2:
+                    return
+                columns = values[0]
+                rows = [dict(zip(columns, row)) for row in values[1:]]
+                store.restore(int(match.group(1)), columns, rows)
+            except Exception:
+                app.logger.exception('Could not recover latest preview from Google Sheets')
 
     def load_schedule():
+        nonlocal cloud_schedule_loaded
         default = {'enabled': False, 'time': '09:00', 'times': ['09:00'], 'last_triggered_date': None, 'triggered_today': [], 'timezone': 'Asia/Kolkata'}
+        if os.environ.get('RENDER') and not cloud_schedule_loaded:
+            try:
+                book, _ = target_worksheet()
+                from gspread.exceptions import WorksheetNotFound
+                try:
+                    sheet = book.worksheet(SETTINGS_SHEET)
+                except WorksheetNotFound:
+                    sheet = None
+                if sheet:
+                    value = sheet.acell('A1').value
+                    if value:
+                        saved = json.loads(value)
+                        if isinstance(saved, dict):
+                            schedule_path.write_text(json.dumps(saved), encoding='utf-8')
+                cloud_schedule_loaded = True
+            except Exception:
+                app.logger.exception('Could not load AutoLogin schedule from Google Sheets')
         try:
             saved = json.loads(schedule_path.read_text(encoding='utf-8'))
             if isinstance(saved, dict):
@@ -71,6 +121,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
         return default
 
     def save_schedule(schedule):
+        nonlocal cloud_schedule_loaded
         times = schedule.get('times', [])
         if not isinstance(times, list) or not times:
             if schedule.get('time'):
@@ -81,6 +132,15 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
         schedule['times'] = times
         schedule['time'] = times[0] if times else '09:00'
         schedule_path.write_text(json.dumps(schedule, indent=2), encoding='utf-8')
+        if os.environ.get('RENDER'):
+            book, _ = target_worksheet()
+            from gspread.exceptions import WorksheetNotFound
+            try:
+                sheet = book.worksheet(SETTINGS_SHEET)
+            except WorksheetNotFound:
+                sheet = book.add_worksheet(title=SETTINGS_SHEET, rows=2, cols=2)
+            sheet.update_acell('A1', json.dumps(schedule))
+            cloud_schedule_loaded = True
 
     def prepare_sync(preview_id=None, previous_id=None, keys=None, ignore=None, remaining_products=None):
         if not store.list():
@@ -225,6 +285,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
 
     @app.get('/api/state')
     def get_state():
+        recover_latest_preview()
         with state_lock:
             job = dict(state)
         with schedule_lock:
@@ -264,12 +325,14 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
 
     @app.get('/api/daily-orders')
     def get_daily_orders():
+        recover_latest_preview()
         preview_id = request.args.get('preview_id', type=int)
         selected_date = reporting_date(store.get(preview_id)) if preview_id is not None else None
         return jsonify(rows=daily_orders(store, preview_id), selected_date=selected_date)
 
     @app.get('/api/monthly-orders')
     def get_monthly_orders():
+        recover_latest_preview()
         try:
             book, _ = target_worksheet()
             sheet_rows = []
@@ -284,6 +347,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
 
     @app.get('/api/live-sheets')
     def get_live_sheets():
+        recover_latest_preview()
         book, _ = target_worksheet()
         sheets = {}
         for title in ('All Products', 'Full Title', 'Remaining Products', 'Status Report'):
