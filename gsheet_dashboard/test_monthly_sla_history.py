@@ -38,3 +38,22 @@ class MonthlySlaHistoryTests(unittest.TestCase):
             october, september = monthly_orders(store)
         self.assertEqual(september['SLA On Time'], 1)
         self.assertEqual(october['SLA On Time'], 0)
+
+    def test_live_sheet_override_and_cleared_value(self):
+        row = {'Order Number':'A1','Task Status':'Completed and Delivered',
+               'Arrival Time':'09/29/2026 10:00 AM','Out Time':'09/30/2026',
+               'SLA Expiration*':'09/29/2026 01:00 PM'}
+        preview = {'id':1,'name':'preview1','created':'2026-09-30T10:00:00Z',
+                   'columns':list(row),'rows':[row]}
+        store = Mock()
+        store.list.return_value = [preview]
+        store.get.return_value = preview
+        baseline = monthly_orders(store)[0]
+        self.assertEqual((baseline['SLA On Time'], baseline['SLA Missed']), (0,1))
+        edited = dict(row, **{'Free Site':'OnTime'})
+        report = monthly_orders(store, [edited])[0]
+        self.assertEqual((report['SLA On Time'], report['SLA Missed']), (1,0))
+        cleared = monthly_orders(store, [dict(row, **{'Free Site':''})])[0]
+        self.assertEqual((cleared['SLA On Time'], cleared['SLA Missed']), (0,0))
+        moved = monthly_orders(store, [dict(edited, **{'Out Time':'10/01/2026'})])[0]
+        self.assertEqual((moved['SLA On Time'], moved['SLA Missed']), (0,0))

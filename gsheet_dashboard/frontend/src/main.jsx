@@ -664,16 +664,20 @@ function MonthlyOrders({preview}) {
   const [history,setHistory]=useState([]), [error,setError]=useState(''), [month,setMonth]=useState(''), [search,setSearch]=useState('');
   const [loading,setLoading]=useState(true);
   useEffect(()=>{
-    let active=true;
+    let active=true, busy=false;
     setLoading(true);
-    api('/api/monthly-orders?include_sla=1').then(data=>{
-      if(active){setHistory(data.rows);setError(data.sla_error?`SLA comments unavailable: ${data.sla_error}`:'');}
-    }).catch(e=>{
-      if(active)setError(e.message);
-    }).finally(()=>{
-      if(active)setLoading(false);
-    });
-    return()=>{active=false;};
+    const refresh=async()=>{
+      if(busy)return;
+      busy=true;
+      try{
+        const data=await api('/api/monthly-orders');
+        if(active){setHistory(data.rows);setError(data.sla_error||'');}
+      }catch(e){if(active)setError(e.message);}
+      finally{busy=false;if(active)setLoading(false);}
+    };
+    refresh();
+    const timer=setInterval(refresh,30000);
+    return()=>{active=false;clearInterval(timer);};
   },[preview?.id]);
 
   const selectedMonth=history.find(m=>m.Month===month)||history[0];
@@ -693,9 +697,9 @@ function MonthlyOrders({preview}) {
       <div className="section-heading"><h2>Monthly capture history</h2><label>Month<select aria-label="Monthly orders date" value={selectedMonth?.Month||''} onChange={e=>{setMonth(e.target.value);setSearch('');}}>{history.map(m=><option key={m.Month} value={m.Month}>{m.MonthLabel || m.Month}</option>)}</select></label></div>
       <div className="metrics">{names.slice(0,4).map((name,index)=><div className={`metric ${['green','red','gray','purple'][index]}`} key={name}><span>{name}</span><strong>{selectedMonth?.[name]??0}</strong><small>{monthlyPercentage(selectedMonth,name)}</small></div>)}</div>
       <div className="section-heading"><h2>SLA COMMENTS</h2></div>
-      <div className="metrics">{names.slice(4).map(name=><div className="metric" key={name}><span>{name}</span><strong>{error?'Unavailable':selectedMonth?.[name]??0}</strong>{!error&&<small>{monthlyPercentage(selectedMonth,name)}</small>}</div>)}</div>
+      <div className="metrics">{names.slice(4).map(name=><div className="metric" key={name}><span>{name}</span><strong>{selectedMonth?.[name]??0}</strong><small>{monthlyPercentage(selectedMonth,name)}</small></div>)}</div>
       <MonthlyOrdersChart history={history} selectedMonth={selectedMonth?.Month} onSelect={value=>{if(value){setMonth(value);setSearch('');}}}/>
-      <div className="table-scroll"><table><thead><tr>{['Month','Previews',...names].map(name=><th key={name}>{name}</th>)}</tr></thead><tbody>{history.map(m=><tr key={m.Month}><td><button className="text-button" onClick={()=>{setMonth(m.Month);setSearch('');}}>{m.MonthLabel || m.Month}</button></td><td>{m.Previews.join(', ')}</td>{names.map(name=><td key={name}>{name.startsWith('SLA ')&&error?'Unavailable':`${m[name]??0} (${monthlyPercentage(m,name)})`}</td>)}</tr>)}</tbody></table></div>
+      <div className="table-scroll"><table><thead><tr>{['Month','Previews',...names].map(name=><th key={name}>{name}</th>)}</tr></thead><tbody>{history.map(m=><tr key={m.Month}><td><button className="text-button" onClick={()=>{setMonth(m.Month);setSearch('');}}>{m.MonthLabel || m.Month}</button></td><td>{m.Previews.join(', ')}</td>{names.map(name=><td key={name}>{`${m[name]??0} (${monthlyPercentage(m,name)})`}</td>)}</tr>)}</tbody></table></div>
       <div className="filter-toolbar"><div className="search-input"><Search size={16}/><input aria-label="Search monthly orders" placeholder="Search all columns" value={search} onChange={e=>setSearch(e.target.value)}/></div></div>
       {selectedMonth?groups.map(([name,items])=><DataTable key={name} rows={items} columns={columns} filters={{}} openFilter={()=>{}} filterable={false} name={`${name} · ${items.length}`}/>):<div className="table-empty">No monthly orders</div>}
     </>}
@@ -745,6 +749,7 @@ function App() {
   const [filters,setFilters]=useState({}), [filterColumn,setFilterColumn]=useState(null), [search,setSearch]=useState(''), [error,setError]=useState(''), [pending,setPending]=useState(false), [loading,setLoading]=useState(false), [uploading,setUploading]=useState(false);
   const [chartSelection,setChartSelection]=useState(null), [scheduleDraft,setScheduleDraft]=useState({enabled:false,times:['09:00'],newTime:'10:00'}), [savingSchedule,setSavingSchedule]=useState(false);
   const [selectedRemainingProducts, setSelectedRemainingProducts] = useState([]);
+  const [liveSheets,setLiveSheets]=useState(null), [liveSheetError,setLiveSheetError]=useState('');
   const upload=useRef(), seen=useRef(null), scheduleLoaded=useRef(false), remainingLoaded=useRef(false);
   const [compareAttempt,setCompareAttempt]=useState(0);
 
@@ -785,6 +790,19 @@ function App() {
   }
   useEffect(()=>{let active=true;const poll=async()=>{try{if(active)await refresh();}catch(e){if(active)setError(e.message);}};poll();const timer=setInterval(poll,1800);return()=>{active=false;clearInterval(timer);};},[]);
   useEffect(()=>{if(!selected)return;let cancelled=false;setLoading(true);setPreview(EMPTY);setFilters({});setFilterColumn(null);setSearch('');setKeys([]);api(`/api/previews/${selected}`).then(data=>{if(!cancelled)setPreview(data);}).catch(e=>{if(!cancelled)setError(e.message);}).finally(()=>{if(!cancelled)setLoading(false);});return()=>{cancelled=true;};},[selected]);
+  useEffect(()=>{
+    if(!['overview','sheets'].includes(view)||!preview.name)return;
+    let active=true, busy=false;
+    const refresh=async()=>{
+      if(busy)return;
+      busy=true;
+      try{const data=await api('/api/live-sheets');if(active){setLiveSheets(data);setLiveSheetError('');}}
+      catch(e){if(active){setLiveSheets(null);setLiveSheetError(e.message);}}
+      finally{busy=false;}
+    };
+    refresh();const timer=setInterval(refresh,30000);
+    return()=>{active=false;clearInterval(timer);};
+  },[view,preview.name]);
   useEffect(()=>{setFilters({});setFilterColumn(null);setSearch('');setChartSelection(null);},[view,previous,selected]);
   useEffect(()=>{
     setDiff(null);setCompareBusy(false);setCompareError('');
@@ -824,7 +842,10 @@ function App() {
     if(normalized(next['Task Status'] ?? next.Status)==='completed and delivered') next['Out Time']='Completed';
     return next;
   })}),[preview,completedOrderIds]);
-  const table = view==='changes' ? comparisonTable : mappedPreview;
+  const liveCurrent=!!preview.name&&!!liveSheets&&liveSheets.preview_name===preview.name&&['overview','sheets'].includes(view);
+  const table = view==='changes' ? comparisonTable : liveCurrent ? liveSheets.sheets['All Products'] : mappedPreview;
+  const liveFull=liveCurrent?liveSheets.sheets['Full Title']:null;
+  const liveRemaining=liveCurrent?liveSheets.sheets['Remaining Products']:null;
   const filtered = useMemo(()=>table.rows.filter(row=>matches(row,filters)&&(!search||table.columns.some(c=>str(row[c]).toLowerCase().includes(search.toLowerCase())))),[table,filters,search]);
   const matchedComparison = view==='changes' ? filtered.filter(row=>['Unchanged','Matched - changed'].includes(row['Comparison Status'])) : [];
   const missingComparison = view==='changes' ? filtered.filter(row=>row['Comparison Status']==='Missing') : [];
@@ -920,6 +941,8 @@ function App() {
       </div></details><button className="primary" onClick={extract} disabled={running}>{state.job.action==='extract'&&running?<LoaderCircle size={17} className="spin"/>:<Play size={17}/>}<span>{state.job.action==='extract'&&running?'Extracting queue…':'Run AutoLogin & Extract Queue'}</span></button></div></div>
       {view==='overview' && selected && <section className="automatic-statuses"><span className="eyebrow">AUTOMATIC STATUSES</span><div><span>Workflow Suspended</span><span aria-hidden="true">&#8594;</span><span className="status-rule-target" style={{background:statusColor('Awaiting for Clarification')}}>Awaiting for Clarification</span></div><div><span>Missing orders</span><span aria-hidden="true">&#8594;</span><span className="status-rule-target" style={{background:statusColor('Completed and Delivered')}}>Completed and Delivered</span></div></section>}
       {error&&<div className="notice error" role="alert">{error}<IconButton title="Dismiss error" onClick={()=>setError('')}><X size={16}/></IconButton></div>}
+      {liveSheetError&&['overview','sheets'].includes(view)&&<div className="notice warning" role="status">Google Sheet unavailable; showing saved preview. {liveSheetError}</div>}
+      {liveCurrent&&<div className="notice" role="status">Connected Google Sheet · {preview.name}</div>}
       {result?.error&&<div className="notice warning" role="status">{result.preview_name&&<strong>{result.preview_name} saved. </strong>}{result.error}</div>}
       {result&&!result.error&&!running&&<div className="notice success"><Check size={16}/>{result.action==='sync'?`${result.preview_name} synced · ${result.rows} rows · ${result.worksheets?.length||0} Google Sheets tabs updated`:`${result.preview_name} saved locally · ${result.rows} rows · Google Sheets not changed`}</div>}
       {!state.previews.length ? <div className="empty-state"><div className="empty-icon"><Database size={40} strokeWidth={1.3}/></div><h2>No queue data yet</h2><p>Your saved previews will appear here.</p><button className="secondary" onClick={()=>upload.current.click()}><Plus size={17}/>Import Excel or CSV</button></div> : <>
@@ -934,8 +957,8 @@ function App() {
         {view==='monthly'&&<MonthlyOrders preview={preview}/>}
         {['overview','daily','monthly'].includes(view) ? null : productSplit ? <>
           <DataTable rows={filtered} columns={table.columns} filters={filters} openFilter={setFilterColumn} name={`${preview.name||'Queue'} - All Products`}/>
-          <DataTable rows={productSplit.fullTitle} columns={table.columns} filters={filters} openFilter={setFilterColumn} name={`${preview.name||'Queue'} - Full Title`}/>
-          <DataTable rows={productSplit.remaining} columns={table.columns} filters={filters} openFilter={setFilterColumn} name={`${preview.name||'Queue'} - Remaining Products`}/>
+          <DataTable rows={liveFull?liveFull.rows.filter(row=>!search||liveFull.columns.some(column=>str(row[column]).toLowerCase().includes(search.toLowerCase()))):productSplit.fullTitle} columns={liveFull?.columns||table.columns} filters={liveFull?{}:filters} openFilter={setFilterColumn} name={`${preview.name||'Queue'} - Full Title`}/>
+          <DataTable rows={liveRemaining?liveRemaining.rows.filter(row=>!search||liveRemaining.columns.some(column=>str(row[column]).toLowerCase().includes(search.toLowerCase()))):productSplit.remaining} columns={liveRemaining?.columns||table.columns} filters={liveRemaining?{}:filters} openFilter={setFilterColumn} name={`${preview.name||'Queue'} - Remaining Products`}/>
         </> : <>{view==='changes'&&diff?.order_append&&<section className="order-append"><div className="order-append-summary"><div><span>Previous last order</span><strong>{diff.order_append.anchor_order||'Not available'}</strong></div><div><span>First new order</span><strong>{diff.order_append.first_added_order||'—'}</strong></div><div><span>Latest new order</span><strong>{diff.order_append.latest_added_order||'—'}</strong></div><div><span>Orders added after it</span><strong>{diff.order_append.available?diff.order_append.count:'—'}</strong></div></div>{diff.order_append.available&&<DataTable rows={diff.order_append.rows} columns={diff.order_append.columns} filters={{}} openFilter={()=>{}} filterable={false} name={`Orders after ${diff.order_append.anchor_order}`}/>}</section>}{view==='changes'?<><DataTable rows={matchedComparison} columns={table.columns} filters={filters} openFilter={setFilterColumn} name={`Matched orders · ${diff?.previous||'Previous'} and ${diff?.latest||'Latest'}`}/><DataTable rows={missingComparison} columns={table.columns} filters={filters} openFilter={setFilterColumn} name="Missing Previews"/></>:<DataTable rows={filtered} columns={table.columns} filters={filters} openFilter={setFilterColumn} name={preview.name||'Queue'}/>}</>}
       </div>{filterColumn&&<FilterPanel key={filterColumn} column={filterColumn} rows={table.rows} filters={filters} setFilters={setFilters} close={()=>setFilterColumn(null)}/>}</div></>}
       </>}

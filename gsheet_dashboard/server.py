@@ -270,7 +270,28 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
 
     @app.get('/api/monthly-orders')
     def get_monthly_orders():
-        return jsonify(rows=monthly_orders(store), sla_error=None)
+        try:
+            book, _ = target_worksheet()
+            sheet_rows = []
+            for title in ('Full Title', 'Remaining Products'):
+                values = book.worksheet(title).get_all_values()
+                if values:
+                    sheet_rows.extend(dict(zip(values[0], row)) for row in values[1:])
+            return jsonify(rows=monthly_orders(store, sheet_rows), sla_error=None)
+        except Exception as exc:
+            app.logger.warning('Could not refresh monthly SLA from Google Sheets: %s', exc)
+            return jsonify(rows=monthly_orders(store), sla_error='Could not read the connected Google Sheet. Showing saved preview values.')
+
+    @app.get('/api/live-sheets')
+    def get_live_sheets():
+        book, _ = target_worksheet()
+        sheets = {}
+        for title in ('All Products', 'Full Title', 'Remaining Products', 'Status Report'):
+            values = book.worksheet(title).get_all_values()
+            sheets[title] = {'columns': values[0], 'rows': [dict(zip(values[0], row)) for row in values[1:]]} if values else {'columns': [], 'rows': []}
+        status = sheets['Status Report']
+        names = {row.get('Preview', '') for row in status['rows'] if row.get('Preview', '')}
+        return jsonify(preview_name=names.pop() if len(names) == 1 else None, sheets=sheets)
 
     @app.post('/api/extract')
     def extract():
@@ -343,8 +364,10 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
                 now = datetime.now(IST)
                 already_triggered = current.get('triggered_today', []) if current.get('last_triggered_date') == now.date().isoformat() else []
                 current['last_triggered_date'] = now.date().isoformat()
-                current['triggered_today'] = sorted(set(already_triggered + [t for t in validated_times if t <= now.strftime('%H:%M')]))
+                current['triggered_today'] = sorted(set(already_triggered + [t for t in validated_times if t < now.strftime('%H:%M')]))
             save_schedule(current)
+        if enabled:
+            schedule_tick()
         return jsonify(current)
 
     @app.get('/api/previews/<int:number>')

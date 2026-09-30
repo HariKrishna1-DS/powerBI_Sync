@@ -12,7 +12,7 @@ import pandas as pd
 from openpyxl import load_workbook
 
 from preview_store import PreviewStore
-from server import create_app
+from server import IST, create_app
 
 
 class ScheduledCaptureTests(unittest.TestCase):
@@ -64,17 +64,28 @@ class ScheduledCaptureTests(unittest.TestCase):
         syncer.assert_not_called()
 
     def test_schedule_save_skips_elapsed_times_and_preserves_completed_slots(self):
-        app = create_app(self.store.root)
+        app = create_app(self.store.root, runner=lambda on_progress: {'error': 'Test run'})
         client = app.test_client()
         with patch('server.datetime') as clock:
             clock.strptime = datetime.strptime
-            clock.now.return_value = datetime(2026, 9, 30, 13, 0, 10)
+            clock.now.return_value = datetime(2026, 9, 30, 13, 0, 10, tzinfo=IST)
             saved = client.post('/api/sync-schedule', json={'enabled':True,'times':['13:00','14:00']}).json
-            self.assertEqual(saved['triggered_today'], ['13:00'])
+            self.assertEqual(saved['triggered_today'], [])
+            self.assertEqual(client.get('/api/state').json['schedule']['triggered_today'], ['13:00'])
             paused = client.post('/api/sync-schedule', json={'enabled':False,'times':saved['times']}).json
             resumed = client.post('/api/sync-schedule', json={'enabled':True,'times':paused['times']}).json
         self.assertEqual(resumed['times'], ['13:00','14:00'])
         self.assertEqual(resumed['triggered_today'], ['13:00'])
+
+    def test_saving_a_past_minute_waits_until_next_day(self):
+        app = create_app(self.store.root, runner=lambda on_progress: {'error': 'Should not run'})
+        with patch('server.datetime') as clock:
+            clock.strptime = datetime.strptime
+            clock.now.return_value = datetime(2026, 9, 30, 13, 1, 10, tzinfo=IST)
+            client = app.test_client()
+            client.post('/api/sync-schedule', json={'enabled':True,'times':['13:00']})
+        self.assertEqual(client.get('/api/state').json['schedule']['triggered_today'], ['13:00'])
+        self.assertFalse(app.extensions['schedule_tick'](datetime(2026,9,30,8,0,tzinfo=timezone.utc)))
 
     def test_sync_failure_keeps_saved_preview_number(self):
         def runner(on_progress):

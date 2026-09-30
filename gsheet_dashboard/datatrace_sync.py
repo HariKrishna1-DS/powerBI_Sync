@@ -627,6 +627,16 @@ def sync_workbook(df, selected_products=None):
         sheet = worksheets[index]
         if sheet.title != title:
             sheet.update_title(title)
+        if title in ('Full Title', 'Remaining Products'):
+            prior_values = sheet.get_all_values()
+            if isinstance(prior_values, list) and prior_values and {'Order Number', 'Out Time', 'Free Site'}.issubset(prior_values[0]):
+                prior_rows = {str(row.get('Order Number', '')).strip(): row
+                              for row in (dict(zip(prior_values[0], cells)) for cells in prior_values[1:])
+                              if str(row.get('Order Number', '')).strip()}
+                for row_index, row in frame.iterrows():
+                    old = prior_rows.get(str(row['Order Number']).strip())
+                    if old and parse_report_datetime(old.get('Out Time')) == parse_report_datetime(row['Out Time']):
+                        frame.at[row_index, 'Free Site'] = old.get('Free Site', '')
         sheet.clear()
         synced.append(sync_dataframe(frame, (book, sheet), validate=False, color_status=True))
     now_sync_time = dt.datetime.now().astimezone().strftime('%Y-%m-%d %I:%M:%S %p')

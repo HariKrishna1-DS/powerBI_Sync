@@ -163,14 +163,17 @@ def monthly_orders(store, sheet_rows=None):
                 bucket.setdefault(identity, sla_result(row))
         previous_rows = {str(row.get('Order Number', '')).strip(): row for row in adjusted_rows}
 
-    # Optional historical sheet rows supplement saved captures without duplicating orders.
+    # Live sheet values override saved captures for matching orders. A cleared Free Site
+    # cell removes the old classification rather than leaving the snapshot's value behind.
     for index, row in enumerate(sheet_rows or []):
         out = parse_report_datetime(row.get('Out Time', ''))
-        status = str(row.get('Free Site', '')).strip().casefold()
-        if out and status in ('on time', 'ontime', 'one time', 'missed'):
-            identity = str(row.get('Order Number', '')).strip() or f'sheet-row-{index}'
-            monthly_completions.setdefault(out.strftime('%Y-%m'), {}).setdefault(
-                identity, 'Missed' if status == 'missed' else 'On Time')
+        status = str(row.get('Free Site', '')).strip().casefold().replace(' ', '')
+        identity = str(row.get('Order Number', '')).strip() or f'sheet-row-{index}'
+        for bucket in monthly_completions.values():
+            bucket.pop(identity, None)
+        if out and status in ('ontime', 'onetime', 'missed', 'missing'):
+            monthly_completions.setdefault(out.strftime('%Y-%m'), {})[identity] = (
+                'Missed' if status in ('missed', 'missing') else 'On Time')
 
     reports = []
     for month_key, day_previews in sorted(months.items(), reverse=True):
