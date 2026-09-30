@@ -1,0 +1,137 @@
+from datetime import datetime, timezone
+from io import BytesIO
+import json
+from pathlib import Path
+import tempfile
+import threading
+import time
+import unittest
+from unittest.mock import Mock, patch
+
+import pandas as pd
+from openpyxl import load_workbook
+
+from preview_store import PreviewStore
+from server import create_app
+
+
+class ScheduledCaptureTests(unittest.TestCase):
+    def setUp(self):
+        self.folder = tempfile.TemporaryDirectory()
+        self.addCleanup(self.folder.cleanup)
+        self.root = Path(self.folder.name)
+        self.store = PreviewStore(self.root / 'previews')
+        (self.root / 'sync_schedule.json').write_text(json.dumps({
+            'enabled': True, 'times': ['13:00']}))
+
+    def wait_finished(self, client):
+        for _ in range(200):
+            job = client.get('/api/state').json['job']
+            if not job['running']:
+                return job
+            time.sleep(.02)
+        self.fail('Worker did not finish')
+
+    def test_ist_extract_then_sync_saved_preview_and_once_per_day(self):
+        release = threading.Event()
+        self.addCleanup(release.set)
+        def runner(on_progress):
+            release.wait(5)
+            preview = self.store.save(pd.DataFrame([{'Order Number': '1', 'Task Status': 'Available'}]))
+            return {'preview_id': preview['id'], 'error': None}
+        syncer = Mock(return_value=['Sheet1'])
+        app = create_app(self.store.root, runner=runner, syncer=syncer)
+        tick = app.extensions['schedule_tick']
+        client = app.test_client()
+        self.assertFalse(tick(datetime(2026, 9, 30, 7, 29, tzinfo=timezone.utc)))
+        self.assertTrue(tick(datetime(2026, 9, 30, 7, 30, tzinfo=timezone.utc)))
+        syncer.assert_not_called()
+        self.assertEqual(client.get('/api/export/google-sheets').status_code, 409)
+        release.set()
+        job = self.wait_finished(client)
+        self.assertIsNone(job['result']['error'])
+        self.assertEqual(syncer.call_args.args[0].attrs['preview_name'], 'preview1')
+        self.assertFalse(tick(datetime(2026, 9, 30, 8, 0, tzinfo=timezone.utc)))
+        syncer.assert_called_once()
+
+    def test_failed_extraction_never_syncs_old_preview(self):
+        self.store.save(pd.DataFrame([{'Order Number': 'old', 'Task Status': 'Available'}]))
+        syncer = Mock()
+        app = create_app(self.store.root, runner=lambda on_progress: {'error': 'Login failed'}, syncer=syncer)
+        app.extensions['schedule_tick'](datetime(2026, 9, 30, 7, 30, tzinfo=timezone.utc))
+        job = self.wait_finished(app.test_client())
+        self.assertIn('Login failed', job['result']['error'])
+        syncer.assert_not_called()
+
+    def test_schedule_save_skips_elapsed_times_and_preserves_completed_slots(self):
+        app = create_app(self.store.root)
+        client = app.test_client()
+        with patch('server.datetime') as clock:
+            clock.strptime = datetime.strptime
+            clock.now.return_value = datetime(2026, 9, 30, 13, 0, 10)
+            saved = client.post('/api/sync-schedule', json={'enabled':True,'times':['13:00','14:00']}).json
+            self.assertEqual(saved['triggered_today'], ['13:00'])
+            paused = client.post('/api/sync-schedule', json={'enabled':False,'times':saved['times']}).json
+            resumed = client.post('/api/sync-schedule', json={'enabled':True,'times':paused['times']}).json
+        self.assertEqual(resumed['times'], ['13:00','14:00'])
+        self.assertEqual(resumed['triggered_today'], ['13:00'])
+
+    def test_sync_failure_keeps_saved_preview_number(self):
+        def runner(on_progress):
+            preview = self.store.save(pd.DataFrame([{'Order Number':'1','Task Status':'Available'}]))
+            return {'preview_id':preview['id']}
+        app = create_app(self.store.root, runner=runner, syncer=Mock(side_effect=RuntimeError('Sync unavailable')))
+        app.extensions['schedule_tick'](datetime(2026,9,30,7,30,tzinfo=timezone.utc))
+        result = self.wait_finished(app.test_client())['result']
+        self.assertEqual(result['preview_name'], 'preview1')
+        self.assertIn('Sync unavailable', result['error'])
+
+    def test_busy_run_does_not_consume_due_schedule(self):
+        release = threading.Event()
+        self.addCleanup(release.set)
+        def runner(on_progress):
+            release.wait(5)
+            return {'error':'Test extraction stopped'}
+        app = create_app(self.store.root, runner=runner)
+        client = app.test_client()
+        client.post('/api/extract')
+        self.assertFalse(app.extensions['schedule_tick'](datetime(2026,9,30,7,30,tzinfo=timezone.utc)))
+        self.assertNotIn('13:00', client.get('/api/state').json['schedule']['triggered_today'])
+        release.set()
+        self.wait_finished(client)
+
+    def test_export_reads_all_actual_tabs(self):
+        sheets = []
+        for title, values in [('Sheet1', [['Order Number'], ['001']]),
+                              ('Status Report', [['Preview'], ['preview25']]),
+                              ('Extra tab', [['Comment'], ['=not a formula']])]:
+            sheet = Mock(title=title)
+            sheet.get_all_values.return_value = values
+            sheets.append(sheet)
+        book = Mock()
+        book.worksheets.return_value = sheets
+        with patch('server.target_worksheet', return_value=(book, sheets[0])):
+            response = create_app(self.store.root).test_client().get('/api/export/google-sheets')
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('preview25_GoogleSheets.xlsx', response.headers['Content-Disposition'])
+        workbook = load_workbook(BytesIO(response.data))
+        self.assertEqual(workbook.sheetnames, ['Sheet1', 'Status Report', 'Extra tab'])
+        self.assertEqual(workbook['Sheet1']['A2'].value, '001')
+        self.assertEqual(workbook['Extra tab']['A2'].data_type, 's')
+
+    def test_preview_name_survives_historical_merge(self):
+        import datatrace_sync as sync
+        frame = pd.DataFrame([{'Order Number': '1', 'Product': 'Full Title', 'Task Status': 'Available'}])
+        frame.attrs['preview_name'] = 'preview25'
+        primary = Mock(title='Sheet1')
+        primary.get_all_values.return_value = [list(frame.columns), ['old', 'Full Title', 'Completed and Delivered']]
+        book = Mock()
+        book.worksheets.return_value = [primary] + [Mock(title=title) for title in
+            ['All Products', 'Full Title', 'Remaining Products', 'Status Report']]
+        with patch.object(sync, 'target_worksheet', return_value=(book, primary)), patch.object(sync, 'sync_dataframe') as upload:
+            sync.sync_workbook(frame)
+        self.assertEqual(set(upload.call_args.args[0]['Preview']), {'preview25'})
+
+
+if __name__ == '__main__':
+    unittest.main()

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { Activity, ArrowDown, ArrowUp, ArrowDownToLine, ArrowLeftRight, BarChart3, Check, ChevronLeft, ChevronRight, Clock3, CloudUpload, Database, FileSpreadsheet, Filter, LoaderCircle, Maximize2, Minimize2, Play, Plus, Printer, Search, SlidersHorizontal, Table2, Trash2, Upload, X } from 'lucide-react';
+import { Activity, ArrowDown, ArrowUp, ArrowDownToLine, ArrowLeftRight, BarChart3, CalendarDays, Check, ChevronLeft, ChevronRight, Clock3, CloudUpload, Database, FileSpreadsheet, Filter, LoaderCircle, Maximize2, Minimize2, Play, Plus, Printer, Search, SlidersHorizontal, Table2, Trash2, Upload, X } from 'lucide-react';
 import { ResponsiveContainer, BarChart, Bar, LineChart, Line, AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Brush } from 'recharts';
 import './style.css';
 import remainingProducts from '../../remaining_products.json';
@@ -587,7 +587,7 @@ function DailyOrdersChart({history, selectedDate, onSelect}) {
 function DailyOrders({preview}) {
   const [history,setHistory]=useState([]), [error,setError]=useState(''), [date,setDate]=useState(''), [search,setSearch]=useState('');
   const [loading,setLoading]=useState(true);
-  useEffect(()=>{let active=true;setLoading(true);api('/api/daily-orders').then(data=>{if(active){setHistory(data.rows);setError('');}}).catch(e=>{if(active)setError(e.message);}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[preview.id]);
+  useEffect(()=>{let active=true;setLoading(true);api(`/api/daily-orders${preview.id?`?preview_id=${preview.id}`:''}`).then(data=>{if(active){setHistory(data.rows);setDate(data.selected_date||'');setSearch('');setError('');}}).catch(e=>{if(active){setHistory([]);setError(e.message);}}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[preview.id]);
   const selectedDay=history.find(day=>day.Date===date)||history[0];
   const columns=selectedDay?.columns||[];
   const rows=(selectedDay?.rows||[]).filter(row=>!search||columns.some(column=>str(row[column]).toLowerCase().includes(search.toLowerCase())));
@@ -612,14 +612,158 @@ function DailyOrders({preview}) {
   </section>;
 }
 
+const MONTHLY_SERIES = [
+  {name:'Month Orders',color:'#147d72'},
+  {name:'Completed Orders',color:'#bd6268'},
+  {name:'Unchanged',color:'#596cc0'},
+  {name:'Awaiting for Clarification',color:'#a66ad3'},
+  {name:'SLA On Time',color:'#30874b'},
+  {name:'SLA Missed',color:'#d79a32'}
+];
+
+function monthlyPercentage(report, name) {
+  const total=name.startsWith('SLA ')?(report?.['SLA On Time']||0)+(report?.['SLA Missed']||0):report?.['Month Orders'];
+  return `${total?((report?.[name]||0)/total*100).toFixed(1):'0.0'}%`;
+}
+
+function MonthlyOrdersChart({history, selectedMonth, onSelect}) {
+  const [expanded,setExpanded]=useState(false);
+  const data=useMemo(()=>[...history].sort((a,b)=>a.Month.localeCompare(b.Month)),[history]);
+  const renderChart=(large=false)=><>
+    <div className="daily-chart-legend">{MONTHLY_SERIES.map(series=><span key={series.name}><i style={{background:series.color}}/>{series.name}</span>)}</div>
+    <div className="daily-chart-scroll"><div style={{height:large?460:320,minWidth:Math.max(560,data.length*130)}}>
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} margin={{top:18,right:20,bottom:12,left:0}} barGap={3} barCategoryGap="22%">
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e9edee"/>
+          <XAxis dataKey="Month" tick={{fontSize:12}} tickFormatter={value=>{
+            try {
+              const [y, m] = value.split('-');
+              const d = new Date(Number(y), Number(m)-1, 1);
+              return d.toLocaleDateString('en-US', {month: 'short', year: 'numeric'});
+            } catch {
+              return value;
+            }
+          }} interval={0}/>
+          <YAxis allowDecimals={false} tick={{fontSize:12}} width={48}/>
+          <Tooltip cursor={{fill:'#f0f5f3'}} formatter={(value,name,item)=>`${Number(value).toLocaleString()} (${monthlyPercentage(item.payload,name)})`}/>
+          {MONTHLY_SERIES.map(series=><Bar key={series.name} dataKey={series.name} fill={series.color} radius={[3,3,0,0]} maxBarSize={36} isAnimationActive={false} cursor="pointer" onClick={entry=>onSelect(entry.Month||entry.payload?.Month)}>
+            {data.map(m=><Cell key={m.Month} fillOpacity={m.Month===selectedMonth?1:0.7}/>)}
+          </Bar>)}
+        </BarChart>
+      </ResponsiveContainer>
+    </div></div>
+  </>;
+  return <section className="daily-chart" aria-label="Monthly orders bar chart">
+    <div className="card-head"><h3>Monthly Orders by Month</h3><IconButton title="Expand monthly orders chart" onClick={()=>setExpanded(true)}><Maximize2 size={16}/></IconButton></div>
+    {data.length?renderChart():<div className="table-empty">No monthly orders</div>}
+    {expanded&&<MaximizedModal title="Monthly Orders by Month" onClose={()=>setExpanded(false)}>{renderChart(true)}</MaximizedModal>}
+  </section>;
+}
+
+function MonthlyOrders({preview}) {
+  const [history,setHistory]=useState([]), [error,setError]=useState(''), [month,setMonth]=useState(''), [search,setSearch]=useState('');
+  const [loading,setLoading]=useState(true);
+  useEffect(()=>{
+    let active=true;
+    setLoading(true);
+    api('/api/monthly-orders?include_sla=1').then(data=>{
+      if(active){setHistory(data.rows);setError(data.sla_error?`SLA comments unavailable: ${data.sla_error}`:'');}
+    }).catch(e=>{
+      if(active)setError(e.message);
+    }).finally(()=>{
+      if(active)setLoading(false);
+    });
+    return()=>{active=false;};
+  },[preview?.id]);
+
+  const selectedMonth=history.find(m=>m.Month===month)||history[0];
+  const columns=selectedMonth?.columns||[];
+  const rows=(selectedMonth?.rows||[]).filter(row=>!search||columns.some(column=>str(row[column]).toLowerCase().includes(search.toLowerCase())));
+  const groups=[
+    ['Month Orders',rows],
+    ['Completed Orders',rows.filter(row=>selectedMonth?.missing_ids.includes(str(row['Order Number']).trim()))],
+    ['Unchanged',rows.filter(row=>selectedMonth?.unchanged_ids.includes(str(row['Order Number']).trim()))],
+    ['Awaiting for Clarification',rows.filter(row=>normalized(row['Task Status'] ?? row.Status)==='awaiting for clarification')]
+  ];
+  const names=MONTHLY_SERIES.map(series=>series.name);
+
+  return <section className="daily-orders">
+    {error&&<div className="notice error">{error}</div>}
+    {loading?<div className="loading"><LoaderCircle className="spin"/>Loading monthly orders...</div>:<>
+      <div className="section-heading"><h2>Monthly capture history</h2><label>Month<select aria-label="Monthly orders date" value={selectedMonth?.Month||''} onChange={e=>{setMonth(e.target.value);setSearch('');}}>{history.map(m=><option key={m.Month} value={m.Month}>{m.MonthLabel || m.Month}</option>)}</select></label></div>
+      <div className="metrics">{names.slice(0,4).map((name,index)=><div className={`metric ${['green','red','gray','purple'][index]}`} key={name}><span>{name}</span><strong>{selectedMonth?.[name]??0}</strong><small>{monthlyPercentage(selectedMonth,name)}</small></div>)}</div>
+      <div className="section-heading"><h2>SLA COMMENTS</h2></div>
+      <div className="metrics">{names.slice(4).map(name=><div className="metric" key={name}><span>{name}</span><strong>{error?'Unavailable':selectedMonth?.[name]??0}</strong>{!error&&<small>{monthlyPercentage(selectedMonth,name)}</small>}</div>)}</div>
+      <MonthlyOrdersChart history={history} selectedMonth={selectedMonth?.Month} onSelect={value=>{if(value){setMonth(value);setSearch('');}}}/>
+      <div className="table-scroll"><table><thead><tr>{['Month','Previews',...names].map(name=><th key={name}>{name}</th>)}</tr></thead><tbody>{history.map(m=><tr key={m.Month}><td><button className="text-button" onClick={()=>{setMonth(m.Month);setSearch('');}}>{m.MonthLabel || m.Month}</button></td><td>{m.Previews.join(', ')}</td>{names.map(name=><td key={name}>{name.startsWith('SLA ')&&error?'Unavailable':`${m[name]??0} (${monthlyPercentage(m,name)})`}</td>)}</tr>)}</tbody></table></div>
+      <div className="filter-toolbar"><div className="search-input"><Search size={16}/><input aria-label="Search monthly orders" placeholder="Search all columns" value={search} onChange={e=>setSearch(e.target.value)}/></div></div>
+      {selectedMonth?groups.map(([name,items])=><DataTable key={name} rows={items} columns={columns} filters={{}} openFilter={()=>{}} filterable={false} name={`${name} · ${items.length}`}/>):<div className="table-empty">No monthly orders</div>}
+    </>}
+  </section>;
+}
+
+function formatTime12(time24) {
+  if (!time24) return '';
+  const [hStr, mStr] = time24.split(':');
+  let h = parseInt(hStr, 10);
+  const m = mStr || '00';
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12;
+  if (h === 0) h = 12;
+  return `${String(h).padStart(2, '0')}:${m} ${ampm}`;
+}
+
+const indianDateTime = new Intl.DateTimeFormat('en-IN', {
+  timeZone:'Asia/Kolkata', day:'2-digit', month:'short', year:'numeric',
+  hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:true
+});
+
+function TriggerClock({schedule}) {
+  const [now,setNow]=useState(()=>Date.now());
+  useEffect(()=>{const timer=setInterval(()=>setNow(Date.now()),1000);return()=>clearInterval(timer);},[]);
+  const offset=330*60*1000;
+  const day=new Date(now+offset).toISOString().slice(0,10);
+  const midnight=Date.parse(`${day}T00:00:00+05:30`);
+  const triggered=schedule?.last_triggered_date===day?(schedule.triggered_today||[]):[];
+  const candidates=(schedule?.times||[]).map(time=>{
+    const [hour,minute]=time.split(':').map(Number);
+    const timestamp=midnight+(hour*60+minute)*60000;
+    return triggered.includes(time)?timestamp+86400000:timestamp;
+  });
+  const next=candidates.length?Math.min(...candidates):null;
+  return <div className="trigger-clock">
+    <span>Indian time (IST)</span>
+    <strong data-testid="indian-clock">{indianDateTime.format(now)} IST</strong>
+    <span data-testid="next-trigger">{schedule?.enabled&&next?
+      `Next run: ${indianDateTime.format(next)} IST${next<now?' (pending)':''}`:'Schedule paused'}</span>
+  </div>;
+}
+
 function App() {
   const [state,setState]=useState({previews:[],job:{running:false,stage:'Ready'}}), [selected,setSelected]=useState(null), [preview,setPreview]=useState(EMPTY), [view,setView]=useState('overview');
   const [previous,setPrevious]=useState(''), [diff,setDiff]=useState(null), [keys,setKeys]=useState([]), [ignore,setIgnore]=useState(DEFAULT_IGNORE), [compareBusy,setCompareBusy]=useState(false), [compareError,setCompareError]=useState('');
   const [filters,setFilters]=useState({}), [filterColumn,setFilterColumn]=useState(null), [search,setSearch]=useState(''), [error,setError]=useState(''), [pending,setPending]=useState(false), [loading,setLoading]=useState(false), [uploading,setUploading]=useState(false);
-  const [chartSelection,setChartSelection]=useState(null), [scheduleDraft,setScheduleDraft]=useState({enabled:false,time:'09:00'}), [savingSchedule,setSavingSchedule]=useState(false);
+  const [chartSelection,setChartSelection]=useState(null), [scheduleDraft,setScheduleDraft]=useState({enabled:false,times:['09:00'],newTime:'10:00'}), [savingSchedule,setSavingSchedule]=useState(false);
   const [selectedRemainingProducts, setSelectedRemainingProducts] = useState([]);
   const upload=useRef(), seen=useRef(null), scheduleLoaded=useRef(false), remainingLoaded=useRef(false);
   const [compareAttempt,setCompareAttempt]=useState(0);
+
+  function addTriggerTime() {
+    const t = scheduleDraft.newTime?.trim();
+    if (!t) return;
+    const currentTimes = scheduleDraft.times || [];
+    if (!currentTimes.includes(t)) {
+      const updated = [...currentTimes, t].sort();
+      setScheduleDraft(prev => ({ ...prev, times: updated }));
+    }
+  }
+
+  function removeTriggerTime(timeToRemove) {
+    const currentTimes = scheduleDraft.times || [];
+    const updated = currentTimes.filter(t => t !== timeToRemove);
+    setScheduleDraft(prev => ({ ...prev, times: updated }));
+  }
+
   const handleProductSelectionChange = (newSelection) => {
     setSelectedRemainingProducts(newSelection);
     api('/api/remaining-products', {
@@ -631,7 +775,11 @@ function App() {
   async function refresh() {
     const next=await api('/api/state');
     setState(next);
-    if(next.schedule&&!scheduleLoaded.current){setScheduleDraft({enabled:next.schedule.enabled,time:next.schedule.time});scheduleLoaded.current=true;}
+    if(next.schedule&&!scheduleLoaded.current){
+      const times = next.schedule.times && next.schedule.times.length ? next.schedule.times : [next.schedule.time || '09:00'];
+      setScheduleDraft(prev => ({ ...prev, enabled: !!next.schedule.enabled, times: times }));
+      scheduleLoaded.current=true;
+    }
     if(Array.isArray(next.remaining_products)&&!remainingLoaded.current){setSelectedRemainingProducts(next.remaining_products);remainingLoaded.current=true;}
     if(next.previews.length && next.previews[0].id!==seen.current){seen.current=next.previews[0].id;setSelected(next.previews[0].id);setPrevious(String(next.previews[1]?.id || ''));}
   }
@@ -682,7 +830,7 @@ function App() {
   const missingComparison = view==='changes' ? filtered.filter(row=>row['Comparison Status']==='Missing') : [];
   const chartRows = useMemo(()=>chartSelection?filtered.filter(row=>label(row[chartSelection.column])===chartSelection.value):[],[chartSelection,filtered]);
   const productSplit = useMemo(()=>{
-    if(['changes','daily'].includes(view) || !table.columns.includes('Product')) return null;
+    if(['changes','daily','monthly'].includes(view) || !table.columns.includes('Product')) return null;
     let remainingRows = filtered.filter(row=>!['full title', 'full search'].includes(normalized(row.Product)));
     if (selectedRemainingProducts.length > 0) {
       const spSet = new Set(selectedRemainingProducts.map(p => p.toLowerCase()));
@@ -716,8 +864,30 @@ function App() {
   }, [view, filtered, table.columns]);
 
   async function extract(){setPending(true);setError('');try{await api('/api/extract',{method:'POST'});await refresh();}catch(e){setError(e.message);}finally{setPending(false);}}
+  const [exporting,setExporting]=useState(false);
+  async function exportSheets(){
+    setExporting(true);setError('');
+    try{
+      const response=await fetch('/api/export/google-sheets');
+      if(!response.ok)throw Error((await response.json()).error||'Export failed');
+      const filename=response.headers.get('Content-Disposition')?.match(/filename="?([^";]+)/)?.[1]||'GoogleSheets.xlsx';
+      saveBlob(await response.blob(),filename);
+    }catch(e){setError(e.message);}finally{setExporting(false);}
+  }
   async function syncSheets(){setPending(true);setError('');try{const backend=await api('/api/state');if(!backend.capabilities?.automatic_statuses)throw Error('Restart or redeploy the dashboard backend to enable automatic statuses.');await api('/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({preview:selected,previous:previous?Number(previous):null,keys,ignore,remaining_products:selectedRemainingProducts.length>0?selectedRemainingProducts:null})});await refresh();}catch(e){setError(e.message);}finally{setPending(false);}}
-  async function saveSchedule(){setSavingSchedule(true);setError('');try{const saved=await api('/api/sync-schedule',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(scheduleDraft)});setScheduleDraft({enabled:saved.enabled,time:saved.time});await refresh();}catch(e){setError(e.message);}finally{setSavingSchedule(false);}}
+  async function saveSchedule(enabled=true, times=scheduleDraft.times){
+    setSavingSchedule(true);
+    setError('');
+    try{
+      const saved=await api('/api/sync-schedule',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled,times})});
+      setScheduleDraft(prev=>({...prev,enabled:saved.enabled,times:saved.times||[saved.time]}));
+      await refresh();
+    }catch(e){
+      setError(e.message);
+    }finally{
+      setSavingSchedule(false);
+    }
+  }
   async function importFile(e){const file=e.target.files[0];if(!file)return;setUploading(true);setError('');try{const body=new FormData();body.append('file',file);await api('/api/import',{method:'POST',body});await refresh();}catch(e){setError(e.message);}finally{setUploading(false);e.target.value='';}}
   function choosePrevious(value){setPrevious(value);if(!value)return;const index=state.previews.findIndex(p=>p.id===Number(value));const newer=state.previews[index-1];if(newer)setSelected(newer.id);}
   function chooseLatest(value){const id=Number(value);setSelected(id);const index=state.previews.findIndex(p=>p.id===id);setPrevious(String(state.previews[index+1]?.id||''));}
@@ -725,9 +895,29 @@ function App() {
   async function downloadChanges(){try{const response=await fetch('/api/compare',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({previous:Number(previous),latest:selected,keys,ignore,download:true})});if(!response.ok)throw Error((await response.json()).error);saveBlob(await response.blob(),`${diff.previous}-to-${diff.latest}-changes.xlsx`);}catch(e){setError(e.message);}}
   const running=state.job.running||pending, result=state.job.result;
   return <div className="workspace">
-    <aside className="sidebar"><div className="brand"><div className="brand-mark"><Activity size={23}/></div><div>DataTrace<span>WORKSPACE</span></div></div><div className="nav-label">WORKSPACE</div><nav>{[['overview','Overview',BarChart3],['sheets','Data sheets',Table2],['daily','Daily Orders',FileSpreadsheet],['changes','Changes',ArrowLeftRight]].map(([id,title,Icon])=><button className={view===id?'nav-item selected':'nav-item'} key={id} onClick={()=>setView(id)}><Icon size={18}/>{title}{id==='changes'&&diff&&<small>{diff.record_counts?diff.record_counts.missing+diff.record_counts.newly_added:diff.counts.added+diff.counts.removed}</small>}</button>)}</nav><div className="preview-heading"><span className="nav-label">SAVED PREVIEWS</span><span>{state.previews.length}</span></div><div className="preview-list">{state.previews.map(p=><div key={p.id} className={`preview-item ${selected===p.id?'selected':''}`}><button className="preview-select" onClick={()=>{setSelected(p.id);const index=state.previews.findIndex(x=>x.id===p.id);setPrevious(String(state.previews[index+1]?.id||''));}}><FileSpreadsheet size={17}/><div><strong>{p.name}</strong><small>{p.row_count.toLocaleString()} rows · {new Date(p.created).toLocaleDateString()}</small></div>{p.id===state.previews[0].id&&<i>Latest</i>}</button><IconButton title={`Delete ${p.name}`} onClick={event=>deletePreview(event,p.id)}><Trash2 size={15}/></IconButton></div>)}{!state.previews.length&&<p className="no-previews">No saved previews</p>}</div><div className="sidebar-footer"><span className="status-dot"/>Local workspace<a href={state.sheet_url} target="_blank" rel="noreferrer">Google Sheet ↗</a></div></aside>
-    <main><header className="topbar"><div className="breadcrumb">Workspace <span>/</span> {view==='overview'?'Overview':view==='sheets'?'Data sheets':view==='daily'?'Daily Orders':'Changes'}</div><div className="inline"><span className={`run-state ${running?'running':''}`}>{running&&<LoaderCircle size={14} className="spin"/>}{state.job.stage}</span><button className="secondary" onClick={()=>upload.current.click()} disabled={uploading}><Upload size={16}/>{uploading?'Importing…':'Import file'}</button><input ref={upload} type="file" hidden accept=".csv,.xlsx" onChange={importFile}/></div></header>
-      <div className="content"><div className="page-heading"><div><span className="eyebrow">DATATRACE QUEUE</span><h1>{view==='changes'?'Preview comparison':view==='sheets'?'Data sheets':view==='daily'?'Daily Orders':'Queue overview'}</h1><p className="muted">{preview.name?`${preview.name} · ${new Date(preview.created).toLocaleString()} · ${preview.source}`:'No data captured yet'}</p></div><div className="page-actions"><button className="secondary" onClick={syncSheets} disabled={running||!selected||loading||compareBusy||!!compareError}>{state.job.action==='sync'&&running?<LoaderCircle size={17} className="spin"/>:<CloudUpload size={17}/>}<span>{state.job.action==='sync'&&running?'Syncing…':`Sync ${preview.name||'preview'} to Sheets`}</span></button><details className="sync-schedule"><summary><Clock3 size={16}/>Sync trigger</summary><div><label className="check-row"><input type="checkbox" checked={scheduleDraft.enabled} onChange={e=>setScheduleDraft({...scheduleDraft,enabled:e.target.checked})}/>Daily sync enabled</label><label>Local time<input aria-label="Daily sync time" type="time" value={scheduleDraft.time} onChange={e=>setScheduleDraft({...scheduleDraft,time:e.target.value})}/></label><button className="primary" onClick={saveSchedule} disabled={savingSchedule}>{savingSchedule?'Saving…':'Save trigger'}</button>{state.schedule?.last_triggered_date&&<small>Last triggered {state.schedule.last_triggered_date}</small>}</div></details><button className="primary" onClick={extract} disabled={running}>{state.job.action==='extract'&&running?<LoaderCircle size={17} className="spin"/>:<Play size={17}/>}<span>{state.job.action==='extract'&&running?'Extracting queue…':'Run AutoLogin & Extract Queue'}</span></button></div></div>
+    <aside className="sidebar"><div className="brand"><div className="brand-mark"><Activity size={23}/></div><div>DataTrace<span>WORKSPACE</span></div></div><div className="nav-label">WORKSPACE</div><nav>{[['overview','Overview',BarChart3],['sheets','Data sheets',Table2],['daily','Daily Orders',FileSpreadsheet],['monthly','Monthly report',CalendarDays],['changes','Changes',ArrowLeftRight]].map(([id,title,Icon])=><button className={view===id?'nav-item selected':'nav-item'} key={id} onClick={()=>setView(id)}><Icon size={18}/>{title}{id==='changes'&&diff&&<small>{diff.record_counts?diff.record_counts.missing+diff.record_counts.newly_added:diff.counts.added+diff.counts.removed}</small>}</button>)}</nav><div className="preview-heading"><span className="nav-label">SAVED PREVIEWS</span><span>{state.previews.length}</span></div><div className="preview-list">{state.previews.map(p=><div key={p.id} className={`preview-item ${selected===p.id?'selected':''}`}><button className="preview-select" onClick={()=>{setSelected(p.id);const index=state.previews.findIndex(x=>x.id===p.id);setPrevious(String(state.previews[index+1]?.id||''));}}><FileSpreadsheet size={17}/><div><strong>{p.name}</strong><small>{p.row_count.toLocaleString()} rows · {new Date(p.created).toLocaleDateString()}</small></div>{p.id===state.previews[0].id&&<i>Latest</i>}</button><IconButton title={`Delete ${p.name}`} onClick={event=>deletePreview(event,p.id)}><Trash2 size={15}/></IconButton></div>)}{!state.previews.length&&<p className="no-previews">No saved previews</p>}</div><div className="sidebar-footer"><span className="status-dot"/>Local workspace<a href={state.sheet_url} target="_blank" rel="noreferrer">Google Sheet ↗</a></div></aside>
+    <main><header className="topbar"><div className="breadcrumb">Workspace <span>/</span> {view==='overview'?'Overview':view==='sheets'?'Data sheets':view==='daily'?'Daily Orders':view==='monthly'?'Monthly report':'Changes'}</div><div className="inline"><span className={`run-state ${running?'running':''}`}>{running&&<LoaderCircle size={14} className="spin"/>}{state.job.stage}</span><button className="secondary" onClick={()=>upload.current.click()} disabled={uploading}><Upload size={16}/>{uploading?'Importing…':'Import file'}</button><button className="secondary" onClick={exportSheets} disabled={exporting||running} title="Download all Google Sheet tabs as Excel">{exporting?<LoaderCircle size={16} className="spin"/>:<ArrowDownToLine size={16}/>} {exporting?'Exporting...':'Export'}</button><input ref={upload} type="file" hidden accept=".csv,.xlsx" onChange={importFile}/></div></header>
+      <div className="content"><div className="page-heading"><div><span className="eyebrow">DATATRACE QUEUE</span><h1>{view==='changes'?'Preview comparison':view==='sheets'?'Data sheets':view==='daily'?'Daily Orders':view==='monthly'?'Monthly report':'Queue overview'}</h1><p className="muted">{preview.name?`${preview.name} · ${new Date(preview.created).toLocaleString()} · ${preview.source}`:'No data captured yet'}</p></div><div className="page-actions"><button className="secondary" onClick={syncSheets} disabled={running||!selected||loading||compareBusy||!!compareError}>{state.job.action==='sync'&&running?<LoaderCircle size={17} className="spin"/>:<CloudUpload size={17}/>}<span>{state.job.action==='sync'&&running?'Syncing…':`Sync ${preview.name||'preview'} to Sheets`}</span></button><details className="sync-schedule"><summary><Clock3 size={16}/>AutoLogin Trigger</summary><div>
+        <TriggerClock schedule={state.schedule}/>
+        <button className="secondary" disabled={savingSchedule||!state.schedule} onClick={()=>saveSchedule(!state.schedule?.enabled,state.schedule?.times||[state.schedule?.time||'09:00'])}>{state.schedule?.enabled?'Pause schedule':'Resume schedule'}</button>
+        <div className="schedule-times-label">Scheduled times (IST):</div>
+        <div className="schedule-times-list">
+          {(scheduleDraft.times || []).map(t => (
+            <div key={t} className="schedule-time-chip">
+              <Clock3 size={13}/>
+              <span>{formatTime12(t)}</span>
+              <small className="time-24">({t})</small>
+              <IconButton title={`Remove ${formatTime12(t)}`} onClick={() => removeTriggerTime(t)}><X size={13}/></IconButton>
+            </div>
+          ))}
+        </div>
+        <div className="schedule-add-row">
+          <label>Indian Standard Time (UTC+05:30)<input aria-label="New trigger time" type="time" value={scheduleDraft.newTime || '10:00'} onChange={e => setScheduleDraft({ ...scheduleDraft, newTime: e.target.value })}/></label>
+          <button type="button" className="add-time-btn" title="Add trigger time" onClick={addTriggerTime}><Plus size={15}/>Add</button>
+        </div>
+        <button className="primary" onClick={()=>saveSchedule()} disabled={savingSchedule||!scheduleDraft.times.length}>{savingSchedule?'Saving…':'Save AutoLogin Trigger'}</button>
+        {state.schedule?.last_triggered_date&&<small>Last triggered {state.schedule.last_triggered_date}</small>}
+      </div></details><button className="primary" onClick={extract} disabled={running}>{state.job.action==='extract'&&running?<LoaderCircle size={17} className="spin"/>:<Play size={17}/>}<span>{state.job.action==='extract'&&running?'Extracting queue…':'Run AutoLogin & Extract Queue'}</span></button></div></div>
       {view==='overview' && selected && <section className="automatic-statuses"><span className="eyebrow">AUTOMATIC STATUSES</span><div><span>Workflow Suspended</span><span aria-hidden="true">&#8594;</span><span className="status-rule-target" style={{background:statusColor('Awaiting for Clarification')}}>Awaiting for Clarification</span></div><div><span>Missing orders</span><span aria-hidden="true">&#8594;</span><span className="status-rule-target" style={{background:statusColor('Completed and Delivered')}}>Completed and Delivered</span></div></section>}
       {error&&<div className="notice error" role="alert">{error}<IconButton title="Dismiss error" onClick={()=>setError('')}><X size={16}/></IconButton></div>}
       {result?.error&&<div className="notice warning" role="status">{result.preview_name&&<strong>{result.preview_name} saved. </strong>}{result.error}</div>}
@@ -737,11 +927,12 @@ function App() {
       {view==='changes'&&compareError&&<div className="notice warning" role="alert">{compareError}<button className="secondary" onClick={()=>setCompareAttempt(value=>value+1)}>Retry comparison</button></div>}
       {view==='changes'&&!previous&&<div className="notice">Capture or import a second preview to compare changes.</div>}
       {view==='changes'&&diff&&<><p className="comparison-method">{diff.method}</p>{(diff.added_columns.length>0||diff.removed_columns.length>0)&&<div className="notice">Columns added: {diff.added_columns.join(', ')||'None'} · Columns removed: {diff.removed_columns.join(', ')||'None'}</div>}</>}
-      {view!=='daily'&&<div className="metrics">{(view==='changes'?[['Matched',diff?.record_counts?.matched??'—','green'],['Missing Previews',diff?.record_counts?.missing??'—','red'],['Newly added',diff?.record_counts?.newly_added??'—','amber'],['Unchanged',diff?.record_counts?.unchanged??'—','gray']]:view==='daily'?[['Daily orders',preview.rows.length,'green'],['Missing (Completed Orders)',diff?.record_counts?.missing??'—','red'],['Newly added',diff?.record_counts?.newly_added??'—','amber'],['Unchanged',diff?.record_counts?.unchanged??'—','gray']]:overviewMetrics).map(([title,value,color])=><div className={`metric ${color}`} key={title}><span>{title}</span><strong>{value}</strong></div>)}</div>}
-      {view!=='daily'&&<div className="filter-toolbar"><div className="search-input"><Search size={16}/><input aria-label="Search rows" placeholder="Search all columns" value={search} onChange={e=>setSearch(e.target.value)}/></div><select aria-label="Choose column filter" value={filterColumn||''} onChange={e=>setFilterColumn(e.target.value||null)}><option value="">Filter a column…</option>{table.columns.map(c=><option key={c}>{c}</option>)}</select>{Object.keys(filters).map(c=><button className="filter-chip" key={c} onClick={()=>setFilterColumn(c)}><Filter size={12}/>{c}</button>)}{Object.keys(filters).length>0&&<button className="text-button" onClick={()=>setFilters({})}>Clear filters</button>}<span className="row-tally">{filtered.length.toLocaleString()} / {table.rows.length.toLocaleString()} rows</span>{view!=='changes'&&preview.id&&<><a className="secondary" href={`/api/previews/${preview.id}/download/xlsx`}><ArrowDownToLine size={16}/>Excel</a><a className="secondary" href={`/api/previews/${preview.id}/download/csv`}>CSV</a></>}</div>}
+      {!['daily','monthly'].includes(view)&&<div className="metrics">{(view==='changes'?[['Matched',diff?.record_counts?.matched??'—','green'],['Missing Previews',diff?.record_counts?.missing??'—','red'],['Newly added',diff?.record_counts?.newly_added??'—','amber'],['Unchanged',diff?.record_counts?.unchanged??'—','gray']]:overviewMetrics).map(([title,value,color])=><div className={`metric ${color}`} key={title}><span>{title}</span><strong>{value}</strong></div>)}</div>}
+      {!['daily','monthly'].includes(view)&&<div className="filter-toolbar"><div className="search-input"><Search size={16}/><input aria-label="Search rows" placeholder="Search all columns" value={search} onChange={e=>setSearch(e.target.value)}/></div><select aria-label="Choose column filter" value={filterColumn||''} onChange={e=>setFilterColumn(e.target.value||null)}><option value="">Filter a column…</option>{table.columns.map(c=><option key={c}>{c}</option>)}</select>{Object.keys(filters).map(c=><button className="filter-chip" key={c} onClick={()=>setFilterColumn(c)}><Filter size={12}/>{c}</button>)}{Object.keys(filters).length>0&&<button className="text-button" onClick={()=>setFilters({})}>Clear filters</button>}<span className="row-tally">{filtered.length.toLocaleString()} / {table.rows.length.toLocaleString()} rows</span>{view!=='changes'&&preview.id&&<><a className="secondary" href={`/api/previews/${preview.id}/download/xlsx`} title="Download entire Google Sheet workbook (all sheets)"><ArrowDownToLine size={16}/>Excel</a><a className="secondary" href={`/api/previews/${preview.id}/download/csv`}>CSV</a></>}</div>}
       {(loading||(view==='changes'&&compareBusy))?<div className="loading"><LoaderCircle className="spin"/>Loading preview…</div>:<><div className={filterColumn?'data-layout with-filter':'data-layout'}><div className="data-main">{view==='overview'&&<><OverviewDashboard rows={filtered} columns={table.columns} onSelect={setChartSelection} selectedProducts={selectedRemainingProducts} setSelectedProducts={handleProductSelectionChange}/><Chart rows={filtered} columns={table.columns} onSelect={setChartSelection}/>{chartSelection&&<div className="chart-drilldown"><DataTable rows={chartRows} columns={table.columns} filters={{}} openFilter={()=>{}} filterable={false} onClose={()=>setChartSelection(null)} name={`${chartSelection.value} · ${chartRows.length} orders`}/></div>}</>}
         {view==='daily'&&<DailyOrders preview={preview}/>}
-        {['overview','daily'].includes(view) ? null : productSplit ? <>
+        {view==='monthly'&&<MonthlyOrders preview={preview}/>}
+        {['overview','daily','monthly'].includes(view) ? null : productSplit ? <>
           <DataTable rows={filtered} columns={table.columns} filters={filters} openFilter={setFilterColumn} name={`${preview.name||'Queue'} - All Products`}/>
           <DataTable rows={productSplit.fullTitle} columns={table.columns} filters={filters} openFilter={setFilterColumn} name={`${preview.name||'Queue'} - Full Title`}/>
           <DataTable rows={productSplit.remaining} columns={table.columns} filters={filters} openFilter={setFilterColumn} name={`${preview.name||'Queue'} - Remaining Products`}/>

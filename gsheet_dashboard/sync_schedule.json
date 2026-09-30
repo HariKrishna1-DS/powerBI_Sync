@@ -1,5 +1,12 @@
 {
-  "enabled": false,
-  "time": "17:00",
-  "last_triggered_date": null
+  "enabled": true,
+  "time": "15:19",
+  "times": [
+    "15:19"
+  ],
+  "last_triggered_date": "2026-09-30",
+  "triggered_today": [
+    "15:19"
+  ],
+  "timezone": "Asia/Kolkata"
 }

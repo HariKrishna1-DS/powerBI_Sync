@@ -91,3 +91,19 @@
 .dropdown-slicer-options .slicer-item{display:flex;flex-direction:row;align-items:center;gap:9px;text-align:left;padding:7px 0}
 .dropdown-slicer-options .slicer-item input{width:16px;height:16px;flex:0 0 16px;margin:0}
 @media(max-width:650px){.status-rule-inputs>label{min-width:0;flex-basis:100%}.status-rule-inputs>svg{display:none}.slicer-grid{grid-template-columns:1fr}.status-rules .section-heading{flex-wrap:wrap;gap:12px}}
+
+.sync-schedule>div{width:295px}
+.schedule-times-label{font-size:11px;font-weight:600;color:#586a5f;margin:12px 0 6px}
+.schedule-times-list{display:flex;flex-direction:column;gap:6px;max-height:130px;overflow-y:auto;margin-bottom:12px;padding-right:2px}
+.schedule-time-chip{display:flex;align-items:center;justify-content:space-between;background:#f3f7f5;border:1px solid #d8e3dc;border-radius:4px;padding:5px 8px;font-size:12px;color:#2c4034}
+.schedule-time-chip span{font-weight:600;margin-left:5px}
+.schedule-time-chip .time-24{color:#829489;margin-left:4px;font-size:10px}
+.schedule-add-row{display:flex;align-items:flex-end;gap:8px;margin-bottom:14px}
+.schedule-add-row label{flex:1;margin-bottom:0}
+.schedule-add-row input{width:100%;height:34px}
+.add-time-btn{display:inline-flex;align-items:center;justify-content:center;gap:4px;height:34px;padding:0 12px;background:#e8f4f0;border:1px solid #b5d5ca;color:#147d72;border-radius:4px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap}
+.add-time-btn:hover{background:#d5ece4}
+.trigger-clock{display:flex;flex-direction:column;gap:7px;padding-bottom:12px;font-size:12px;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.trigger-clock strong{font-size:14px;min-height:36px}
+.sync-schedule>div{max-width:calc(100vw - 32px)}
+@media(max-width:700px){.sync-schedule>div{position:fixed;top:100px;left:16px;right:16px;width:auto;max-height:calc(100dvh - 120px);overflow-y:auto}.topbar{flex-wrap:wrap}.topbar>.inline{flex-wrap:wrap}nav{overflow-x:auto}.nav-item{flex-shrink:0;width:auto}}

@@ -144,8 +144,8 @@ class OrderReportingTests(unittest.TestCase):
         result = apply_status_rules(source, [], reporting_date='2026-09-27')
         self.assertEqual(result['Task Status'].tolist(), ['Completed and Delivered']*4)
         self.assertEqual(result['Out Time'].tolist(), ['2026-09-27']*4)
-        for report in report_frames(result):
-            self.assertTrue(report['Out Time'].eq('2026-09-27').all())
+        for index, report in enumerate(report_frames(result)):
+            self.assertTrue(report['Out Time'].eq('2026-09-27' if index == 0 else '09/27/2026').all())
         next_day = apply_status_rules(result, [], reporting_date='2026-09-28')
         self.assertEqual(next_day['Out Time'].tolist(), ['2026-09-27']*4)
 
@@ -193,7 +193,7 @@ class OrderReportingTests(unittest.TestCase):
         with patch.object(sync,'target_worksheet',return_value=(book,primary)), patch.object(sync,'sync_dataframe',return_value='OK') as upload:
             sync.sync_workbook(frame)
         sent = upload.call_args_list[3].args[0]
-        self.assertEqual(sent['Out Time'].tolist(), ['2026-09-27','2026-09-28'])
+        self.assertEqual(sent['Out Time'].tolist(), ['09/27/2026','09/28/2026'])
 
     def test_existing_completion_date_wins_over_new_sync_date(self):
         incoming = pd.DataFrame([{'Order Number':'1','Task Status':'Completed and Delivered','Out Time':'2026-09-28'}])

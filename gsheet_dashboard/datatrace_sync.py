@@ -2,6 +2,7 @@
 import datetime as dt
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -140,21 +141,84 @@ def _product_match_mask(series, selected_set):
     return mask
 
 
+def parse_report_datetime(value):
+    text = str(value if pd.notna(value) else '').strip()
+    if not text:
+        return None
+    try:
+        return dt.datetime.fromisoformat(text.replace('Z', '+00:00')).replace(tzinfo=None)
+    except ValueError:
+        pass
+    for pattern in ('%m/%d/%Y %I:%M:%S %p', '%m/%d/%Y %I:%M %p',
+                    '%m/%d/%Y %H:%M:%S', '%m/%d/%Y', '%m/%d/%y'):
+        try:
+            return dt.datetime.strptime(text, pattern)
+        except ValueError:
+            pass
+    return None
+
+
+def sla_result(row):
+    out_text = str(row.get('Out Time', '') or '').strip()
+    if not out_text:
+        return ''
+    out = parse_report_datetime(out_text)
+    if out is None:
+        return 'Missed'
+    sla = str(row.get('SLA Expiration*', row.get('SLA Expiration', '')) or '').strip()
+    if re.fullmatch(r'-?(?:(?:\d+)d\s*)?(?:(?:\d+)h\s*)?(?:(?:\d+)m\s*)?', sla) and sla:
+        return 'Missed' if sla.startswith('-') else 'On Time'
+    if re.fullmatch(r'\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)?', sla, re.I):
+        return 'On Time'
+    expiration = sla_expiration(row)
+    if expiration is None:
+        return 'Missed'
+    return 'On Time' if out < expiration else 'Missed'
+
+
+def sla_expiration(row):
+    sla = str(row.get('SLA Expiration*', row.get('SLA Expiration', '')) or '').strip()
+    expiration = parse_report_datetime(sla)
+    if expiration is None:
+        arrival = parse_report_datetime(row.get('Arrival Time', row.get('In-Time', '')))
+        anchor = arrival or parse_report_datetime(row.get('Out Time', ''))
+        if anchor is None:
+            return None
+        for pattern in ('%Y/%m/%d %I:%M %p', '%Y/%m/%d'):
+            try:
+                expiration = dt.datetime.strptime(f'{anchor.year}/{sla}', pattern)
+                if arrival and expiration.date() < arrival.date():
+                    expiration = expiration.replace(year=expiration.year + 1)
+                break
+            except ValueError:
+                pass
+    return expiration
+
+
 def report_frame(df, fields, product=None, selected_products=None):
     if product == '__remaining__':
-        products = df['Product'].fillna('').astype(str).str.split().str.join(' ').str.casefold()
-        not_full = ~products.isin({'full title', 'full search'})
-        if selected_products is not None and len(selected_products) > 0:
-            selected_set = {str(p).strip().casefold() for p in selected_products}
-            match_mask = _product_match_mask(products, selected_set)
-            source = df[match_mask & not_full]
+        if 'Product' in df.columns:
+            products = df['Product'].fillna('').astype(str).str.split().str.join(' ').str.casefold()
+            not_full = ~products.isin({'full title', 'full search'})
+            if selected_products is not None and len(selected_products) > 0:
+                selected_set = {str(p).strip().casefold() for p in selected_products}
+                match_mask = _product_match_mask(products, selected_set)
+                source = df[match_mask & not_full]
+            else:
+                source = df[not_full]
         else:
-            source = df[not_full]
+            source = df
     elif product == 'full title':
-        products = df['Product'].fillna('').astype(str).str.split().str.join(' ').str.casefold()
-        source = df[products.isin({'full title', 'full search'})]
+        if 'Product' in df.columns:
+            products = df['Product'].fillna('').astype(str).str.split().str.join(' ').str.casefold()
+            source = df[products.isin({'full title', 'full search'})]
+        else:
+            source = df.iloc[:0]
     elif product is not None:
-        source = df[df['Product'].fillna('').astype(str).str.strip().str.casefold().eq(product)]
+        if 'Product' in df.columns:
+            source = df[df['Product'].fillna('').astype(str).str.strip().str.casefold().eq(product)]
+        else:
+            source = df.iloc[:0]
     else:
         source = df
     matrix = []
@@ -189,6 +253,17 @@ def report_frame(df, fields, product=None, selected_products=None):
                         if alt in row and pd.notna(row[alt]):
                             value = row[alt]
                             break
+            if fields == SLICED_PRODUCT_FIELDS:
+                if target == 'Free Site':
+                    value = sla_result(row)
+                elif target == 'SLA Expiration':
+                    parsed = sla_expiration(row)
+                    if parsed:
+                        value = parsed.strftime('%m/%d/%Y %I:%M %p')
+                elif target in ('Date', 'In-Time', 'Out Time', 'Process date'):
+                    parsed = parse_report_datetime(value)
+                    if parsed:
+                        value = parsed.strftime('%m/%d/%Y')
             values.append(value)
         matrix.append(values)
     return pd.DataFrame(matrix, columns=[target for target, _ in fields])
@@ -213,6 +288,9 @@ def status_color(status):
 
 
 def completion_date(value):
+    parsed = parse_report_datetime(value)
+    if parsed:
+        return parsed.date().isoformat()
     text = str(value or '').strip()
     for pattern in ('%Y-%m-%d', '%m/%d/%Y', '%m/%d/%y'):
         try:
@@ -260,15 +338,80 @@ def apply_status_rules(df, rules, reporting_date=None):
     return result
 
 
-def status_report_frame(df):
+def status_report_frame(df, preview_name=None, sync_time=None):
     column = 'Task Status' if 'Task Status' in df.columns else 'Status' if 'Status' in df.columns else None
+    preview_name = preview_name or df.attrs.get('preview_name')
+    sync_time = sync_time or df.attrs.get('sync_time')
+    include_metadata = bool(preview_name or sync_time)
+
     if not column:
-        return pd.DataFrame(columns=['Status', 'Orders', 'Share'])
+        cols = ['Status', 'Orders', 'Share']
+        if include_metadata:
+            cols += ['Preview', 'Sync Date & Time']
+        return pd.DataFrame(columns=cols)
+
     counts = df[column].fillna('').astype(str).map(lambda value: value.strip() or '(Blank)').value_counts()
     total = len(df) or 1
-    rows = [{'Status': status, 'Orders': int(count), 'Share': f'{(count / total) * 100:.1f}%'}
-            for status, count in counts.items()]
-    return pd.DataFrame(rows, columns=['Status', 'Orders', 'Share'])
+    if include_metadata:
+        rows = [{'Status': status, 'Orders': int(count), 'Share': f'{(count / total) * 100:.1f}%',
+                 'Preview': str(preview_name or ''), 'Sync Date & Time': str(sync_time or '')}
+                for status, count in counts.items()]
+        cols = ['Status', 'Orders', 'Share', 'Preview', 'Sync Date & Time']
+    else:
+        rows = [{'Status': status, 'Orders': int(count), 'Share': f'{(count / total) * 100:.1f}%'}
+                for status, count in counts.items()]
+        cols = ['Status', 'Orders', 'Share']
+    return pd.DataFrame(rows, columns=cols)
+
+
+def build_synced_workbook_stream(df, preview_name='Preview', selected_products=None, sync_time=None):
+    from io import BytesIO
+    if selected_products is None:
+        selected_products = df.attrs.get('selected_products')
+    if selected_products is None:
+        try:
+            stored = json.loads(Path(__file__).with_name('remaining_products.json').read_text(encoding='utf-8'))
+            if isinstance(stored, list) and stored:
+                selected_products = stored
+        except Exception:
+            pass
+
+    original = df.attrs.get('original_capture')
+    raw = pd.DataFrame(original['rows'], columns=original['columns']).fillna('') if original else df.copy()
+    raw_status = apply_status_rules(raw, [])
+    sync_time_str = sync_time or df.attrs.get('sync_time') or dt.datetime.now().astimezone().strftime('%Y-%m-%d %I:%M:%S %p')
+    preview_name_str = preview_name or df.attrs.get('preview_name') or 'Preview'
+
+    frames = report_frames(df, selected_products=selected_products)
+    all_products_frame = report_frame(raw, ALL_PRODUCT_FIELDS)
+    full_title_frame = frames[1]
+    remaining_frame = frames[2]
+    status_frame = status_report_frame(df, preview_name=preview_name_str, sync_time=sync_time_str)
+
+    sheets_data = [
+        ('Sheet1', raw_status, 'Sheet1_Data'),
+        ('All Products', all_products_frame, 'All_Products_Data'),
+        ('Full Title', full_title_frame, 'Full_Title_Data'),
+        ('Remaining Products', remaining_frame, 'Remaining_Products_Data'),
+        ('Status Report', status_frame, 'Status_Report_Data'),
+    ]
+
+    stream = BytesIO()
+    with pd.ExcelWriter(stream, engine='openpyxl') as writer:
+        for sheet_title, sheet_df, table_name in sheets_data:
+            sheet_df.to_excel(writer, sheet_name=sheet_title, index=False)
+            ws = writer.sheets[sheet_title]
+            for row in ws:
+                for cell in row:
+                    if isinstance(cell.value, str):
+                        cell.data_type = 's'
+            if not sheet_df.empty:
+                table = Table(displayName=table_name, ref=ws.dimensions)
+                table.tableStyleInfo = TableStyleInfo(name='TableStyleMedium2', showRowStripes=True)
+                ws.add_table(table)
+            ws.freeze_panes = 'A2'
+    stream.seek(0)
+    return stream
 
 
 def export_to_excel_and_csv(df, output_prefix=None):
@@ -411,6 +554,7 @@ def retain_completed_orders(df, existing_values, valid_completed_ids=None):
 
 
 def sync_workbook(df, selected_products=None):
+    preview_name = df.attrs.get('preview_name') or (f"preview{df.attrs['preview_id']}" if df.attrs.get('preview_id') else 'Preview')
     book, primary = target_worksheet()
     if selected_products is None:
         selected_products = df.attrs.get('selected_products')
@@ -485,7 +629,10 @@ def sync_workbook(df, selected_products=None):
             sheet.update_title(title)
         sheet.clear()
         synced.append(sync_dataframe(frame, (book, sheet), validate=False, color_status=True))
-    status_frame = status_report_frame(df)
+    now_sync_time = dt.datetime.now().astimezone().strftime('%Y-%m-%d %I:%M:%S %p')
+    if not df.attrs.get('sync_time'):
+        df.attrs['sync_time'] = now_sync_time
+    status_frame = status_report_frame(df, preview_name=preview_name, sync_time=now_sync_time)
     index = len(REPORT_SHEETS) + 1
     if len(worksheets) <= index:
         worksheets.append(book.add_worksheet(title='Status Report', rows=1, cols=1))

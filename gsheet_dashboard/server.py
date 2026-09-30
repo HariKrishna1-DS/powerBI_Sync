@@ -1,6 +1,6 @@
 """Local React dashboard API. The server deliberately starts with no seed data."""
 import argparse
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import json
 import socket
 from io import BytesIO
@@ -13,10 +13,13 @@ from flask import Flask, jsonify, request, send_file, send_from_directory
 import pandas as pd
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
-from datatrace_sync import run_sync, sync_workbook, apply_status_rules
+from datatrace_sync import run_sync, sync_workbook, apply_status_rules, build_synced_workbook_stream, target_worksheet
+from reporting_dates import reporting_date
 from preview_store import PreviewStore, compare
-from order_reporting import automatic_sync_frame, daily_orders, AUTOMATIC_RULES, completion_history
+from order_reporting import automatic_sync_frame, daily_orders, monthly_orders, AUTOMATIC_RULES, completion_history
 from sync_config import BASE_DIR, TARGET_GSHEET_URL
+
+IST = timezone(timedelta(hours=5, minutes=30), 'IST')
 
 
 def workbook(frame, name):
@@ -50,19 +53,36 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
     schedule_path = store.root.parent / 'sync_schedule.json'
 
     def load_schedule():
-        default = {'enabled': False, 'time': '09:00', 'last_triggered_date': None}
+        default = {'enabled': False, 'time': '09:00', 'times': ['09:00'], 'last_triggered_date': None, 'triggered_today': [], 'timezone': 'Asia/Kolkata'}
         try:
             saved = json.loads(schedule_path.read_text(encoding='utf-8'))
             if isinstance(saved, dict):
-                default.update({key: saved.get(key, default[key]) for key in default})
+                default.update({key: saved.get(key, default[key]) for key in default if key in saved})
+                if 'times' in saved and isinstance(saved['times'], list):
+                    times = [str(t).strip() for t in saved['times'] if str(t).strip()]
+                    default['times'] = sorted(list(dict.fromkeys(times))) if times else ['09:00']
+                    default['time'] = default['times'][0]
+                elif 'time' in saved and saved['time']:
+                    default['times'] = [str(saved['time']).strip()]
+                    default['time'] = default['times'][0]
         except (OSError, ValueError):
             pass
+        default['timezone'] = 'Asia/Kolkata'
         return default
 
     def save_schedule(schedule):
+        times = schedule.get('times', [])
+        if not isinstance(times, list) or not times:
+            if schedule.get('time'):
+                times = [str(schedule['time']).strip()]
+            else:
+                times = ['09:00']
+        times = sorted(list(dict.fromkeys([str(t).strip() for t in times if str(t).strip()])))
+        schedule['times'] = times
+        schedule['time'] = times[0] if times else '09:00'
         schedule_path.write_text(json.dumps(schedule, indent=2), encoding='utf-8')
 
-    def begin_sync(trigger='manual', preview_id=None, previous_id=None, keys=None, ignore=None, remaining_products=None):
+    def prepare_sync(preview_id=None, previous_id=None, keys=None, ignore=None, remaining_products=None):
         if not store.list():
             raise ValueError('Capture or import a preview before syncing Google Sheets.')
         selected_preview = store.get(int(preview_id)) if preview_id is not None else store.get(store.list()[0]['id'])
@@ -73,12 +93,19 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
         previous_preview = store.get(int(previous_id)) if previous_id is not None else None
         frame, completed_orders = automatic_sync_frame(selected_preview, previous_preview, keys, ignore, store=store)
         frame.attrs['completion_dates'] = completion_history(store, selected_preview['id'])
+        frame.attrs['preview_name'] = selected_preview['name']
+        frame.attrs['preview_id'] = selected_preview['id']
+        frame.attrs['sync_time'] = datetime.now(IST).strftime('%Y-%m-%d %I:%M:%S %p IST')
         if remaining_products is not None:
             frame.attrs['selected_products'] = remaining_products
             try:
                 (BASE_DIR / 'remaining_products.json').write_text(json.dumps(remaining_products, indent=2), encoding='utf-8')
             except Exception:
                 pass
+        return frame, selected_preview, completed_orders, previous_id
+
+    def begin_sync(trigger='manual', preview_id=None, previous_id=None, keys=None, ignore=None, remaining_products=None):
+        frame, selected_preview, completed_orders, previous_id = prepare_sync(preview_id, previous_id, keys, ignore, remaining_products)
         if not gate.acquire(blocking=False):
             return False
         with state_lock:
@@ -108,6 +135,68 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
                 gate.release()
         threading.Thread(target=work, daemon=True).start()
         return True
+
+    def begin_scheduled_capture():
+        if not gate.acquire(blocking=False):
+            return False
+        with state_lock:
+            state.update(running=True, action='extract', stage='Scheduled extraction (IST)',
+                         result=None, run_id=state['run_id'] + 1)
+
+        def work():
+            saved_preview = None
+            try:
+                prior_ids = {item['id'] for item in store.list()}
+                def progress(result):
+                    with state_lock:
+                        state.update(stage=result.get('stage', 'Extracting queue'))
+                result = runner(on_progress=progress)
+                if result.get('error'):
+                    raise RuntimeError(result['error'])
+                preview_id = result.get('preview_id')
+                if preview_id is None or preview_id in prior_ids:
+                    raise RuntimeError('Extraction did not save a new preview; Google Sheets were not changed.')
+                saved_preview = store.get(preview_id)
+                frame, preview, completed, previous_id = prepare_sync(preview_id)
+                with state_lock:
+                    state.update(action='sync', stage=f"Syncing {preview['name']} to Google Sheets")
+                worksheets = syncer(frame)
+                with state_lock:
+                    state.update(stage='Finished', result={
+                        'action': 'sync', 'trigger': 'schedule', 'error': None,
+                        'google_sheet': 'success', 'preview_id': preview['id'],
+                        'preview_name': preview['name'], 'rows': len(frame),
+                        'worksheets': worksheets, 'completed_orders': len(completed),
+                        'previous_id': previous_id})
+            except Exception as exc:
+                app.logger.exception('Scheduled extraction/sync failed')
+                with state_lock:
+                    state.update(stage='Scheduled run failed', result={'action': 'sync',
+                                 'trigger': 'schedule', 'error': str(exc),
+                                 'preview_name': saved_preview['name'] if saved_preview else None})
+            finally:
+                with state_lock:
+                    state['running'] = False
+                gate.release()
+        threading.Thread(target=work, daemon=True).start()
+        return True
+
+    def schedule_tick(now=None):
+        now = (now or datetime.now(IST)).astimezone(IST)
+        with schedule_lock:
+            schedule = load_schedule()
+            if not schedule['enabled']:
+                return False
+            today = now.date().isoformat()
+            triggered = schedule.get('triggered_today', []) if schedule.get('last_triggered_date') == today else []
+            due = [t for t in schedule['times'] if t <= now.strftime('%H:%M') and t not in triggered]
+            if not due or not begin_scheduled_capture():
+                return False
+            schedule.update(last_triggered_date=today, triggered_today=triggered + due)
+            save_schedule(schedule)
+            return True
+
+    app.extensions['schedule_tick'] = schedule_tick
 
     @app.before_request
     def same_origin():
@@ -175,7 +264,13 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
 
     @app.get('/api/daily-orders')
     def get_daily_orders():
-        return jsonify(rows=daily_orders(store))
+        preview_id = request.args.get('preview_id', type=int)
+        selected_date = reporting_date(store.get(preview_id)) if preview_id is not None else None
+        return jsonify(rows=daily_orders(store, preview_id), selected_date=selected_date)
+
+    @app.get('/api/monthly-orders')
+    def get_monthly_orders():
+        return jsonify(rows=monthly_orders(store), sla_error=None)
 
     @app.post('/api/extract')
     def extract():
@@ -219,17 +314,36 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
     def update_schedule():
         body = request.get_json(silent=True) or {}
         enabled = bool(body.get('enabled'))
-        sync_time = str(body.get('time', '')).strip()
-        try:
-            datetime.strptime(sync_time, '%H:%M')
-        except ValueError as exc:
-            raise ValueError('Choose a valid daily sync time.') from exc
+        raw_times = body.get('times')
+        if raw_times is None:
+            raw_time = str(body.get('time', '')).strip()
+            raw_times = [raw_time] if raw_time else []
+        elif isinstance(raw_times, str):
+            raw_times = [raw_times]
+
+        validated_times = []
+        for t_str in raw_times:
+            t_str = str(t_str).strip()
+            if not t_str:
+                continue
+            try:
+                validated_times.append(datetime.strptime(t_str, '%H:%M').strftime('%H:%M'))
+            except ValueError as exc:
+                raise ValueError(f'Invalid sync time: "{t_str}". Use HH:MM format.') from exc
+
+        if not validated_times:
+            validated_times = ['09:00']
+        validated_times = sorted(list(dict.fromkeys(validated_times)))
+
         with schedule_lock:
             current = load_schedule()
-            changed = current['enabled'] != enabled or current['time'] != sync_time
-            current.update(enabled=enabled, time=sync_time)
-            if changed:
-                current['last_triggered_date'] = None
+            changed = current['enabled'] != enabled or current.get('times') != validated_times
+            current.update(enabled=enabled, times=validated_times, time=validated_times[0])
+            if changed or enabled:
+                now = datetime.now(IST)
+                already_triggered = current.get('triggered_today', []) if current.get('last_triggered_date') == now.date().isoformat() else []
+                current['last_triggered_date'] = now.date().isoformat()
+                current['triggered_today'] = sorted(set(already_triggered + [t for t in validated_times if t <= now.strftime('%H:%M')]))
             save_schedule(current)
         return jsonify(current)
 
@@ -264,9 +378,58 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
         preview = store.get(number)
         if kind not in ('csv', 'xlsx'):
             raise ValueError('Unsupported download format.')
-        frame = apply_status_rules(pd.DataFrame(preview['rows'], columns=preview['columns']), [])
-        stream = workbook(frame, 'Orders') if kind == 'xlsx' else BytesIO(frame.to_csv(index=False).encode('utf-8-sig'))
-        return send_file(stream, as_attachment=True, download_name=f'preview{number}.{kind}')
+        if kind == 'xlsx':
+            previous_id = next((item['id'] for item in store.list() if item['id'] < preview['id']), None)
+            previous_preview = store.get(int(previous_id)) if previous_id is not None else None
+            frame, _ = automatic_sync_frame(preview, previous_preview, store=store)
+            frame.attrs['completion_dates'] = completion_history(store, preview['id'])
+            frame.attrs['preview_name'] = preview['name']
+            frame.attrs['preview_id'] = preview['id']
+            remaining_products = None
+            try:
+                path = BASE_DIR / 'remaining_products.json'
+                if path.exists():
+                    remaining_products = json.loads(path.read_text(encoding='utf-8'))
+            except Exception:
+                pass
+            stream = build_synced_workbook_stream(frame, preview_name=preview['name'], selected_products=remaining_products)
+            return send_file(stream, as_attachment=True, download_name=f"{preview['name']}_GoogleSheets.xlsx")
+        else:
+            frame = apply_status_rules(pd.DataFrame(preview['rows'], columns=preview['columns']), [])
+            stream = BytesIO(frame.to_csv(index=False).encode('utf-8-sig'))
+            return send_file(stream, as_attachment=True, download_name=f'preview{number}.csv')
+
+    @app.get('/api/export/google-sheets')
+    def export_google_sheets():
+        if not gate.acquire(blocking=False):
+            return jsonify(error='Wait for the current extraction or sync to finish before exporting.'), 409
+        try:
+            book, _ = target_worksheet()
+            stream = BytesIO()
+            preview_name = 'GoogleSheets'
+            with pd.ExcelWriter(stream, engine='openpyxl') as writer:
+                for sheet in book.worksheets():
+                    values = sheet.get_all_values()
+                    pd.DataFrame(values).to_excel(writer, sheet_name=sheet.title, index=False, header=False)
+                    ws = writer.sheets[sheet.title]
+                    for row in ws:
+                        for cell in row:
+                            if isinstance(cell.value, str):
+                                cell.data_type = 's'
+                    ws.freeze_panes = 'A2'
+                    if sheet.title == 'Status Report' and values and 'Preview' in values[0]:
+                        offset = values[0].index('Preview')
+                        names = {r[offset] for r in values[1:] if len(r) > offset}
+                        if len(names) == 1:
+                            name = names.pop()
+                            if name.startswith('preview') and name[7:].isdigit():
+                                preview_name = name
+            stream.seek(0)
+            return send_file(stream, as_attachment=True, download_name=f'{preview_name}_GoogleSheets.xlsx')
+        except Exception as exc:
+            return jsonify(error=f'Google Sheets export failed: {exc}'), 502
+        finally:
+            gate.release()
 
     @app.post('/api/compare')
     def comparison():
@@ -290,19 +453,10 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
         def schedule_loop():
             while True:
                 clock.sleep(15)
-                now = datetime.now().astimezone()
-                with schedule_lock:
-                    schedule = load_schedule()
-                    due = (schedule['enabled'] and now.strftime('%H:%M') >= schedule['time']
-                           and schedule['last_triggered_date'] != now.date().isoformat())
-                    if due:
-                        schedule['last_triggered_date'] = now.date().isoformat()
-                        save_schedule(schedule)
-                if due:
-                    try:
-                        begin_sync('schedule')
-                    except Exception:
-                        app.logger.exception('Scheduled Google Sheets sync could not start')
+                try:
+                    schedule_tick()
+                except Exception:
+                    app.logger.exception('Scheduled capture could not start')
         threading.Thread(target=schedule_loop, daemon=True).start()
 
     return app
