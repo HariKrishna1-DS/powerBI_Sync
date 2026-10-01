@@ -26,12 +26,14 @@ async function setup(page) {
       'All Products':preview,'Full Title':preview,'Remaining Products':{columns:preview.columns,rows:[]},
       'Status Report':{columns:['Status','Orders'],rows:[{Status:'Available',Orders:1}]}}}});
     else if(path==='/api/monthly-orders') await route.fulfill({json:{rows:[report],sla_error:null}});
-    else if(path==='/api/sla-comments') {
+    else if(path==='/api/sla-comments'||path==='/api/sla-comments/bulk') {
       const body=route.request().postDataJSON();requests.push(body);
       if(control.fail) return route.fulfill({status:502,json:{error:'The Google Sheets save could not be confirmed. Refresh the report before retrying.'}});
-      const row=rows.find(row=>row['Order Number']===body.order_number);
-      row['Free Site']=body.status;updateTotals();
-      await route.fulfill({json:{saved:true,rows:[report],message:`Order ${body.order_number} saved as ${body.status} in Google Sheets and report history.`}});
+      const orders=body.orders||[body];
+      orders.forEach(order=>{rows.find(row=>row['Order Number']===order.order_number)['Free Site']=body.status;});
+      updateTotals();
+      const message=body.orders?`${orders.length} orders saved as ${body.status} in report history.`:`Order ${body.order_number} saved as ${body.status} in Google Sheets and report history.`;
+      await route.fulfill({json:{saved:true,rows:[report],message}});
     } else await route.fulfill({json:{}});
   });
   await page.goto(process.env.DASHBOARD_TEST_URL||'http://127.0.0.1:8525');
@@ -93,4 +95,67 @@ test('failed SLA save keeps the draft, row and totals unchanged and allows retry
   await page.getByRole('button',{name:'Save SLA',exact:true}).click();
   await expect(page.getByRole('region',{name:'SLA order details'}).getByRole('status')).toContainText('saved as On Time');
   await expect(page.getByRole('alert')).toHaveCount(0);
+});
+
+test('bulk selection carries across pages and sends one update for selected orders only',async({page})=>{
+  const {requests}=await setup(page);
+  await page.getByRole('checkbox',{name:'Select order 001',exact:true}).check();
+  await page.getByRole('checkbox',{name:'Select order 002',exact:true}).check();
+  await expect(page.getByRole('checkbox',{name:'Select all orders on this page'})).toHaveJSProperty('indeterminate',true);
+  await page.getByRole('button',{name:'Next SLA page'}).click();
+  await page.getByRole('checkbox',{name:'Select order 026',exact:true}).check();
+  await expect(page.getByText('3 orders selected',{exact:true})).toBeVisible();
+  await page.getByLabel('Bulk SLA status',{exact:true}).selectOption('Missed');
+  await page.getByRole('group',{name:'Update selected SLA orders',exact:true}).scrollIntoViewIfNeeded();
+  await page.screenshot({path:test.info().outputPath('sla-bulk-selection.png'),fullPage:false});
+  await page.getByRole('button',{name:'Update 3 selected',exact:true}).click();
+  expect(requests).toHaveLength(1);
+  expect(requests[0].orders.map(order=>order.order_number)).toEqual(['001','002','026']);
+  expect(requests[0].status).toBe('Missed');
+  await expect(page.getByRole('button',{name:/^SLA Missed/}).locator('strong')).toHaveText('3');
+  await expect(page.getByRole('group',{name:'Update selected SLA orders',exact:true})).toHaveCount(0);
+  await page.getByLabel('Filter SLA status').selectOption('Missed');
+  await expect(page.getByRole('table',{name:'SLA orders',exact:true}).locator('tbody tr')).toHaveCount(3);
+});
+
+test('select page, select all filtered, deselect and filter reset are explicit',async({page})=>{
+  const {requests}=await setup(page);
+  await page.getByRole('checkbox',{name:'Select all orders on this page'}).check();
+  await expect(page.getByText('25 orders selected',{exact:true})).toBeVisible();
+  await page.getByRole('checkbox',{name:'Select order 001',exact:true}).uncheck();
+  await expect(page.getByText('24 orders selected',{exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Select all 31 matching orders',exact:true}).click();
+  await expect(page.getByText('31 orders selected',{exact:true})).toBeVisible();
+  await page.getByLabel('Filter SLA product group').selectOption('Remaining Products');
+  await expect(page.getByRole('group',{name:'Update selected SLA orders',exact:true})).toHaveCount(0);
+  await page.getByRole('checkbox',{name:'Select all orders on this page'}).check();
+  await expect(page.getByText('15 orders selected',{exact:true})).toBeVisible();
+  await page.getByLabel('Bulk SLA status',{exact:true}).selectOption('Missed');
+  await page.getByRole('button',{name:'Update 15 selected',exact:true}).click();
+  expect(requests[0].orders).toHaveLength(15);
+  expect(requests[0].orders.every(order=>Number(order.order_number)%2===0)).toBe(true);
+  await expect(page.getByRole('button',{name:/^SLA Missed/}).locator('strong')).toHaveText('16');
+  await page.getByRole('checkbox',{name:'Select all orders on this page'}).check();
+  await page.getByLabel('Bulk SLA status',{exact:true}).selectOption('On Time');
+  await page.getByRole('button',{name:'Update 15 selected',exact:true}).click();
+  await expect(page.getByRole('button',{name:/^SLA Missed/}).locator('strong')).toHaveText('1');
+});
+
+test('bulk save failure retains selection and chosen status for retry',async({page})=>{
+  const {requests,control}=await setup(page);
+  control.fail=true;
+  await page.getByRole('checkbox',{name:'Select all orders on this page'}).check();
+  await page.getByRole('button',{name:'Select all 31 matching orders',exact:true}).click();
+  await page.getByLabel('Bulk SLA status',{exact:true}).selectOption('On Time');
+  await page.getByRole('button',{name:'Update 31 selected',exact:true}).click();
+  await expect(page.getByRole('alert')).toContainText('save could not be confirmed');
+  await expect(page.getByText('31 orders selected',{exact:true})).toBeVisible();
+  await expect(page.getByLabel('Bulk SLA status',{exact:true})).toHaveValue('On Time');
+  await expect(page.getByRole('button',{name:/^SLA Missed/}).locator('strong')).toHaveText('1');
+  control.fail=false;
+  await page.getByRole('button',{name:'Update 31 selected',exact:true}).click();
+  await expect(page.getByRole('region',{name:'SLA order details'}).getByRole('status')).toContainText('31 orders saved as On Time');
+  await expect(page.getByRole('button',{name:/^SLA Missed/}).locator('strong')).toHaveText('0');
+  expect(requests).toHaveLength(2);
+  expect(requests[1]).toEqual(requests[0]);
 });

@@ -78,6 +78,15 @@ class NeonStorageTests(unittest.TestCase):
         reopened.save_sla_correction('001', '2026-09-30', 'Missed')
         self.assertEqual(store.sla_corrections(), {('001', '2026-09-30'): 'Missed'})
 
+    def test_bulk_sla_corrections_persist_together(self):
+        store = PreviewStore(self.root, database_url=self.url)
+        store.save_sla_corrections([('001', '2026-09-30', 'On Time'), ('002', '2026-09-30', 'Missed')])
+        reopened = PreviewStore(self.root, database_url=self.url)
+        self.assertEqual(reopened.sla_corrections(), {('001', '2026-09-30'): 'On Time', ('002', '2026-09-30'): 'Missed'})
+        with self.assertRaises(ValueError):
+            reopened.save_sla_corrections([('001', '2026-09-30', 'Missed'), ('002', 'invalid', 'On Time')])
+        self.assertEqual(store.sla_corrections()[('001', '2026-09-30')], 'On Time')
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -145,16 +145,23 @@ class PreviewStore:
                     db.execute('SELECT order_number,completion_date,status FROM sla_corrections')}
 
     def save_sla_correction(self, order_number, completion_date, status):
-        if not order_number or status not in ('On Time', 'Missed'):
-            raise ValueError('An order number and On Time or Missed status are required.')
-        if datetime.strptime(completion_date, '%Y-%m-%d').strftime('%Y-%m-%d') != completion_date:
-            raise ValueError('A valid completion date is required.')
+        self.save_sla_corrections([(order_number, completion_date, status)])
+
+    def save_sla_corrections(self, corrections):
+        """Validate the entire selection, then persist it in one transaction."""
+        records = []
+        updated = datetime.now(timezone.utc).isoformat()
+        for order_number, completion_date, status in corrections:
+            if not order_number or status not in ('On Time', 'Missed'):
+                raise ValueError('An order number and On Time or Missed status are required.')
+            if datetime.strptime(completion_date, '%Y-%m-%d').strftime('%Y-%m-%d') != completion_date:
+                raise ValueError('A valid completion date is required.')
+            records.append((order_number, completion_date, status, updated))
         placeholders = '%s,%s,%s,%s' if self.database_url else '?,?,?,?'
         with self.connect() as db:
-            db.execute('INSERT INTO sla_corrections(order_number,completion_date,status,updated) '
-                       f'VALUES({placeholders}) ON CONFLICT(order_number,completion_date) '
-                       'DO UPDATE SET status=excluded.status,updated=excluded.updated',
-                       (order_number, completion_date, status, datetime.now(timezone.utc).isoformat()))
+            db.cursor().executemany('INSERT INTO sla_corrections(order_number,completion_date,status,updated) '
+                                   f'VALUES({placeholders}) ON CONFLICT(order_number,completion_date) '
+                                   'DO UPDATE SET status=excluded.status,updated=excluded.updated', records)
 
 
 def rows_after_last_order(previous, latest):

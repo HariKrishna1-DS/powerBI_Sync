@@ -396,22 +396,36 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
         return jsonify(rows=monthly_report(sheet_rows), sla_error=None)
 
     @app.post('/api/sla-comments')
+    @app.post('/api/sla-comments/bulk')
     def update_sla_comment():
         body = request.get_json(silent=True)
         if not isinstance(body, dict):
             raise ValueError('An SLA update is required.')
-        identity = body.get('order_number')
-        completion = body.get('completion_date')
+        bulk = request.path.endswith('/bulk')
+        orders = body.get('orders') if bulk else [body]
+        if not isinstance(orders, list) or not 1 <= len(orders) <= 10000:
+            raise ValueError('Select between 1 and 10,000 orders to update.')
         status = body.get('status')
-        expected = body.get('expected_status')
-        if not isinstance(identity, str) or not identity.strip() or len(identity) > 512:
-            raise ValueError('A valid order number is required.')
-        identity = identity.strip()
-        if not isinstance(completion, str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', completion):
-            raise ValueError('A completion date is required.')
-        datetime.strptime(completion, '%Y-%m-%d')
-        if status not in ('On Time', 'Missed') or expected not in ('On Time', 'Missed'):
+        if status not in ('On Time', 'Missed'):
             raise ValueError('Choose On Time or Missed.')
+        selection = {}
+        for order in orders:
+            if not isinstance(order, dict):
+                raise ValueError('Each selection must identify an SLA order.')
+            identity, completion = order.get('order_number'), order.get('completion_date')
+            expected = order.get('expected_status')
+            if not isinstance(identity, str) or not identity.strip() or len(identity) > 512:
+                raise ValueError('A valid order number is required.')
+            identity = identity.strip()
+            if not isinstance(completion, str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', completion):
+                raise ValueError('A completion date is required.')
+            datetime.strptime(completion, '%Y-%m-%d')
+            if expected not in ('On Time', 'Missed'):
+                raise ValueError('Each selection must include its current SLA status.')
+            key = (identity, completion)
+            if key in selection:
+                raise ValueError('Each order and completion date must be selected only once.')
+            selection[key] = expected
         if not gate.acquire(blocking=False):
             return jsonify(error='A sync or extraction is running. Save the SLA change after it finishes.'), 409
         try:
@@ -422,41 +436,69 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
                 return jsonify(error='Could not check Google Sheets. Your change has not been saved. Please retry.'), 502
             corrections = store.sla_corrections()
             reports = monthly_report(sheet_rows, corrections)
-            current = next((row for report in reports for row in report['sla_rows']
-                            if row['Order Number'] == identity and row['completion_date'] == completion), None)
-            if current is None:
-                return jsonify(error='This order is no longer in this SLA report. Refresh the report before editing.'), 409
-            if current['Free Site'] not in (expected, status):
-                return jsonify(error='The SLA status changed since you opened it. Refresh the report and try again.'), 409
-            matching = [row for row in sheet_rows if sla_key(row) == (identity, completion)]
+            current = {(row['Order Number'], row['completion_date']): row['Free Site']
+                       for report in reports for row in report['sla_rows']}
+            for key, expected in selection.items():
+                if key not in current:
+                    return jsonify(error=f'Order {key[0]} is no longer in this SLA report. No changes were saved. Refresh the report before editing.'), 409
+                if current[key] not in (expected, status):
+                    return jsonify(error='An SLA status changed since you selected it. No changes were saved. Refresh the report and try again.'), 409
+            matching = [row for row in sheet_rows if sla_key(row) in selection]
             if any('Free Site' not in headers[row['_sheet']] for row in matching):
                 return jsonify(error='The matching Google Sheet is missing its Free Site column. Restore the column before saving.'), 409
             if matching:
                 from gspread.utils import rowcol_to_a1
                 updates = [{'range': f"'{row['_sheet']}'!{rowcol_to_a1(row['_sheet_row'], headers[row['_sheet']].index('Free Site') + 1)}",
                             'values': [[status]]} for row in matching]
+                # Read back one column span per tab, keeping URLs small even for
+                # thousands of selected cells spread over both product tabs.
+                spans = {}
+                for row in matching:
+                    spans.setdefault(row['_sheet'], set()).add(row['_sheet_row'])
+                ranges = []
+                for title, indices in spans.items():
+                    column = headers[title].index('Free Site') + 1
+                    start, end = rowcol_to_a1(min(indices), column), rowcol_to_a1(max(indices), column)
+                    ranges.append(f"'{title}'!{start}" + (f':{end}' if start != end else ''))
                 try:
                     book.values_batch_update({'valueInputOption': 'RAW', 'data': updates})
-                    verification = book.values_batch_get([item['range'] for item in updates]).get('valueRanges', [])
-                    if len(verification) != len(updates) or any(
-                            sla_status(item.get('values', [['']])[0][0]) != status for item in verification):
+                    verification = book.values_batch_get(ranges).get('valueRanges', [])
+                    if len(verification) != len(ranges):
                         raise RuntimeError('SLA readback did not match the requested status.')
+                    for indices, item in zip(spans.values(), verification):
+                        values = item.get('values', [])
+                        first = min(indices)
+                        for index in indices:
+                            offset = index - first
+                            if offset >= len(values) or not values[offset] or sla_status(values[offset][0]) != status:
+                                raise RuntimeError('SLA readback did not match the requested status.')
                 except Exception:
                     app.logger.exception('Could not confirm SLA cell update')
                     return jsonify(error='The Google Sheets save could not be confirmed. Refresh the report before retrying.'), 502
             try:
-                store.save_sla_correction(identity, completion, status)
+                if bulk:
+                    store.save_sla_corrections([(number, date, status) for number, date in selection])
+                else:
+                    store.save_sla_correction(identity, completion, status)
             except Exception:
                 app.logger.exception('Could not persist SLA correction')
                 message = ('Google Sheets was updated, but the history save failed. Retry Save to keep the correction in the database.'
                            if matching else 'The history save failed. Your change has not been saved. Please retry.')
                 return jsonify(error=message), 503
-            corrections[(identity, completion)] = status
+            corrections.update({key: status for key in selection})
             for row in matching:
                 row['Free Site'] = status
             message = (f'Order {identity} saved as {status} in Google Sheets and report history.' if matching else
                        f'Order {identity} saved as {status} in report history. This order is not in the current Google Sheet; the correction will apply when it is synced again.')
-            return jsonify(saved=True, rows=monthly_report(sheet_rows, corrections), message=message)
+            if bulk:
+                sheet_count = len({sla_key(row) for row in matching})
+                history_count = len(selection) - sheet_count
+                message = f'{len(selection)} {"order" if len(selection) == 1 else "orders"} saved as {status} in report history.'
+                if sheet_count:
+                    message += f' {sheet_count} also updated in Google Sheets.'
+                if history_count:
+                    message += f' {history_count} historical {"order" if history_count == 1 else "orders"} will use the correction when synced again.'
+            return jsonify(saved=True, updated_count=len(selection), rows=monthly_report(sheet_rows, corrections), message=message)
         finally:
             gate.release()
 

@@ -667,37 +667,59 @@ function SlaOrdersTable({rows, statusFilter, onStatusFilter, onSave, running}) {
   const [search,setSearch]=useState(''), [group,setGroup]=useState(''), [page,setPage]=useState(0);
   const [editing,setEditing]=useState(null), [draft,setDraft]=useState(''), [saving,setSaving]=useState(false);
   const [error,setError]=useState(''), [message,setMessage]=useState('');
+  const [selected,setSelected]=useState({}), [bulkStatus,setBulkStatus]=useState('');
+  const pageCheckbox=useRef(null);
   const filtered=rows.filter(row=>(!statusFilter||row['Free Site']===statusFilter)&&(!group||row['Product Group']===group)&&
     (!search||SLA_COLUMNS.some(column=>str(row[column]).toLowerCase().includes(search.toLowerCase()))));
   const pages=Math.max(1,Math.ceil(filtered.length/25)), currentPage=Math.min(page,pages-1);
-  useEffect(()=>setPage(0),[search,group,statusFilter]);
-  const save=async()=>{
+  const pageRows=filtered.slice(currentPage*25,(currentPage+1)*25);
+  const selectable=filtered.filter(row=>row['Order Number']);
+  const selectablePage=pageRows.filter(row=>row['Order Number']);
+  const selectedRows=Object.values(selected), selectedCount=selectedRows.length;
+  const checkedPage=selectablePage.filter(row=>selected[slaRowKey(row)]).length;
+  const allPage=selectablePage.length>0&&checkedPage===selectablePage.length;
+  useEffect(()=>{setPage(0);setSelected({});setBulkStatus('');},[search,group,statusFilter]);
+  useEffect(()=>{if(pageCheckbox.current)pageCheckbox.current.indeterminate=checkedPage>0&&!allPage;},[checkedPage,allPage]);
+  const selectRows=(items,checked)=>{
+    setEditing(null);setError('');setMessage('');
+    setSelected(previous=>{const next={...previous};items.forEach(row=>{if(checked)next[slaRowKey(row)]=row;else delete next[slaRowKey(row)];});return next;});
+  };
+  const save=async(items,status)=>{
     setSaving(true);setError('');setMessage('');
-    try{const result=await onSave(editing,draft);setMessage(result);setEditing(null);}
+    try{const result=await onSave(items,status);setMessage(result);setEditing(null);setSelected({});setBulkStatus('');}
     catch(e){setError(e.message);}
     finally{setSaving(false);}
   };
   return <section className="sla-orders" aria-label="SLA order details">
-    <div className="section-heading"><div><h3>SLA order details</h3><p className="muted">Edit Free Site to correct an order’s SLA On Time or SLA Missed result.</p></div></div>
+    <div className="section-heading"><div><h3>SLA order details</h3><p className="muted">Edit an order, or select several orders to update their SLA status together.</p></div></div>
     {message&&<div className="notice success" role="status"><Check size={16}/>{message}</div>}
     {error&&<div className="notice error" role="alert">{error}</div>}
     {editing&&<div className="sla-editor" role="group" aria-label={`Edit SLA for order ${editing['Order Number']}`}>
       <div><strong>Order {editing['Order Number']}</strong><p className="muted">{editing['Product Group']} · Out Time: {editing['Out Time']}</p></div>
       <label>Free Site (SLA status)<select aria-label="Edit Free Site" value={draft} disabled={saving} onChange={e=>setDraft(e.target.value)}><option>On Time</option><option>Missed</option></select></label>
-      <button className="primary" onClick={save} disabled={saving||running||draft===editing['Free Site']}>{saving?<LoaderCircle size={16} className="spin"/>:<Check size={16}/>} {saving?'Saving…':'Save SLA'}</button>
+      <button className="primary" onClick={()=>save(editing,draft)} disabled={saving||running||draft===editing['Free Site']}>{saving?<LoaderCircle size={16} className="spin"/>:<Check size={16}/>} {saving?'Saving…':'Save SLA'}</button>
       <button className="secondary" disabled={saving} onClick={()=>{setEditing(null);setError('');}}>Cancel</button>
     </div>}
     {running&&<p className="muted">SLA editing is available when the current sync or extraction finishes.</p>}
     <div className="filter-toolbar">
-      <div className="search-input"><Search size={16}/><input aria-label="Search SLA orders" placeholder="Search order or product" value={search} onChange={e=>setSearch(e.target.value)}/></div>
-      <select aria-label="Filter SLA status" value={statusFilter} onChange={e=>onStatusFilter(e.target.value)}><option value="">All SLA results</option><option value="On Time">SLA On Time</option><option value="Missed">SLA Missed</option></select>
-      <select aria-label="Filter SLA product group" value={group} onChange={e=>setGroup(e.target.value)}><option value="">All products</option><option>Full Title</option><option>Remaining Products</option></select>
+      <div className="search-input"><Search size={16}/><input aria-label="Search SLA orders" placeholder="Search order or product" value={search} disabled={saving} onChange={e=>setSearch(e.target.value)}/></div>
+      <select aria-label="Filter SLA status" value={statusFilter} disabled={saving} onChange={e=>onStatusFilter(e.target.value)}><option value="">All SLA results</option><option value="On Time">SLA On Time</option><option value="Missed">SLA Missed</option></select>
+      <select aria-label="Filter SLA product group" value={group} disabled={saving} onChange={e=>setGroup(e.target.value)}><option value="">All products</option><option>Full Title</option><option>Remaining Products</option></select>
       <span className="row-tally">{filtered.length} / {rows.length} orders</span>
     </div>
-    <div className="table-scroll"><table aria-label="SLA orders"><thead><tr>{SLA_COLUMNS.map(column=><th key={column}>{column==='Free Site'?'Free Site / SLA':column}</th>)}<th>Action</th></tr></thead>
-      <tbody>{filtered.slice(currentPage*25,(currentPage+1)*25).map(row=><tr key={slaRowKey(row)}>
+    {selectedCount>0&&<div className="sla-bulk-editor" role="group" aria-label="Update selected SLA orders">
+      <div><strong>{selectedCount} orders selected</strong><p className="muted">Selections carry across pages. Changing filters clears the selection.</p>
+        {selectedCount<selectable.length&&<button className="text-button" disabled={saving||running} onClick={()=>selectRows(selectable,true)}>Select all {selectable.length} matching orders</button>}
+      </div>
+      <label>Set selected orders to<select aria-label="Bulk SLA status" value={bulkStatus} disabled={saving} onChange={e=>setBulkStatus(e.target.value)}><option value="">Choose status</option><option>On Time</option><option>Missed</option></select></label>
+      <button className="primary" disabled={saving||running||!bulkStatus} onClick={()=>save(selectedRows,bulkStatus)}>{saving?<LoaderCircle size={16} className="spin"/>:<Check size={16}/>} {saving?'Saving…':`Update ${selectedCount} selected`}</button>
+      <button className="secondary" disabled={saving} onClick={()=>{setSelected({});setBulkStatus('');setError('');}}>Clear selection</button>
+    </div>}
+    <div className="table-scroll"><table aria-label="SLA orders"><thead><tr><th className="sla-check"><input ref={pageCheckbox} type="checkbox" aria-label="Select all orders on this page" checked={allPage} disabled={saving||running||!selectablePage.length} onChange={e=>selectRows(selectablePage,e.target.checked)}/></th>{SLA_COLUMNS.map(column=><th key={column}>{column==='Free Site'?'Free Site / SLA':column}</th>)}<th>Action</th></tr></thead>
+      <tbody>{pageRows.map(row=><tr key={slaRowKey(row)} className={selected[slaRowKey(row)]?'sla-selected':''}>
+        <td className="sla-check"><input type="checkbox" aria-label={`Select order ${row['Order Number']}`} checked={!!selected[slaRowKey(row)]} disabled={saving||running||!row['Order Number']} onChange={e=>selectRows([row],e.target.checked)}/></td>
         {SLA_COLUMNS.map(column=><td key={column} title={str(row[column])}>{column==='Free Site'?<span className={`sla-badge ${row[column]==='On Time'?'on-time':'missed'}`}>{row[column]}</span>:str(row[column])||'—'}</td>)}
-        <td><button className="secondary" aria-label={`Edit SLA for order ${row['Order Number']}`} disabled={saving||running||!row['Order Number']} onClick={()=>{setEditing(row);setDraft(row['Free Site']);setError('');setMessage('');}}>Edit</button></td>
+        <td><button className="secondary" aria-label={`Edit SLA for order ${row['Order Number']}`} disabled={saving||running||!row['Order Number']} onClick={()=>{setSelected({});setBulkStatus('');setEditing(row);setDraft(row['Free Site']);setError('');setMessage('');}}>Edit</button></td>
       </tr>)}</tbody></table>{!filtered.length&&<div className="table-empty">No matching SLA orders</div>}</div>
     <div className="table-footer"><span>Page {currentPage+1} of {pages}</span><div className="inline"><button className="secondary" aria-label="Previous SLA page" disabled={currentPage===0} onClick={()=>setPage(currentPage-1)}><ChevronLeft size={16}/>Previous</button><button className="secondary" aria-label="Next SLA page" disabled={currentPage>=pages-1} onClick={()=>setPage(currentPage+1)}>Next<ChevronRight size={16}/></button></div></div>
   </section>;
@@ -729,9 +751,10 @@ function MonthlyOrders({preview,running}) {
   const saveSla=async(row,status)=>{
     savePending.current=true;setSaving(true);reportVersion.current++;
     try{
-      const result=await api('/api/sla-comments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
-        order_number:row['Order Number'],completion_date:row.completion_date,expected_status:row['Free Site'],status
-      })});
+      const order=item=>({order_number:item['Order Number'],completion_date:item.completion_date,expected_status:item['Free Site']});
+      const bulk=Array.isArray(row);
+      const result=await api(bulk?'/api/sla-comments/bulk':'/api/sla-comments',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify(bulk?{orders:row.map(order),status}:{...order(row),status})});
       reportVersion.current++;setHistory(result.rows);setError('');
       return result.message;
     }finally{savePending.current=false;setSaving(false);}
@@ -754,7 +777,7 @@ function MonthlyOrders({preview,running}) {
       <div className="section-heading"><h2>Monthly capture history</h2><label>Month<select aria-label="Monthly orders date" disabled={saving} value={selectedMonth?.Month||''} onChange={e=>{setMonth(e.target.value);setSearch('');}}>{history.map(m=><option key={m.Month} value={m.Month}>{m.MonthLabel || m.Month}</option>)}</select></label></div>
       <div className="metrics">{names.slice(0,4).map((name,index)=><div className={`metric ${['green','red','gray','purple'][index]}`} key={name}><span>{name}</span><strong>{selectedMonth?.[name]??0}</strong><small>{monthlyPercentage(selectedMonth,name)}</small></div>)}</div>
       <div className="section-heading"><h2>SLA COMMENTS</h2><button className="secondary" disabled={saving} onClick={()=>setRefreshId(value=>value+1)}>Refresh SLA</button></div>
-      <div className="metrics sla-metrics">{names.slice(4).map(name=>{const value=name==='SLA On Time'?'On Time':'Missed';return <button className={`metric sla-metric ${value==='On Time'?'green':'amber'}`} key={name} aria-pressed={slaFilter===value} onClick={()=>setSlaFilter(slaFilter===value?'':value)}><span>{name}</span><strong>{selectedMonth?.[name]??0}</strong><small>{monthlyPercentage(selectedMonth,name)}</small></button>;})}</div>
+      <div className="metrics sla-metrics">{names.slice(4).map(name=>{const value=name==='SLA On Time'?'On Time':'Missed';return <button className={`metric sla-metric ${value==='On Time'?'green':'amber'}`} key={name} disabled={saving} aria-pressed={slaFilter===value} onClick={()=>setSlaFilter(slaFilter===value?'':value)}><span>{name}</span><strong>{selectedMonth?.[name]??0}</strong><small>{monthlyPercentage(selectedMonth,name)}</small></button>;})}</div>
       <SlaOrdersTable key={selectedMonth?.Month||'empty'} rows={selectedMonth?.sla_rows||[]} statusFilter={slaFilter} onStatusFilter={setSlaFilter} onSave={saveSla} running={running}/>
       <MonthlyOrdersChart history={history} selectedMonth={selectedMonth?.Month} onSelect={value=>{if(value){setMonth(value);setSearch('');}}}/>
       <div className="table-scroll"><table><thead><tr>{['Month','Previews',...names].map(name=><th key={name}>{name}</th>)}</tr></thead><tbody>{history.map(m=><tr key={m.Month}><td><button className="text-button" onClick={()=>{setMonth(m.Month);setSearch('');}}>{m.MonthLabel || m.Month}</button></td><td>{m.Previews.join(', ')}</td>{names.map(name=><td key={name}>{`${m[name]??0} (${monthlyPercentage(m,name)})`}</td>)}</tr>)}</tbody></table></div>

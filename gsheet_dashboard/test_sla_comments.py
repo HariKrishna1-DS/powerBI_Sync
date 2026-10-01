@@ -42,7 +42,16 @@ class SlaCommentsTests(unittest.TestCase):
                 cell(update['range'])[5] = update['values'][0][0]
 
         self.book.values_batch_update.side_effect = write
-        self.book.values_batch_get.side_effect = lambda ranges: {'valueRanges': [{'values': [[cell(address)[5]]]} for address in ranges]}
+        def read(ranges):
+            results = []
+            for address in ranges:
+                match = re.fullmatch(r"'([^']+)'!F(\d+)(?::F(\d+))?", address)
+                self.assertIsNotNone(match, address)
+                start, end = int(match[2]), int(match[3] or match[2])
+                results.append({'values': [[self.values[match[1]][index-1][5]] for index in range(start, end+1)]})
+            return {'valueRanges': results}
+
+        self.book.values_batch_get.side_effect = read
         self.target = patch('server.target_worksheet', return_value=(self.book, Mock()))
         self.target.start()
         self.addCleanup(self.target.stop)
@@ -54,6 +63,71 @@ class SlaCommentsTests(unittest.TestCase):
 
     def report(self):
         return self.client.get('/api/monthly-orders').json['rows'][0]
+
+    def bulk_save(self, identities=('001', '002', '003'), status='On Time'):
+        statuses = {row['Order Number']: row['Free Site'] for row in self.report()['sla_rows']}
+        return self.client.post('/api/sla-comments/bulk', json={'status': status, 'orders': [
+            {'order_number': identity, 'completion_date': '2026-09-30', 'expected_status': statuses.get(identity, 'Missed')}
+            for identity in identities]})
+
+    def test_bulk_updates_both_sheets_and_history_in_one_batch_in_both_directions(self):
+        response = self.bulk_save()
+        self.assertEqual(response.status_code, 200, response.json)
+        self.assertEqual(response.json['updated_count'], 3)
+        self.assertIn('1 historical order', response.json['message'])
+        self.assertEqual(response.json['rows'][0]['SLA On Time'], 3)
+        self.book.values_batch_update.assert_called_once()
+        self.book.values_batch_get.assert_called_once()
+        self.assertEqual(len(self.book.values_batch_update.call_args.args[0]['data']), 2)
+        self.assertEqual(len(self.store.sla_corrections()), 3)
+        response = self.bulk_save(('002', '003'), 'Missed')
+        self.assertEqual(response.status_code, 200, response.json)
+        self.assertEqual(response.json['rows'][0]['SLA Missed'], 2)
+        self.assertEqual(self.values['Full Title'][1][5], 'On Time')
+        self.assertEqual(self.values['Remaining Products'][1][5], 'Missed')
+        self.assertEqual(self.store.sla_corrections()[('003', '2026-09-30')], 'Missed')
+
+    def test_bulk_verifies_column_spans_without_changing_unselected_rows(self):
+        self.values['Full Title'].extend([
+            ['untouched', 'Full Title', '09/30/2026', '09/30/2026', '-2h', 'Missed'],
+            ['003', 'Full Title', '09/30/2026', '09/30/2026', '-2h', 'Missed']])
+        response = self.bulk_save(('001', '003'))
+        self.assertEqual(response.status_code, 200, response.json)
+        self.assertEqual(self.book.values_batch_get.call_args.args[0], ["'Full Title'!F2:F4"])
+        self.assertEqual(self.values['Full Title'][2][5], 'Missed')
+        self.assertEqual(len(self.store.sla_corrections()), 2)
+
+    def test_bulk_validates_entire_selection_before_writing(self):
+        self.assertEqual(self.bulk_save(('001', 'missing')).status_code, 409)
+        self.assertEqual(self.bulk_save(('001', '001')).status_code, 422)
+        for orders in ([], None, '001', [None], [{'order_number': '001'}]):
+            result = self.client.post('/api/sla-comments/bulk', json={'orders': orders, 'status': 'On Time'})
+            self.assertEqual(result.status_code, 422, result.json)
+        self.book.values_batch_update.assert_not_called()
+        self.assertEqual(self.store.sla_corrections(), {})
+
+    def test_bulk_google_failure_keeps_all_database_values_unchanged(self):
+        self.book.values_batch_update.side_effect = RuntimeError('Google unavailable')
+        self.assertEqual(self.bulk_save().status_code, 502)
+        self.assertEqual(self.store.sla_corrections(), {})
+
+    def test_bulk_history_failure_after_sheet_update_can_be_retried(self):
+        with patch.object(PreviewStore, 'save_sla_corrections', side_effect=RuntimeError('Database unavailable')):
+            response = self.bulk_save()
+        self.assertEqual(response.status_code, 503)
+        self.assertIn('Google Sheets was updated', response.json['error'])
+        self.assertEqual(self.store.sla_corrections(), {})
+        self.assertEqual(self.bulk_save().status_code, 200)
+        self.assertEqual(len(self.store.sla_corrections()), 3)
+
+    def test_bulk_database_failure_rolls_back_the_whole_transaction(self):
+        import sqlite3
+        with self.store.connect() as db:
+            db.execute("CREATE TRIGGER reject_second BEFORE INSERT ON sla_corrections "
+                       "WHEN NEW.order_number = '002' BEGIN SELECT RAISE(ABORT, 'simulated failure'); END")
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.store.save_sla_corrections([('001', '2026-09-30', 'On Time'), ('002', '2026-09-30', 'Missed')])
+        self.assertEqual(self.store.sla_corrections(), {})
 
     def test_details_match_totals_and_both_product_groups(self):
         report = self.report()

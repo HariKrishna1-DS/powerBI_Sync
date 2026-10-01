@@ -118,5 +118,13 @@
 .sla-badge.on-time{background:#e5f3e8;color:#27623b}
 .sla-badge.missed{background:#fff0d2;color:#815516}
 .sla-orders td:last-child{min-width:76px}
+.sla-bulk-editor{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:16px;background:#eaf3ef;border:1px solid #bcd7cb;border-radius:5px;margin-bottom:16px}
+.sla-bulk-editor>div{margin-right:auto}
+.sla-bulk-editor p{margin:5px 0}
+.sla-bulk-editor select{min-width:145px}
+.sla-orders .sla-check{position:sticky;left:0;min-width:44px;width:44px;max-width:44px;text-align:center;background:#fff;z-index:1}
+.sla-orders th.sla-check{background:#eff3f0;z-index:3}
+.sla-check input{width:17px;height:17px;min-height:0;margin:0;accent-color:#147d72;cursor:pointer}
+.sla-orders .sla-selected td{background:#eaf5ef}
 .sync-schedule>div{max-width:calc(100vw - 32px)}
 @media(max-width:700px){.sync-schedule>div{position:fixed;top:100px;left:16px;right:16px;width:auto;max-height:calc(100dvh - 120px);overflow-y:auto}.topbar{flex-wrap:wrap}.topbar>.inline{flex-wrap:wrap}nav{overflow-x:auto}.nav-item{flex-shrink:0;width:auto}}
