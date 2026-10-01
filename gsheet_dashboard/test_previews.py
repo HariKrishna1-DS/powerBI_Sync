@@ -83,6 +83,16 @@ class PreviewTests(unittest.TestCase):
         with self.assertRaises(KeyError):
             self.store.get(saved['id'])
 
+    def test_reporting_reads_history_in_one_transaction(self):
+        from order_reporting import daily_orders, monthly_orders
+        first = self.store.save(self.frame())
+        second = self.store.save(self.frame('Completed'))
+        self.assertEqual(self.store.history(), [first, second])
+        for report in (daily_orders, monthly_orders):
+            with patch.object(self.store, 'connect', wraps=self.store.connect) as connect:
+                self.assertTrue(report(self.store))
+                self.assertEqual(connect.call_count, 1)
+
     def test_second_real_pipeline_run_creates_preview_without_auto_sync(self):
         calls = []
         def scrape(*args, **kwargs):

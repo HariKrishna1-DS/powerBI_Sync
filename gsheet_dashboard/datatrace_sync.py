@@ -6,6 +6,7 @@ import re
 from pathlib import Path
 import subprocess
 import tempfile
+import time
 
 import pandas as pd
 from openpyxl.worksheet.table import Table, TableStyleInfo
@@ -66,6 +67,7 @@ STATUS_COLORS = {
 
 def target_worksheet():
     import gspread
+    from google.auth.exceptions import RefreshError
     from google.oauth2.service_account import Credentials
     value = os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON', 'service_account.json').strip()
     try:
@@ -83,9 +85,26 @@ def target_worksheet():
         credentials = Credentials.from_service_account_info(
             info, scopes=['https://www.googleapis.com/auth/spreadsheets'])
         client = gspread.authorize(credentials)
-        client.set_timeout(30)
+        client.set_timeout((10, 90))
         book = client.open_by_key(SPREADSHEET_ID)
         return book, book.get_worksheet_by_id(WORKSHEET_GID)
+    except RefreshError as exc:
+        details = next((arg for arg in exc.args if isinstance(arg, dict)), {})
+        description = str(details.get('error_description', '')).casefold()
+        if 'invalid jwt signature' in description:
+            message = (
+                'Google Sheets authentication failed: Invalid JWT Signature. '
+                f'Replace the service-account JSON with a new active key for {email}, '
+                'update GOOGLE_SERVICE_ACCOUNT_JSON, then restart or redeploy the backend.'
+            )
+        elif 'reasonable timeframe' in description or 'short-lived token' in description:
+            message = ('Google Sheets authentication failed: the server clock is outside the accepted range. '
+                       'Synchronize the server date and time, then retry.')
+        else:
+            message = (f'Google Sheets authentication failed for {email}. '
+                       'Check that the service account and its key are active, update '
+                       'GOOGLE_SERVICE_ACCOUNT_JSON, then restart or redeploy the backend.')
+        raise RuntimeError(message) from exc
     except Exception as exc:
         raise RuntimeError(
             f'Google Sheets access failed ({type(exc).__name__}). Enable the Google Sheets API, '
@@ -470,7 +489,37 @@ def status_row_format_request(df, sheet_id):
         'fields': 'userEnteredFormat.backgroundColor'}}
 
 
-def sync_dataframe(df, target=None, validate=True, row_backgrounds=None, color_status=False):
+def write_sheet_batch(book, sheet, requests, on_progress=None):
+    """Retry only transient failures of an idempotent batch, at most once."""
+    from requests.exceptions import Timeout, ConnectionError
+    from gspread.exceptions import APIError
+    for attempt in range(2):
+        try:
+            book.batch_update({'requests': requests})
+            return
+        except (Timeout, ConnectionError) as exc:
+            reason = 'timed out' if isinstance(exc, Timeout) else 'lost the network connection'
+            if attempt == 1:
+                raise RuntimeError(f'Google Sheets {reason} while updating {sheet.title} after two attempts. '
+                                   'The write may have completed; check the tab before retrying. Saved previews are retained.') from exc
+        except APIError as exc:
+            code = exc.code
+            if code not in (429, 500, 502, 503, 504):
+                if code == 403:
+                    message = f'Google Sheets denied the write to {sheet.title}. Check Editor access and worksheet protection.'
+                else:
+                    message = f'Google Sheets rejected the update to {sheet.title} (HTTP {code}). Check the worksheet structure and protection.'
+                raise RuntimeError(message) from exc
+            if attempt == 1:
+                raise RuntimeError(f'Google Sheets could not update {sheet.title} (HTTP {code}) after two attempts. '
+                                   'Wait briefly and retry; saved previews are retained.') from exc
+        if on_progress:
+            on_progress(f'Google Sheets is slow: retrying {sheet.title} (attempt 2 of 2)')
+        time.sleep(1)
+
+
+def sync_dataframe(df, target=None, validate=True, row_backgrounds=None, color_status=False,
+                   existing_values=None, on_progress=None):
     if validate:
         validate_queue(df)
     book, sheet = target or target_worksheet()
@@ -478,22 +527,20 @@ def sync_dataframe(df, target=None, validate=True, row_backgrounds=None, color_s
     include_format = row_backgrounds is not None
     row_backgrounds = row_backgrounds or [None] * len(values)
     requests = []
-    for dimension, required, existing in [('ROWS', len(values), sheet.row_count),
-                                           ('COLUMNS', len(df.columns), sheet.col_count)]:
-        if required > existing:
-            requests.append({'appendDimension': {'sheetId': sheet.id, 'dimension': dimension,
-                                                 'length': required - existing}})
-    if sheet.col_count > len(df.columns):
-        requests.append({'deleteDimension': {
-            'range': {
-                'sheetId': sheet.id,
-                'dimension': 'COLUMNS',
-                'startIndex': len(df.columns),
-                'endIndex': sheet.col_count
-            }
-        }})
-    # Full-sheet range clears trailing values in the same atomic request.
-    requests.append({'updateCells': {'range': {'sheetId': sheet.id},
+    if existing_values is None:
+        existing_values = sheet.get_all_values()
+    previous_rows = len(existing_values) if isinstance(existing_values, list) else 0
+    target_rows = max(sheet.row_count, len(values), previous_rows)
+    if target_rows != sheet.row_count or sheet.col_count != len(df.columns):
+        # Absolute dimensions make replay safe even if a timed-out request committed.
+        requests.append({'updateSheetProperties': {
+            'properties': {'sheetId': sheet.id, 'gridProperties': {
+                'rowCount': target_rows, 'columnCount': len(df.columns)}},
+            'fields': 'gridProperties.rowCount,gridProperties.columnCount'}})
+    # Cover new and previously populated rows without touching the entire blank grid.
+    requests.append({'updateCells': {'range': {'sheetId': sheet.id, 'startRowIndex': 0,
+                     'endRowIndex': max(len(values), previous_rows), 'startColumnIndex': 0,
+                     'endColumnIndex': len(df.columns)},
                      'rows': [{'values': [sheet_cell(v, row_backgrounds[index] if index < len(row_backgrounds) else None)
                                           for v in row]} for index, row in enumerate(values)],
                      'fields': 'userEnteredValue,userEnteredFormat.backgroundColor' if include_format else 'userEnteredValue'}})
@@ -504,12 +551,11 @@ def sync_dataframe(df, target=None, validate=True, row_backgrounds=None, color_s
         requests.append({'setBasicFilter': {'filter': {'range': {
             'sheetId': sheet.id, 'startRowIndex': 0, 'endRowIndex': len(values),
             'startColumnIndex': 0, 'endColumnIndex': len(df.columns)}}}})
-    try:
-        book.batch_update({'requests': requests})
-    except Exception as exc:
-        email = getattr(book.client.auth, 'service_account_email', 'the service account client_email')
-        raise RuntimeError(f'Google Sheets write failed. Share the target with {email} as Editor. Check '
-                           'worksheet protection, API quota and connectivity. Local exports are retained.') from exc
+    if on_progress:
+        on_progress(f'Writing {sheet.title} to Google Sheets')
+    write_sheet_batch(book, sheet, requests, on_progress)
+    if on_progress:
+        on_progress(f'Verifying {sheet.title}')
     received = sheet.get_all_values()
     for column in ('Task Status', 'Status', 'Out Time'):
         if column in df.columns:
@@ -553,8 +599,12 @@ def retain_completed_orders(df, existing_values, valid_completed_ids=None):
     return result
 
 
-def sync_workbook(df, selected_products=None):
+def sync_workbook(df, selected_products=None, on_progress=None):
+    from sla_comments import sla_key
+    sla_corrections = df.attrs.get('sla_corrections', {})
     preview_name = df.attrs.get('preview_name') or (f"preview{df.attrs['preview_id']}" if df.attrs.get('preview_id') else 'Preview')
+    if on_progress:
+        on_progress('Connecting to Google Sheets')
     book, primary = target_worksheet()
     if selected_products is None:
         selected_products = df.attrs.get('selected_products')
@@ -618,7 +668,8 @@ def sync_workbook(df, selected_products=None):
         unknown = undated_history - set(existing_dates) - set(recovered_dates)
         unknown_mask = df['Order Number'].astype(str).str.strip().isin(unknown) & df[status].astype(str).str.strip().str.casefold().eq('completed and delivered')
         df.loc[unknown_mask, 'Out Time'] = 'Completed'
-    synced = [sync_dataframe(raw, (book, primary), color_status=True)]
+    synced = [sync_dataframe(raw, (book, primary), color_status=True,
+                             existing_values=primary_values, on_progress=on_progress)]
     frames = report_frames(df, selected_products=selected_products)
     frames[0] = report_frame(raw, ALL_PRODUCT_FIELDS)
     for index, ((title, _), frame) in enumerate(zip(REPORT_SHEETS, frames), start=1):
@@ -627,8 +678,14 @@ def sync_workbook(df, selected_products=None):
         sheet = worksheets[index]
         if sheet.title != title:
             sheet.update_title(title)
+        prior_values = sheet.get_all_values()
         if title in ('Full Title', 'Remaining Products'):
-            prior_values = sheet.get_all_values()
+            # Saved corrections also apply when an older order is reintroduced.
+            # Existing sheet values remain authoritative for manual Sheet edits.
+            for row_index, row in frame.iterrows():
+                corrected = sla_corrections.get(sla_key(row))
+                if corrected:
+                    frame.at[row_index, 'Free Site'] = corrected
             if isinstance(prior_values, list) and prior_values and {'Order Number', 'Out Time', 'Free Site'}.issubset(prior_values[0]):
                 prior_rows = {str(row.get('Order Number', '')).strip(): row
                               for row in (dict(zip(prior_values[0], cells)) for cells in prior_values[1:])
@@ -637,8 +694,8 @@ def sync_workbook(df, selected_products=None):
                     old = prior_rows.get(str(row['Order Number']).strip())
                     if old and parse_report_datetime(old.get('Out Time')) == parse_report_datetime(row['Out Time']):
                         frame.at[row_index, 'Free Site'] = old.get('Free Site', '')
-        sheet.clear()
-        synced.append(sync_dataframe(frame, (book, sheet), validate=False, color_status=True))
+        synced.append(sync_dataframe(frame, (book, sheet), validate=False, color_status=True,
+                                     existing_values=prior_values, on_progress=on_progress))
     now_sync_time = dt.datetime.now().astimezone().strftime('%Y-%m-%d %I:%M:%S %p')
     if not df.attrs.get('sync_time'):
         df.attrs['sync_time'] = now_sync_time
@@ -650,7 +707,8 @@ def sync_workbook(df, selected_products=None):
     if sheet.title != 'Status Report':
         sheet.update_title('Status Report')
     backgrounds = [None] + [status_color(value) for value in status_frame['Status'].tolist()]
-    synced.append(sync_dataframe(status_frame, (book, sheet), validate=False, row_backgrounds=backgrounds))
+    synced.append(sync_dataframe(status_frame, (book, sheet), validate=False, row_backgrounds=backgrounds,
+                                 on_progress=on_progress))
     return synced
 
 

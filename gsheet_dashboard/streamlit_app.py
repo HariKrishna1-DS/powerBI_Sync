@@ -2,7 +2,7 @@
 import io
 import json
 from pathlib import Path
-import sqlite3
+from preview_store import PreviewStore
 
 import pandas as pd
 import plotly.express as px
@@ -156,30 +156,17 @@ def load_available_sources():
     if csv_file.exists():
         sources["queue_data_sheet2.csv (Latest Baseline)"] = ("csv", csv_file)
     
-    sqlite_db = PREVIEWS_DIR / "previews.sqlite"
-    if sqlite_db.exists():
-        try:
-            conn = sqlite3.connect(sqlite_db)
-            rows = conn.execute("SELECT id, name, created, source FROM previews ORDER BY id DESC").fetchall()
-            conn.close()
-            for pid, pname, pcreated, psource in rows:
-                sources[f"{pname} ({psource} · ID {pid})"] = ("sqlite", pid)
-        except Exception:
-            pass
+    for preview in PreviewStore(PREVIEWS_DIR).list():
+        sources[f"{preview['name']} ({preview['source']} · ID {preview['id']})"] = ("preview", preview['id'])
     return sources
 
 
 def load_preview_data(source_type, source_val):
     if source_type == "csv":
         df = pd.read_csv(source_val)
-    elif source_type == "sqlite":
-        conn = sqlite3.connect(PREVIEWS_DIR / "previews.sqlite")
-        record = conn.execute("SELECT rows_json FROM previews WHERE id=?", (source_val,)).fetchone()
-        conn.close()
-        if record:
-            df = pd.DataFrame(json.loads(record[0]))
-        else:
-            df = pd.DataFrame()
+    elif source_type == "preview":
+        record = PreviewStore(PREVIEWS_DIR).get(source_val)
+        df = pd.DataFrame(record['rows'], columns=record['columns'])
     else:
         df = pd.DataFrame()
     

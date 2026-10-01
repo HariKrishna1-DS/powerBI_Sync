@@ -5,8 +5,9 @@ DataTrace Workspace is a local web application and automation suite designed for
 ## 🚀 Overview
 
 - **TitleVision Queue Extraction**: Automated headless/headed browser scraping using Node.js & Puppeteer.
-- **Local Preview Store**: Immutable SQLite & Excel/CSV preview history tracking all extraction runs and user imports.
+- **Preview Store**: Neon PostgreSQL when `DATABASE_URL` is configured; SQLite for local use without it. Excel/CSV exports remain available.
 - **Google Sheets Synchronization**: Sync the configured primary tab (currently Sheet1), All Products, Full Title, Remaining Products, and Status Report using Google Sheets API (`gspread`).
+- **Editable SLA Comments**: In Monthly report, filter SLA orders by On Time/Missed or Full Title/Remaining Products. Choose **Edit**, change **Free Site (SLA status)**, and select **Save SLA**. The order table, totals, percentages, and chart update together. Matching Google Sheet cells are updated and verified; corrections also persist in the preview database. Historical orders absent from the current Sheet can be corrected here and use the saved correction when synced again.
 - **Power BI Integration**: Direct consumption of structured Excel tables (`DataTraceQueue`, `DataTraceChanges`) for reporting and dashboards.
 - **Streamlit & React Web Applications**:
   - React/Vite local workspace UI (`http://localhost:8510`)
@@ -22,7 +23,7 @@ DataTrace Workspace is a local web application and automation suite designed for
 | **Analytics UI** | Streamlit + Plotly | Interactive analytics dashboard with KPI cards and visualizations |
 | **Backend API** | Python (Flask, Waitress) | Local application service for extraction management, previews, diffing, and sync scheduling |
 | **Automation** | Node.js + Puppeteer | Headless browser engine for TitleVision portal login, pagination, and queue extraction |
-| **Data Storage** | SQLite, openpyxl, pandas | Numbered snapshot storage, CSV/XLSX file generation, and diff tracking |
+| **Data Storage** | Neon PostgreSQL / SQLite, openpyxl, pandas | Numbered snapshot storage, CSV/XLSX file generation, and diff tracking |
 | **Integrations** | Google Sheets API, Power BI | Automated cloud sync & BI ready data structures |
 
 ---

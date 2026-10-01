@@ -118,9 +118,12 @@ class SyncTests(unittest.TestCase):
         sheet.get_all_values.return_value = [list(df.columns)] + df.values.tolist()
         self.assertEqual(sync.sync_dataframe(df, (book, sheet)), 'Actual tab')
         requests = book.batch_update.call_args.args[0]['requests']
-        self.assertEqual(len(requests), 3)
+        self.assertEqual(len(requests), 2)
+        self.assertEqual(requests[0]['updateSheetProperties']['properties']['gridProperties'],
+                         {'rowCount': 2, 'columnCount': len(df.columns)})
         update = requests[-1]['updateCells']
-        self.assertEqual(update['range'], {'sheetId': 0})
+        self.assertEqual(update['range'], {'sheetId': 0, 'startRowIndex': 0, 'endRowIndex': 2,
+                                          'startColumnIndex': 0, 'endColumnIndex': len(df.columns)})
         self.assertEqual(update['fields'], 'userEnteredValue')
         self.assertEqual(update['rows'][1]['values'][2]['userEnteredValue'], {'stringValue': '00123'})
         self.assertEqual(update['rows'][1]['values'][3]['userEnteredValue'], {'stringValue': '=1+1'})

@@ -4,14 +4,14 @@ from datetime import datetime
 import pandas as pd
 
 from datatrace_sync import apply_status_rules, sla_result, parse_report_datetime
-from preview_store import compare
+from preview_store import PreviewStore, compare
 from reporting_dates import arrival_date, reporting_date
 
 COMPLETED = 'Completed and Delivered'
 AUTOMATIC_RULES = [{'source': 'Workflow Suspended', 'target': 'Awaiting for Clarification'}]
 
 
-def automatic_sync_frame(latest, previous=None, keys=None, ignore=None, store=None):
+def automatic_sync_frame(latest, previous=None, keys=None, ignore=None, store=None, reports=None):
     day = reporting_date(latest)
     columns = list(latest['columns'])
     rows = list(latest['rows'])
@@ -20,7 +20,7 @@ def automatic_sync_frame(latest, previous=None, keys=None, ignore=None, store=No
     all_daily_missing = {}
 
     if store is not None:
-        reports = daily_orders(store)
+        reports = daily_orders(store) if reports is None else reports
         for r in reversed(reports):
             for oid in r['missing_ids']:
                 all_daily_missing[oid] = r['Date']
@@ -77,15 +77,18 @@ def completion_history(store, latest_id):
     return dates
 
 
-def daily_orders(store, preview_id=None):
+def daily_orders(store, preview_id=None, history=None):
     days = {}
-    captures = sorted(store.list(), key=lambda item: (datetime.fromisoformat(item['created']), item['id']))
+    if history is None:
+        history = store.history() if isinstance(store, PreviewStore) else [store.get(item['id']) for item in store.list()]
+    captures = sorted(history, key=lambda item: (datetime.fromisoformat(item['created']), item['id']))
     if preview_id is not None:
-        selected = store.get(preview_id)
+        selected = next((item for item in captures if item['id'] == preview_id), None)
+        if selected is None:
+            raise KeyError('Preview not found.')
         cutoff = (datetime.fromisoformat(selected['created']), selected['id'])
         captures = [item for item in captures if (datetime.fromisoformat(item['created']), item['id']) <= cutoff]
-    for item in captures:
-        preview = store.get(item['id'])
+    for preview in captures:
         day = reporting_date(preview)
         days.setdefault(day, []).append(preview)
     reports = []
@@ -129,13 +132,19 @@ def daily_orders(store, preview_id=None):
     return reports
 
 
-def monthly_orders(store, sheet_rows=None):
+def monthly_orders(store, sheet_rows=None, history=None, corrections=None):
+    from sla_comments import sla_entry, sla_key, sla_status
     months = {}
     monthly_completions = {}
     previous_rows = {}
-    captures = sorted(store.list(), key=lambda item: (datetime.fromisoformat(item['created']), item['id']))
-    for item in captures:
-        preview = store.get(item['id'])
+    if history is None and corrections is None and isinstance(store, PreviewStore):
+        history, corrections = store.history(include_sla_corrections=True)
+    if history is None:
+        history = store.history() if isinstance(store, PreviewStore) else [store.get(item['id']) for item in store.list()]
+    if corrections is None:
+        corrections = store.sla_corrections() if isinstance(store, PreviewStore) else {}
+    captures = sorted(history, key=lambda item: (datetime.fromisoformat(item['created']), item['id']))
+    for preview in captures:
         day = reporting_date(preview)
         month_key = day[:7] if len(day) >= 7 else datetime.fromisoformat(preview['created']).astimezone().strftime('%Y-%m')
         months.setdefault(month_key, []).append((day, preview))
@@ -160,20 +169,19 @@ def monthly_orders(store, sheet_rows=None):
             if out and identity:
                 bucket = monthly_completions.setdefault(out.strftime('%Y-%m'), {})
                 # Repeated captures must not move a completion to a later day.
-                bucket.setdefault(identity, sla_result(row))
+                bucket.setdefault(identity, sla_entry(row, corrections.get(sla_key(row), sla_result(row))))
         previous_rows = {str(row.get('Order Number', '')).strip(): row for row in adjusted_rows}
 
     # Live sheet values override saved captures for matching orders. A cleared Free Site
     # cell removes the old classification rather than leaving the snapshot's value behind.
     for index, row in enumerate(sheet_rows or []):
         out = parse_report_datetime(row.get('Out Time', ''))
-        status = str(row.get('Free Site', '')).strip().casefold().replace(' ', '')
+        status = sla_status(row.get('Free Site'))
         identity = str(row.get('Order Number', '')).strip() or f'sheet-row-{index}'
         for bucket in monthly_completions.values():
             bucket.pop(identity, None)
-        if out and status in ('ontime', 'onetime', 'missed', 'missing'):
-            monthly_completions.setdefault(out.strftime('%Y-%m'), {})[identity] = (
-                'Missed' if status in ('missed', 'missing') else 'On Time')
+        if out and status:
+            monthly_completions.setdefault(out.strftime('%Y-%m'), {})[identity] = sla_entry(row, status)
 
     reports = []
     for month_key, day_previews in sorted(months.items(), reverse=True):
@@ -216,9 +224,10 @@ def monthly_orders(store, sheet_rows=None):
         except ValueError:
             month_label = month_key
 
-        sla_statuses = monthly_completions.get(month_key, {}).values()
-        on_time = sum(status == 'On Time' for status in sla_statuses)
-        missed_sla = sum(status == 'Missed' for status in sla_statuses)
+        sla_rows = sorted(monthly_completions.get(month_key, {}).values(),
+                          key=lambda row: (row['completion_date'], row['Order Number']), reverse=True)
+        on_time = sum(row['Free Site'] == 'On Time' for row in sla_rows)
+        missed_sla = sum(row['Free Site'] == 'Missed' for row in sla_rows)
         reports.append({
             'Month': month_key,
             'MonthLabel': month_label,
@@ -232,6 +241,7 @@ def monthly_orders(store, sheet_rows=None):
             'Completed Orders': len(missing),
             'SLA On Time': on_time,
             'SLA Missed': missed_sla,
+            'sla_rows': sla_rows,
             'Newly Orders': len(new),
             'Unchanged': len(unchanged),
             'columns': list(frame.columns),

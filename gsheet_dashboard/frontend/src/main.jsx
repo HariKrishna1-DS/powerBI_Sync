@@ -660,25 +660,82 @@ function MonthlyOrdersChart({history, selectedMonth, onSelect}) {
   </section>;
 }
 
-function MonthlyOrders({preview}) {
+const SLA_COLUMNS=['Order Number','Product Group','Product','In Time','Out Time','SLA Expiration','Free Site'];
+const slaRowKey=row=>JSON.stringify([row['Order Number'],row.completion_date]);
+
+function SlaOrdersTable({rows, statusFilter, onStatusFilter, onSave, running}) {
+  const [search,setSearch]=useState(''), [group,setGroup]=useState(''), [page,setPage]=useState(0);
+  const [editing,setEditing]=useState(null), [draft,setDraft]=useState(''), [saving,setSaving]=useState(false);
+  const [error,setError]=useState(''), [message,setMessage]=useState('');
+  const filtered=rows.filter(row=>(!statusFilter||row['Free Site']===statusFilter)&&(!group||row['Product Group']===group)&&
+    (!search||SLA_COLUMNS.some(column=>str(row[column]).toLowerCase().includes(search.toLowerCase()))));
+  const pages=Math.max(1,Math.ceil(filtered.length/25)), currentPage=Math.min(page,pages-1);
+  useEffect(()=>setPage(0),[search,group,statusFilter]);
+  const save=async()=>{
+    setSaving(true);setError('');setMessage('');
+    try{const result=await onSave(editing,draft);setMessage(result);setEditing(null);}
+    catch(e){setError(e.message);}
+    finally{setSaving(false);}
+  };
+  return <section className="sla-orders" aria-label="SLA order details">
+    <div className="section-heading"><div><h3>SLA order details</h3><p className="muted">Edit Free Site to correct an order’s SLA On Time or SLA Missed result.</p></div></div>
+    {message&&<div className="notice success" role="status"><Check size={16}/>{message}</div>}
+    {error&&<div className="notice error" role="alert">{error}</div>}
+    {editing&&<div className="sla-editor" role="group" aria-label={`Edit SLA for order ${editing['Order Number']}`}>
+      <div><strong>Order {editing['Order Number']}</strong><p className="muted">{editing['Product Group']} · Out Time: {editing['Out Time']}</p></div>
+      <label>Free Site (SLA status)<select aria-label="Edit Free Site" value={draft} disabled={saving} onChange={e=>setDraft(e.target.value)}><option>On Time</option><option>Missed</option></select></label>
+      <button className="primary" onClick={save} disabled={saving||running||draft===editing['Free Site']}>{saving?<LoaderCircle size={16} className="spin"/>:<Check size={16}/>} {saving?'Saving…':'Save SLA'}</button>
+      <button className="secondary" disabled={saving} onClick={()=>{setEditing(null);setError('');}}>Cancel</button>
+    </div>}
+    {running&&<p className="muted">SLA editing is available when the current sync or extraction finishes.</p>}
+    <div className="filter-toolbar">
+      <div className="search-input"><Search size={16}/><input aria-label="Search SLA orders" placeholder="Search order or product" value={search} onChange={e=>setSearch(e.target.value)}/></div>
+      <select aria-label="Filter SLA status" value={statusFilter} onChange={e=>onStatusFilter(e.target.value)}><option value="">All SLA results</option><option value="On Time">SLA On Time</option><option value="Missed">SLA Missed</option></select>
+      <select aria-label="Filter SLA product group" value={group} onChange={e=>setGroup(e.target.value)}><option value="">All products</option><option>Full Title</option><option>Remaining Products</option></select>
+      <span className="row-tally">{filtered.length} / {rows.length} orders</span>
+    </div>
+    <div className="table-scroll"><table aria-label="SLA orders"><thead><tr>{SLA_COLUMNS.map(column=><th key={column}>{column==='Free Site'?'Free Site / SLA':column}</th>)}<th>Action</th></tr></thead>
+      <tbody>{filtered.slice(currentPage*25,(currentPage+1)*25).map(row=><tr key={slaRowKey(row)}>
+        {SLA_COLUMNS.map(column=><td key={column} title={str(row[column])}>{column==='Free Site'?<span className={`sla-badge ${row[column]==='On Time'?'on-time':'missed'}`}>{row[column]}</span>:str(row[column])||'—'}</td>)}
+        <td><button className="secondary" aria-label={`Edit SLA for order ${row['Order Number']}`} disabled={saving||running||!row['Order Number']} onClick={()=>{setEditing(row);setDraft(row['Free Site']);setError('');setMessage('');}}>Edit</button></td>
+      </tr>)}</tbody></table>{!filtered.length&&<div className="table-empty">No matching SLA orders</div>}</div>
+    <div className="table-footer"><span>Page {currentPage+1} of {pages}</span><div className="inline"><button className="secondary" aria-label="Previous SLA page" disabled={currentPage===0} onClick={()=>setPage(currentPage-1)}><ChevronLeft size={16}/>Previous</button><button className="secondary" aria-label="Next SLA page" disabled={currentPage>=pages-1} onClick={()=>setPage(currentPage+1)}>Next<ChevronRight size={16}/></button></div></div>
+  </section>;
+}
+
+function MonthlyOrders({preview,running}) {
   const [history,setHistory]=useState([]), [error,setError]=useState(''), [month,setMonth]=useState(''), [search,setSearch]=useState('');
   const [loading,setLoading]=useState(true);
+  const [slaFilter,setSlaFilter]=useState(''), [refreshId,setRefreshId]=useState(0), [saving,setSaving]=useState(false);
+  const savePending=useRef(false), reportVersion=useRef(0);
   useEffect(()=>{
     let active=true, busy=false;
     setLoading(true);
     const refresh=async()=>{
-      if(busy)return;
+      if(busy||savePending.current)return;
       busy=true;
+      const version=reportVersion.current;
       try{
         const data=await api('/api/monthly-orders');
-        if(active){setHistory(data.rows);setError(data.sla_error||'');}
-      }catch(e){if(active)setError(e.message);}
+        if(active&&version===reportVersion.current){setHistory(data.rows);setError(data.sla_error||'');}
+      }catch(e){if(active&&version===reportVersion.current)setError(e.message);}
       finally{busy=false;if(active)setLoading(false);}
     };
     refresh();
     const timer=setInterval(refresh,30000);
     return()=>{active=false;clearInterval(timer);};
-  },[preview?.id]);
+  },[preview?.id,refreshId]);
+
+  const saveSla=async(row,status)=>{
+    savePending.current=true;setSaving(true);reportVersion.current++;
+    try{
+      const result=await api('/api/sla-comments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+        order_number:row['Order Number'],completion_date:row.completion_date,expected_status:row['Free Site'],status
+      })});
+      reportVersion.current++;setHistory(result.rows);setError('');
+      return result.message;
+    }finally{savePending.current=false;setSaving(false);}
+  };
 
   const selectedMonth=history.find(m=>m.Month===month)||history[0];
   const columns=selectedMonth?.columns||[];
@@ -694,10 +751,11 @@ function MonthlyOrders({preview}) {
   return <section className="daily-orders">
     {error&&<div className="notice error">{error}</div>}
     {loading?<div className="loading"><LoaderCircle className="spin"/>Loading monthly orders...</div>:<>
-      <div className="section-heading"><h2>Monthly capture history</h2><label>Month<select aria-label="Monthly orders date" value={selectedMonth?.Month||''} onChange={e=>{setMonth(e.target.value);setSearch('');}}>{history.map(m=><option key={m.Month} value={m.Month}>{m.MonthLabel || m.Month}</option>)}</select></label></div>
+      <div className="section-heading"><h2>Monthly capture history</h2><label>Month<select aria-label="Monthly orders date" disabled={saving} value={selectedMonth?.Month||''} onChange={e=>{setMonth(e.target.value);setSearch('');}}>{history.map(m=><option key={m.Month} value={m.Month}>{m.MonthLabel || m.Month}</option>)}</select></label></div>
       <div className="metrics">{names.slice(0,4).map((name,index)=><div className={`metric ${['green','red','gray','purple'][index]}`} key={name}><span>{name}</span><strong>{selectedMonth?.[name]??0}</strong><small>{monthlyPercentage(selectedMonth,name)}</small></div>)}</div>
-      <div className="section-heading"><h2>SLA COMMENTS</h2></div>
-      <div className="metrics">{names.slice(4).map(name=><div className="metric" key={name}><span>{name}</span><strong>{selectedMonth?.[name]??0}</strong><small>{monthlyPercentage(selectedMonth,name)}</small></div>)}</div>
+      <div className="section-heading"><h2>SLA COMMENTS</h2><button className="secondary" disabled={saving} onClick={()=>setRefreshId(value=>value+1)}>Refresh SLA</button></div>
+      <div className="metrics sla-metrics">{names.slice(4).map(name=>{const value=name==='SLA On Time'?'On Time':'Missed';return <button className={`metric sla-metric ${value==='On Time'?'green':'amber'}`} key={name} aria-pressed={slaFilter===value} onClick={()=>setSlaFilter(slaFilter===value?'':value)}><span>{name}</span><strong>{selectedMonth?.[name]??0}</strong><small>{monthlyPercentage(selectedMonth,name)}</small></button>;})}</div>
+      <SlaOrdersTable key={selectedMonth?.Month||'empty'} rows={selectedMonth?.sla_rows||[]} statusFilter={slaFilter} onStatusFilter={setSlaFilter} onSave={saveSla} running={running}/>
       <MonthlyOrdersChart history={history} selectedMonth={selectedMonth?.Month} onSelect={value=>{if(value){setMonth(value);setSearch('');}}}/>
       <div className="table-scroll"><table><thead><tr>{['Month','Previews',...names].map(name=><th key={name}>{name}</th>)}</tr></thead><tbody>{history.map(m=><tr key={m.Month}><td><button className="text-button" onClick={()=>{setMonth(m.Month);setSearch('');}}>{m.MonthLabel || m.Month}</button></td><td>{m.Previews.join(', ')}</td>{names.map(name=><td key={name}>{`${m[name]??0} (${monthlyPercentage(m,name)})`}</td>)}</tr>)}</tbody></table></div>
       <div className="filter-toolbar"><div className="search-input"><Search size={16}/><input aria-label="Search monthly orders" placeholder="Search all columns" value={search} onChange={e=>setSearch(e.target.value)}/></div></div>
@@ -750,7 +808,7 @@ function App() {
   const [chartSelection,setChartSelection]=useState(null), [scheduleDraft,setScheduleDraft]=useState({enabled:false,times:['09:00'],newTime:'10:00'}), [savingSchedule,setSavingSchedule]=useState(false);
   const [selectedRemainingProducts, setSelectedRemainingProducts] = useState([]);
   const [liveSheets,setLiveSheets]=useState(null), [liveSheetError,setLiveSheetError]=useState('');
-  const upload=useRef(), seen=useRef(null), scheduleLoaded=useRef(false), remainingLoaded=useRef(false);
+  const upload=useRef(), seen=useRef(null), scheduleLoaded=useRef(false), remainingLoaded=useRef(false), refreshRequest=useRef(null);
   const [compareAttempt,setCompareAttempt]=useState(0);
 
   function addTriggerTime() {
@@ -778,6 +836,8 @@ function App() {
     }).catch(console.error);
   };
   async function refresh() {
+    if(refreshRequest.current)return refreshRequest.current;
+    refreshRequest.current=(async()=>{
     const next=await api('/api/state');
     setState(next);
     if(next.schedule&&!scheduleLoaded.current){
@@ -787,8 +847,10 @@ function App() {
     }
     if(Array.isArray(next.remaining_products)&&!remainingLoaded.current){setSelectedRemainingProducts(next.remaining_products);remainingLoaded.current=true;}
     if(next.previews.length && next.previews[0].id!==seen.current){seen.current=next.previews[0].id;setSelected(next.previews[0].id);setPrevious(String(next.previews[1]?.id || ''));}
+    })();
+    try{return await refreshRequest.current;}finally{refreshRequest.current=null;}
   }
-  useEffect(()=>{let active=true;const poll=async()=>{try{if(active)await refresh();}catch(e){if(active)setError(e.message);}};poll();const timer=setInterval(poll,1800);return()=>{active=false;clearInterval(timer);};},[]);
+  useEffect(()=>{let active=true,timer;const poll=async()=>{try{if(active)await refresh();}catch(e){if(active)setError(e.message);}finally{if(active)timer=setTimeout(poll,1800);}};poll();return()=>{active=false;clearTimeout(timer);};},[]);
   useEffect(()=>{if(!selected)return;let cancelled=false;setLoading(true);setPreview(EMPTY);setFilters({});setFilterColumn(null);setSearch('');setKeys([]);api(`/api/previews/${selected}`).then(data=>{if(!cancelled)setPreview(data);}).catch(e=>{if(!cancelled)setError(e.message);}).finally(()=>{if(!cancelled)setLoading(false);});return()=>{cancelled=true;};},[selected]);
   useEffect(()=>{
     if(!['overview','sheets'].includes(view)||!preview.name)return;
@@ -895,7 +957,7 @@ function App() {
       saveBlob(await response.blob(),filename);
     }catch(e){setError(e.message);}finally{setExporting(false);}
   }
-  async function syncSheets(){setPending(true);setError('');try{const backend=await api('/api/state');if(!backend.capabilities?.automatic_statuses)throw Error('Restart or redeploy the dashboard backend to enable automatic statuses.');await api('/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({preview:selected,previous:previous?Number(previous):null,keys,ignore,remaining_products:selectedRemainingProducts.length>0?selectedRemainingProducts:null})});await refresh();}catch(e){setError(e.message);}finally{setPending(false);}}
+  async function syncSheets(){setPending(true);setError('');try{await api('/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({preview:selected,previous:previous?Number(previous):null,keys,ignore,remaining_products:selectedRemainingProducts.length>0?selectedRemainingProducts:null})});await refresh();}catch(e){setError(e.message);}finally{setPending(false);}}
   async function saveSchedule(enabled=true, times=scheduleDraft.times){
     setSavingSchedule(true);
     setError('');
@@ -917,7 +979,7 @@ function App() {
   const running=state.job.running||pending, result=state.job.result;
   return <div className="workspace">
     <aside className="sidebar"><div className="brand"><div className="brand-mark"><Activity size={23}/></div><div>DataTrace<span>WORKSPACE</span></div></div><div className="nav-label">WORKSPACE</div><nav>{[['overview','Overview',BarChart3],['sheets','Data sheets',Table2],['daily','Daily Orders',FileSpreadsheet],['monthly','Monthly report',CalendarDays],['changes','Changes',ArrowLeftRight]].map(([id,title,Icon])=><button className={view===id?'nav-item selected':'nav-item'} key={id} onClick={()=>setView(id)}><Icon size={18}/>{title}{id==='changes'&&diff&&<small>{diff.record_counts?diff.record_counts.missing+diff.record_counts.newly_added:diff.counts.added+diff.counts.removed}</small>}</button>)}</nav><div className="preview-heading"><span className="nav-label">SAVED PREVIEWS</span><span>{state.previews.length}</span></div><div className="preview-list">{state.previews.map(p=><div key={p.id} className={`preview-item ${selected===p.id?'selected':''}`}><button className="preview-select" onClick={()=>{setSelected(p.id);const index=state.previews.findIndex(x=>x.id===p.id);setPrevious(String(state.previews[index+1]?.id||''));}}><FileSpreadsheet size={17}/><div><strong>{p.name}</strong><small>{p.row_count.toLocaleString()} rows · {new Date(p.created).toLocaleDateString()}</small></div>{p.id===state.previews[0].id&&<i>Latest</i>}</button><IconButton title={`Delete ${p.name}`} onClick={event=>deletePreview(event,p.id)}><Trash2 size={15}/></IconButton></div>)}{!state.previews.length&&<p className="no-previews">No saved previews</p>}</div><div className="sidebar-footer"><span className="status-dot"/>Local workspace<a href={state.sheet_url} target="_blank" rel="noreferrer">Google Sheet ↗</a></div></aside>
-    <main><header className="topbar"><div className="breadcrumb">Workspace <span>/</span> {view==='overview'?'Overview':view==='sheets'?'Data sheets':view==='daily'?'Daily Orders':view==='monthly'?'Monthly report':'Changes'}</div><div className="inline"><span className={`run-state ${running?'running':''}`}>{running&&<LoaderCircle size={14} className="spin"/>}{state.job.stage}</span><button className="secondary" onClick={()=>upload.current.click()} disabled={uploading}><Upload size={16}/>{uploading?'Importing…':'Import file'}</button><button className="secondary" onClick={exportSheets} disabled={exporting||running} title="Download all Google Sheet tabs as Excel">{exporting?<LoaderCircle size={16} className="spin"/>:<ArrowDownToLine size={16}/>} {exporting?'Exporting...':'Export'}</button><input ref={upload} type="file" hidden accept=".csv,.xlsx" onChange={importFile}/></div></header>
+    <main><header className="topbar"><div className="breadcrumb">Workspace <span>/</span> {view==='overview'?'Overview':view==='sheets'?'Data sheets':view==='daily'?'Daily Orders':view==='monthly'?'Monthly report':'Changes'}</div><div className="inline"><span className={`run-state ${running?'running':''}`}>{running&&<LoaderCircle size={14} className="spin"/>}{pending&&!state.job.running?'Starting…':state.job.stage}</span><button className="secondary" onClick={()=>upload.current.click()} disabled={uploading}><Upload size={16}/>{uploading?'Importing…':'Import file'}</button><button className="secondary" onClick={exportSheets} disabled={exporting||running} title="Download all Google Sheet tabs as Excel">{exporting?<LoaderCircle size={16} className="spin"/>:<ArrowDownToLine size={16}/>} {exporting?'Exporting...':'Export'}</button><input ref={upload} type="file" hidden accept=".csv,.xlsx" onChange={importFile}/></div></header>
       <div className="content"><div className="page-heading"><div><span className="eyebrow">DATATRACE QUEUE</span><h1>{view==='changes'?'Preview comparison':view==='sheets'?'Data sheets':view==='daily'?'Daily Orders':view==='monthly'?'Monthly report':'Queue overview'}</h1><p className="muted">{preview.name?`${preview.name} · ${new Date(preview.created).toLocaleString()} · ${preview.source}`:'No data captured yet'}</p></div><div className="page-actions"><button className="secondary" onClick={syncSheets} disabled={running||!selected||loading||compareBusy||!!compareError}>{state.job.action==='sync'&&running?<LoaderCircle size={17} className="spin"/>:<CloudUpload size={17}/>}<span>{state.job.action==='sync'&&running?'Syncing…':`Sync ${preview.name||'preview'} to Sheets`}</span></button><details className="sync-schedule"><summary><Clock3 size={16}/>AutoLogin Trigger</summary><div>
         <TriggerClock schedule={state.schedule}/>
         <button className="secondary" disabled={savingSchedule||!state.schedule} onClick={()=>saveSchedule(!state.schedule?.enabled,state.schedule?.times||[state.schedule?.time||'09:00'])}>{state.schedule?.enabled?'Pause schedule':'Resume schedule'}</button>
@@ -954,7 +1016,7 @@ function App() {
       {!['daily','monthly'].includes(view)&&<div className="filter-toolbar"><div className="search-input"><Search size={16}/><input aria-label="Search rows" placeholder="Search all columns" value={search} onChange={e=>setSearch(e.target.value)}/></div><select aria-label="Choose column filter" value={filterColumn||''} onChange={e=>setFilterColumn(e.target.value||null)}><option value="">Filter a column…</option>{table.columns.map(c=><option key={c}>{c}</option>)}</select>{Object.keys(filters).map(c=><button className="filter-chip" key={c} onClick={()=>setFilterColumn(c)}><Filter size={12}/>{c}</button>)}{Object.keys(filters).length>0&&<button className="text-button" onClick={()=>setFilters({})}>Clear filters</button>}<span className="row-tally">{filtered.length.toLocaleString()} / {table.rows.length.toLocaleString()} rows</span>{view!=='changes'&&preview.id&&<><a className="secondary" href={`/api/previews/${preview.id}/download/xlsx`} title="Download entire Google Sheet workbook (all sheets)"><ArrowDownToLine size={16}/>Excel</a><a className="secondary" href={`/api/previews/${preview.id}/download/csv`}>CSV</a></>}</div>}
       {(loading||(view==='changes'&&compareBusy))?<div className="loading"><LoaderCircle className="spin"/>Loading preview…</div>:<><div className={filterColumn?'data-layout with-filter':'data-layout'}><div className="data-main">{view==='overview'&&<><OverviewDashboard rows={filtered} columns={table.columns} onSelect={setChartSelection} selectedProducts={selectedRemainingProducts} setSelectedProducts={handleProductSelectionChange}/><Chart rows={filtered} columns={table.columns} onSelect={setChartSelection}/>{chartSelection&&<div className="chart-drilldown"><DataTable rows={chartRows} columns={table.columns} filters={{}} openFilter={()=>{}} filterable={false} onClose={()=>setChartSelection(null)} name={`${chartSelection.value} · ${chartRows.length} orders`}/></div>}</>}
         {view==='daily'&&<DailyOrders preview={preview}/>}
-        {view==='monthly'&&<MonthlyOrders preview={preview}/>}
+        {view==='monthly'&&<MonthlyOrders preview={preview} running={running}/>}
         {['overview','daily','monthly'].includes(view) ? null : productSplit ? <>
           <DataTable rows={filtered} columns={table.columns} filters={filters} openFilter={setFilterColumn} name={`${preview.name||'Queue'} - All Products`}/>
           <DataTable rows={liveFull?liveFull.rows.filter(row=>!search||liveFull.columns.some(column=>str(row[column]).toLowerCase().includes(search.toLowerCase()))):productSplit.fullTitle} columns={liveFull?.columns||table.columns} filters={liveFull?{}:filters} openFilter={setFilterColumn} name={`${preview.name||'Queue'} - Full Title`}/>
