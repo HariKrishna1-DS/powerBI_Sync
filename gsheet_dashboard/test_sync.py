@@ -36,7 +36,7 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(color_update['range']['startRowIndex'], 1)
         self.assertEqual(color_update['fields'], 'userEnteredFormat.backgroundColor')
         self.assertEqual(color_update['rows'][0]['values'][0], color_update['rows'][0]['values'][1])
-        self.assertEqual(color_update['rows'][0]['values'][0]['userEnteredFormat']['backgroundColor'], sync.sheet_color('#a66ad3'))
+        self.assertEqual(color_update['rows'][0]['values'][0]['userEnteredFormat']['backgroundColor'], sync.sheet_color('#a66bd3'))
         self.assertEqual(requests[-1]['setBasicFilter']['filter']['range']['endRowIndex'], 3)
 
     def frame(self):
@@ -110,7 +110,7 @@ class SyncTests(unittest.TestCase):
             'Status': 'Completed and delivered', 'Orders': 2, 'Share': '50.0%'
         })
         self.assertEqual(sync.status_color('Typing in Progress'), '#00b050')
-        self.assertEqual(sync.status_color('Awaiting for Clarification'), '#a66ad3')
+        self.assertEqual(sync.status_color('Awaiting for Clarification'), '#a66bd3')
 
     def test_atomic_replace_gid_zero_and_literals(self):
         df = self.frame()

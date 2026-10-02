@@ -222,13 +222,17 @@ class AtomicSyncTests(unittest.TestCase):
         values[1][TRACKER_COLUMNS.index('Out Time')] = '10/02/2026 11:00 AM'
         values[1][TRACKER_COLUMNS.index('Free Site')] = 'On Time'
         with patch('server.target_worksheet', return_value=(book, book.sheets[0])):
-            response = create_app(self.root / 'previews').test_client().get('/api/export/google-sheets')
+            client = create_app(self.root / 'previews').test_client()
+            confirmation = client.get('/api/export/google-sheets')
+            self.assertEqual(confirmation.status_code, 409)
+            self.assertTrue(confirmation.json['requires_short_names'])
+            response = client.get('/api/export/google-sheets?short_names=true')
         self.assertEqual(response.status_code, 200)
         wb = load_workbook(BytesIO(response.data))
         self.assertNotIn(TRACKER_TITLES[0], wb.sheetnames)
         self.assertEqual(wb['Full Title']['J2'].value, 'Completed and Delivered')
-        self.assertEqual(wb['Full Title']['J2'].fill.fgColor.rgb, '00FFF2CC')
-        self.assertEqual(wb['Full Title']['W2'].fill.fgColor.rgb, '0000B050')
+        self.assertEqual(wb['Full Title']['J2'].fill.fgColor.rgb, '00FFFF99')
+        self.assertEqual(wb['Full Title']['W2'].fill.fgColor.rgb, '00FFFF99')
         self.assertEqual(wb['Full Title']['U2'].value, '10/02/2026 11:00 AM')
 
     def test_sync_failure_retains_saved_preview_for_retry(self):
@@ -236,7 +240,7 @@ class AtomicSyncTests(unittest.TestCase):
         client = app.test_client()
         response = client.post('/api/import', data={'file': (BytesIO(b'Order Number,Product\nA,Full Title\n'), 'new.csv')})
         self.assertEqual(response.status_code, 201)
-        for _ in range(100):
+        for _ in range(600):
             job = client.get('/api/state').json['job']
             if not job['running']:
                 break

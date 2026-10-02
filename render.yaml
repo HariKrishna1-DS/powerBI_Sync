@@ -16,6 +16,7 @@ services:
         sync: false
       - key: GOOGLE_SERVICE_ACCOUNT_JSON
         sync: false
-    # Free services cannot attach a persistent disk. Synced history is recovered
-    # from Google Sheets. Keep a persistent local backend, or explicitly choose
-    # a paid service with a disk, to preserve unsynced previews across restarts.
+    disk:
+      name: datatrace-data
+      mountPath: /app/gsheet_dashboard/previews
+      sizeGB: 1

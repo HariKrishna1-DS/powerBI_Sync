@@ -46,23 +46,7 @@ FULL_TITLE_FIELDS = list(SLICED_PRODUCT_FIELDS)
 REMAINING_PRODUCT_FIELDS = list(SLICED_PRODUCT_FIELDS)
 REPORT_SHEETS = [('All Products', ALL_PRODUCT_FIELDS), ('Full Title', FULL_TITLE_FIELDS),
                  ('Remaining Products', REMAINING_PRODUCT_FIELDS)]
-STATUS_COLORS = {
-    'available': '#d9ead3',
-    'in progress': '#00b050',
-    'qc in progress': '#f4b183',
-    'ready to send': '#ffff00',
-    'search in progress': '#ffffff',
-    'typing in progress': '#00b050',
-    'typing is progress': '#00b050',
-    'waiting for effective date': '#ffffff',
-    'assign to abs': '#a6a6a6',
-    'need to assign abs': '#a6a6a6',
-    'awaiting for clarification': '#a66ad3',
-    'cancelled': '#f4cccc',
-    'completed and delivered': '#fff2cc',
-    'task suspended': '#c9daf8',
-    'workflow suspended': '#c9daf8',
-}
+STATUS_COLORS = json.loads((ASSET_DIR / 'status_colors.json').read_text(encoding='utf-8'))
 
 
 def target_worksheet():
@@ -135,8 +119,10 @@ def powerbi_table(df, timestamp):
                                  + hours[2].fillna(0) / 60).where(hours.notna().any(axis=1)).round(2)
     status = result['Task Status'].str.lower()
     result['Is Available'] = status.eq('available')
-    from production_rules import suspended
-    result['Is Suspended'] = [suspended(row) for row in result.to_dict('records')]
+    from tracker_sync import suspended
+    result['WorkflowSuspended'] = [suspended(row) or str(row.get('Task Status', '')).strip().casefold() == 'workflow suspended'
+                                    for row in result.to_dict('records')]
+    result['Is Suspended'] = result['WorkflowSuspended']
     sla = result.get('SLA Expiration*', result.get('SLA Expiration', pd.Series('', index=df.index)))
     result['SLA Status'] = sla.map(lambda v: 'Overdue' if str(v).startswith('-') else 'Unknown')
     result['Sync Timestamp'] = timestamp
@@ -167,8 +153,15 @@ def parse_report_datetime(value):
     text = str(value if pd.notna(value) else '').strip()
     if not text:
         return None
+    # Excel/Google Sheets date serials can be returned as displayed numbers
+    # when an imported date column has General formatting.
+    if re.fullmatch(r'\d{5}(?:\.\d+)?', text):
+        serial = float(text)
+        if 20000 <= serial < 100000:
+            return dt.datetime(1899, 12, 30) + dt.timedelta(days=serial)
     try:
-        return dt.datetime.fromisoformat(text.replace('Z', '+00:00')).replace(tzinfo=None)
+        parsed = dt.datetime.fromisoformat(text.replace('Z', '+00:00'))
+        return parsed.astimezone(dt.timezone(dt.timedelta(hours=5, minutes=30))).replace(tzinfo=None) if parsed.tzinfo else parsed
     except ValueError:
         pass
     for pattern in ('%m/%d/%Y %I:%M:%S %p', '%m/%d/%Y %I:%M %p',
@@ -181,18 +174,17 @@ def parse_report_datetime(value):
 
 
 def sla_result(row):
-    from production_rules import expiration, free_site, capture_time
-    prepared = dict(row)
-    anchor = capture_time(str(row.get('Sync Timestamp'))) if row.get('Sync Timestamp') else None
-    sla = expiration(row.get('SLA Expiration*', row.get('SLA Expiration', '')), anchor)
-    prepared['SLA Expiration'] = sla.isoformat() if sla else ''
-    return free_site(prepared)[0]
+    from tracker_sync import free_site
+    anchor = parse_report_datetime(row.get('Sync Timestamp', ''))
+    data = dict(row)
+    data['SLA Expiration'] = row.get('SLA Expiration*', row.get('SLA Expiration', ''))
+    return free_site(data, anchor)[0]
 
 
 def sla_expiration(row):
-    from production_rules import expiration, capture_time
-    anchor = capture_time(str(row.get('Sync Timestamp'))) if row.get('Sync Timestamp') else None
-    return expiration(row.get('SLA Expiration*', row.get('SLA Expiration', '')), anchor)
+    from tracker_sync import deadline
+    anchor = parse_report_datetime(row.get('Sync Timestamp', ''))
+    return deadline(row.get('SLA Expiration*', row.get('SLA Expiration', '')), anchor)
 
 
 def report_frame(df, fields, product=None, selected_products=None):
@@ -497,8 +489,8 @@ def sync_dataframe(df, target=None, validate=True, row_backgrounds=None, color_s
 
 
 def sync_workbook(df, selected_products=None, on_progress=None):
-    from sheets_repository import sync_production
-    return sync_production(df, on_progress)
+    from tracker_sync import sync_trackers
+    return sync_trackers(df, on_progress=on_progress)
 
 
 def read_target(gid=None, title=None):
@@ -528,7 +520,7 @@ def run_sync(on_progress=None, auto_sync=True):
         store = PreviewStore(BASE_DIR / 'previews')
         if auto_sync and not store.list():
             progress('Recovering preview numbering from Google Sheets')
-            from sheets_repository import read_preview_history
+            from tracker_sync import read_preview_history
             book, _ = target_worksheet()
             for saved in read_preview_history(book):
                 store.restore(saved['id'], saved['columns'], saved['rows'], saved['source'], created=saved['created'])
@@ -574,7 +566,7 @@ def run_sync(on_progress=None, auto_sync=True):
         if auto_sync:
             from order_reporting import automatic_sync_frame
             for pending in store.pending():
-                frame, _ = automatic_sync_frame(pending)
+                frame, _ = automatic_sync_frame(pending, store=store)
                 frame.attrs.update(preview_id=pending['id'], preview_name=pending['name'])
                 status['worksheets'] = sync_workbook(frame, on_progress=progress)
                 status['pass_report'] = frame.attrs.get('pass_report')

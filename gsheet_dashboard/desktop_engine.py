@@ -44,7 +44,7 @@ def process_job():
 
 def main():
     if not os.environ.get('DATATRACE_DESKTOP_TOKEN') or not os.environ.get('DATATRACE_DATA_DIR'):
-        raise RuntimeError('Launch this engine through DataTrace Studio.')
+        raise RuntimeError('Launch this engine through Tv Tracker.')
     job_handle = process_job()
     from waitress import create_server
     from server import create_app

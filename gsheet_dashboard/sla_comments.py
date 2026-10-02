@@ -7,7 +7,7 @@ def sla_status(value):
     if value in ('ontime', 'onetime'):
         return 'On Time'
     if value in ('missed', 'missing'):
-        return 'Missed'
+        return 'Missing'
     return ''
 
 

@@ -5,8 +5,10 @@ const resources=path.join(path.dirname(process.execPath),'resources','extractor'
 const puppeteer=require(path.join(resources,'node_modules','puppeteer-core'));
 const {browserOptions}=require(path.join(resources,'browser_options.cjs'));
 const browserPath=[process.env.PUPPETEER_EXECUTABLE_PATH,
-  path.join(process.env['ProgramFiles(x86)']||'','Microsoft/Edge/Application/msedge.exe'),
   path.join(process.env.ProgramFiles||'','Google/Chrome/Application/chrome.exe'),
+  path.join(process.env.LOCALAPPDATA||'','Google/Chrome/Application/chrome.exe'),
+  path.join(process.env['ProgramFiles(x86)']||'','Microsoft/Edge/Application/msedge.exe'),
+  path.join(process.env.ProgramFiles||'','Microsoft/Edge/Application/msedge.exe'),
 ].find(file=>file&&fs.existsSync(file));
 (async()=>{
   if(!browserPath)throw Error('Install Edge or Chrome before running the extraction smoke test.');

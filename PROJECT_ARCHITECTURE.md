@@ -1,6 +1,6 @@
-# DataTrace Studio architecture
+# Tv Tracker architecture
 
-The primary product is now the Windows desktop app. `desktop/main.cjs` owns the native window, single-instance lock, encrypted settings, process lifecycle, tray, and native dialogs. A sandboxed React renderer talks to a bundled Python engine through an authenticated, loopback-only HTTP service on an operating-system-assigned port. Google Sheets remains the authoritative production store; local SQLite stores captures and sync receipts, while a dated JSON cache supports offline production reads.
+The primary product is now the Windows desktop app. `desktop/main.cjs` owns the native window, single-instance lock, encrypted settings, process lifecycle, tray, and native dialogs. A sandboxed React renderer talks to a bundled Python engine through an authenticated, loopback-only HTTP service on an operating-system-assigned port. Google Sheets remains the authoritative production store; local SQLite stores captures, durable staged/committed sync reports, receipts and failures, while a dated JSON cache supports offline production reads.
 
 ```mermaid
 flowchart LR
@@ -18,7 +18,9 @@ flowchart LR
 
 The installer and portable archive include the application runtimes. They require no Render service. Runtime files live outside installation files. Reporting modules and charts load on demand; backend polls read preview metadata rather than deserializing the full history. See [desktop guide](docs/DESKTOP_GUIDE.md) for configuration, security boundaries, packaging, and recovery.
 
-## Retained browser-engine reference
+## Historical browser-engine reference
+
+The following historical reference predates desktop packaging; its availability table is not the current product status. Current sync details are in [the integration report](docs/DESKTOP_UPSTREAM_ALIGNMENT.md).
 
 The older browser-mode architecture below describes the optional web/Streamlit workflow and the internals reused by the desktop engine.
 

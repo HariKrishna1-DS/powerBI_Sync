@@ -10,7 +10,7 @@ import tempfile
 import zipfile
 
 SETTINGS = ('remaining_products.json', 'sync_schedule.json', 'production-cache.json')
-TABLES = {'previews', 'sla_corrections', 'sync_receipts', 'sqlite_sequence'}
+TABLES = {'previews', 'sla_corrections', 'sync_receipts', 'sync_jobs', 'sync_reports', 'sync_failures', 'sqlite_sequence'}
 
 
 def make_backup(store):
@@ -61,7 +61,8 @@ def restore_backup(store, raw):
                 if any(kind != 'table' or name not in TABLES for kind, name in schema):
                     raise ValueError('Backup contains unsupported database objects.')
                 connection.execute('SELECT id,created,source,columns_json,rows_json FROM previews LIMIT 1')
-                connection.execute('SELECT preview_id,report_json FROM sync_receipts LIMIT 1')
+                if ('table', 'sync_receipts') in schema:
+                    connection.execute('SELECT preview_id,report_json FROM sync_receipts LIMIT 1')
                 connection.execute('SELECT order_number,completion_date,status,updated FROM sla_corrections LIMIT 1')
                 invalid = connection.execute("SELECT COUNT(*) FROM previews WHERE NOT json_valid(rows_json) OR NOT json_valid(columns_json)").fetchone()[0]
                 if invalid:
@@ -82,6 +83,7 @@ def restore_backup(store, raw):
         try:
             store.root.mkdir()
             shutil.copy2(database, store.root / 'previews.sqlite')
+            store.__init__(store.root)  # Upgrade v2.0 backups before servicing another request.
             for name in SETTINGS:
                 target = store.root.parent / name
                 if name in names:

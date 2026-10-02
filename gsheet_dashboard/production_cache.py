@@ -17,12 +17,20 @@ class ProductionCache:
         self.reload()
 
     def reload(self):
+        with self.lock:
+            self._reload()
+
+    def _reload(self):
         self.value = None
         self.error = None
         self.checked = float('-inf')
         try:
             saved = json.loads(self.path.read_text(encoding='utf-8'))
-            if saved.get('identity') == self.identity and isinstance(saved.get('sheets'), dict):
+            def normalized(identity):
+                aliases = {f'{name}_-_September_2026': name for name in (
+                    'TV_Search_Production_Report_Full_Search', 'TV_Search_Production_Report_C-O_and_Update')}
+                return '|'.join(aliases.get(part, part) for part in str(identity).split('|'))
+            if normalized(saved.get('identity')) == normalized(self.identity) and isinstance(saved.get('sheets'), dict):
                 self.value = saved
         except (OSError, ValueError):
             pass

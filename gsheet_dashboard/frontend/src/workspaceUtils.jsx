@@ -6,23 +6,8 @@ const str = value => value == null ? '' : String(value);
 const label = value => str(value) || '(Blank)';
 const normalized = value => str(value).trim().toLowerCase();
 const badgeClass = value => normalized(value).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-const STATUS_COLORS = {
-  'available': '#d9ead3',
-  'in progress': '#00b050',
-  'qc in progress': '#f4b183',
-  'ready to send': '#ffff00',
-  'search in progress': '#ffffff',
-  'typing in progress': '#00b050',
-  'typing is progress': '#00b050',
-  'waiting for effective date': '#ffffff',
-  'assign to abs': '#a6a6a6',
-  'need to assign abs': '#a6a6a6',
-  'awaiting for clarification': '#a66ad3',
-  'cancelled': '#f4cccc',
-  'completed and delivered': '#fff2cc',
-  'task suspended': '#c9daf8',
-  'workflow suspended': '#c9daf8'
-};
+import STATUS_COLORS from '../../status_colors.json';
+
 function statusColor(value) {
   const key = normalized(value);
   if (STATUS_COLORS[key]) return STATUS_COLORS[key];
@@ -38,7 +23,9 @@ function textColorForBg(color) {
 async function api(url, options = {}) {
   const response = await fetch(url, {signal: AbortSignal.timeout(30000), ...options});
   if (!response.ok) { let body; try { body = await response.json(); } catch { body = {}; } throw Error(body.error || `Request failed (${response.status})`); }
-  return response.json();
+  const body = await response.json();
+  if (body.clock) body.clock.receivedAt = performance.now();
+  return body;
 }
 function saveBlob(blob, filename) {
   const url = URL.createObjectURL(blob), a = document.createElement('a');

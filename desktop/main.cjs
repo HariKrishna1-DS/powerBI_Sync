@@ -5,9 +5,10 @@ const crypto = require('node:crypto');
 const {spawn, execFile} = require('node:child_process');
 const {createVault, publicSettings, validateSettings, validateServiceAccount, allowedExternal} = require('./settings.cjs');
 
-app.setName('DataTrace Studio');
+app.setName('Tv Tracker');
 app.setAppUserModelId('com.datatrace.studio');
-if (process.env.DATATRACE_TEST_USER_DATA) app.setPath('userData', process.env.DATATRACE_TEST_USER_DATA);
+// Keep the v2.0 profile and installer identity so a name change is a safe upgrade.
+app.setPath('userData', process.env.DATATRACE_TEST_USER_DATA || path.join(app.getPath('appData'), 'DataTrace Studio'));
 const root = path.resolve(__dirname, '..');
 let window, tray, backend, backendUrl = '', settings, vault, pendingAccount;
 let quitting = false, restarting = false, quitRequested = false;
@@ -21,10 +22,10 @@ if (!gotLock) app.exit(0);
 
 function detectBrowser() {
   return [settings.browserPath,
-    path.join(process.env['ProgramFiles(x86)'] || '', 'Microsoft/Edge/Application/msedge.exe'),
-    path.join(process.env.ProgramFiles || '', 'Microsoft/Edge/Application/msedge.exe'),
     path.join(process.env.ProgramFiles || '', 'Google/Chrome/Application/chrome.exe'),
     path.join(process.env.LOCALAPPDATA || '', 'Google/Chrome/Application/chrome.exe'),
+    path.join(process.env['ProgramFiles(x86)'] || '', 'Microsoft/Edge/Application/msedge.exe'),
+    path.join(process.env.ProgramFiles || '', 'Microsoft/Edge/Application/msedge.exe'),
   ].find(file => file && fs.existsSync(file)) || '';
 }
 function safeError(error) {
@@ -34,6 +35,14 @@ function safeError(error) {
 }
 function publicState() {
   return {...publicSettings(settings), version: app.getVersion(), dataPath, browserDetected: !!detectBrowser(), packaged: app.isPackaged};
+}
+function configureStartup(preserveDisabled = false) {
+  // Retain the v2.0 registry entry name but update its executable after an upgrade.
+  // Isolated test profiles must never change the user's Windows startup settings.
+  if (app.isPackaged && !process.env.DATATRACE_TEST_USER_DATA) {
+    const existing = preserveDisabled ? app.getLoginItemSettings().launchItems?.find(item => item.name === 'com.datatrace.studio') : null;
+    app.setLoginItemSettings({openAtLogin: settings.startAtLogin, name: 'com.datatrace.studio', enabled: existing?.enabled ?? true});
+  }
 }
 async function engineRequest(route, options = {}) {
   const response = await fetch(`${backendUrl}${route}`, {...options, signal: AbortSignal.timeout(30000), headers: {...options.headers, 'X-DataTrace-Token': token}});
@@ -103,12 +112,12 @@ async function stopBackend(force = false) {
   if (backend === child) backend = null;
 }
 async function showRecovery(message) {
-  const {response} = await dialog.showMessageBox(window, {type: 'error', title: 'DataTrace Studio', message, detail: 'Restart the local engine or open its logs to diagnose the problem.', buttons: ['Restart engine', 'Open logs', 'Quit'], defaultId: 0, cancelId: 2});
+  const {response} = await dialog.showMessageBox(window, {type: 'error', title: 'Tv Tracker', message, detail: 'Restart the local engine or open its logs to diagnose the problem.', buttons: ['Restart engine', 'Open logs', 'Quit'], defaultId: 0, cancelId: 2});
   if (response === 1) { await shell.openPath(logPath); return; }
   if (response === 2) return requestQuit();
   restarting = true;
   try { await stopBackend(true); await startBackend(); configureSession(); await window.loadURL(backendUrl); }
-  catch (error) { dialog.showErrorBox('Could not start DataTrace Studio', safeError(error)); }
+  catch (error) { dialog.showErrorBox('Could not start Tv Tracker', safeError(error)); }
   finally { restarting = false; }
 }
 function configureSession() {
@@ -166,7 +175,7 @@ function registerIpc() {
     if (pendingAccount) next.serviceAccount = pendingAccount;
     if (input.clearServiceAccount === true) next.serviceAccount = '';
     vault.write(next); settings = next; pendingAccount = undefined;
-    if (app.isPackaged) app.setLoginItemSettings({openAtLogin: settings.startAtLogin});
+    configureStartup();
     restarting = true;
     try { await stopBackend(); await startBackend(); configureSession(); }
     finally { restarting = false; }
@@ -176,14 +185,14 @@ function registerIpc() {
   });
   handle('desktop:open-data', () => shell.openPath(dataPath));
   handle('desktop:backup', async () => {
-    const result = await dialog.showSaveDialog(window, {title: 'Back up local workspace', defaultPath: `DataTrace-backup-${new Date().toISOString().slice(0, 10)}.zip`, filters: [{name: 'Workspace backup', extensions: ['zip']}]});
+    const result = await dialog.showSaveDialog(window, {title: 'Back up local workspace', defaultPath: `Tv-Tracker-backup-${new Date().toISOString().slice(0, 10)}.zip`, filters: [{name: 'Workspace backup', extensions: ['zip']}]});
     if (result.canceled) return {cancelled: true};
     const response = await engineRequest('/api/desktop/backup');
     fs.writeFileSync(result.filePath, Buffer.from(await response.arrayBuffer()));
     return {saved: true, path: result.filePath};
   });
   handle('desktop:restore', async () => {
-    const choice = await dialog.showOpenDialog(window, {title: 'Restore a DataTrace backup', properties: ['openFile'], filters: [{name: 'Workspace backup', extensions: ['zip']}]});
+    const choice = await dialog.showOpenDialog(window, {title: 'Restore a Tv Tracker backup', properties: ['openFile'], filters: [{name: 'Workspace backup', extensions: ['zip']}]});
     if (choice.canceled) return {cancelled: true};
     const confirmation = await dialog.showMessageBox(window, {type: 'warning', message: 'Replace the local workspace with this backup?', detail: 'Google Sheets and encrypted credentials are unchanged. A safety copy of the current local workspace will be retained.', buttons: ['Cancel', 'Restore backup'], defaultId: 0, cancelId: 0});
     if (confirmation.response !== 1) return {cancelled: true};
@@ -196,8 +205,9 @@ function registerIpc() {
 }
 async function launch() {
   vault = createVault(settingsPath, safeStorage); settings = vault.read();
+  configureStartup(true);
   await startBackend();
-  window = new BrowserWindow({title: 'DataTrace Studio', width: 1440, height: 960, minWidth: 980, minHeight: 680, backgroundColor: '#f5f6fa', show: false, icon,
+  window = new BrowserWindow({title: 'Tv Tracker', width: 1440, height: 960, minWidth: 980, minHeight: 680, backgroundColor: '#f5f6fa', show: false, icon,
     webPreferences: {preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, spellcheck: false}});
   configureSession(); registerIpc();
   window.webContents.on('will-navigate', (event, url) => { if (!url.startsWith(`${backendUrl}/`) && url !== backendUrl) event.preventDefault(); });
@@ -208,15 +218,15 @@ async function launch() {
   window.once('ready-to-show', () => window.show());
   window.on('close', event => { if (quitting) return; event.preventDefault(); if (settings.closeToTray) window.hide(); else requestQuit(); });
   const menu = [
-    {label: 'Workspace', submenu: [{label: 'Connections & settings', accelerator: 'CmdOrCtrl+,', click: () => sendCommand('settings')}, {label: 'Quick actions', accelerator: 'CmdOrCtrl+K', click: () => sendCommand('commands')}, {type: 'separator'}, {label: 'Quit DataTrace Studio', accelerator: 'Alt+F4', click: requestQuit}]},
+    {label: 'Workspace', submenu: [{label: 'Connections & settings', accelerator: 'CmdOrCtrl+,', click: () => sendCommand('settings')}, {label: 'Quick actions', accelerator: 'CmdOrCtrl+K', click: () => sendCommand('commands')}, {type: 'separator'}, {label: 'Quit Tv Tracker', accelerator: 'Alt+F4', click: requestQuit}]},
     {label: 'Edit', submenu: [{role: 'undo'}, {role: 'redo'}, {type: 'separator'}, {role: 'cut'}, {role: 'copy'}, {role: 'paste'}, {role: 'selectAll'}]},
     {label: 'View', submenu: [{role: 'resetZoom'}, {role: 'zoomIn'}, {role: 'zoomOut'}, {role: 'togglefullscreen'}]},
-    {label: 'Help', submenu: [{label: 'Open local data', click: () => shell.openPath(dataPath)}, {label: 'Open logs', click: () => shell.openPath(logPath)}, {label: 'About DataTrace Studio', click: () => dialog.showMessageBox(window, {message: 'DataTrace Studio', detail: `Version ${app.getVersion()}\nLocal Windows workspace. Google Sheets and TitleVision require internet access.\nSchedules run while the app is open or in the tray.`})}]},
+    {label: 'Help', submenu: [{label: 'Open local data', click: () => shell.openPath(dataPath)}, {label: 'Open logs', click: () => shell.openPath(logPath)}, {label: 'About Tv Tracker', click: () => dialog.showMessageBox(window, {message: 'Tv Tracker', detail: `Version ${app.getVersion()}\nLocal Windows workspace. Google Sheets and TitleVision require internet access.\nSchedules run while the app is open or in the tray.`})}]},
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(menu));
   tray = new Tray(nativeImage.createFromPath(icon).resize({width: 20, height: 20}));
-  tray.setToolTip('DataTrace Studio · running locally');
-  tray.setContextMenu(Menu.buildFromTemplate([{label: 'Open DataTrace Studio', click: focusWindow}, {label: 'Connections & settings', click: () => sendCommand('settings')}, {type: 'separator'}, {label: 'Quit', click: requestQuit}]));
+  tray.setToolTip('Tv Tracker · running locally');
+  tray.setContextMenu(Menu.buildFromTemplate([{label: 'Open Tv Tracker', click: focusWindow}, {label: 'Connections & settings', click: () => sendCommand('settings')}, {type: 'separator'}, {label: 'Quit', click: requestQuit}]));
   tray.on('double-click', focusWindow);
   await window.loadURL(backendUrl);
 }
@@ -227,6 +237,6 @@ app.on('window-all-closed', () => { if (quitting) app.quit(); });
 if (gotLock) app.whenReady().then(launch).catch(async error => {
   quitting = true;
   await stopBackend(true);
-  dialog.showErrorBox('DataTrace Studio could not start', `${safeError(error)}\n\nLogs: ${logPath}`);
+  dialog.showErrorBox('Tv Tracker could not start', `${safeError(error)}\n\nLogs: ${logPath}`);
   app.quit();
 });

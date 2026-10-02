@@ -22,6 +22,8 @@ arguments = [
     f'--add-data={ROOT / "gsheet_dashboard" / "sync_config.json"};.',
     f'--add-data={ROOT / "gsheet_dashboard" / "remaining_products.json"};.',
     f'--add-data={ROOT / "gsheet_dashboard" / "frontend" / "dist"};frontend/dist',
+    f'--add-data={ROOT / "gsheet_dashboard" / "status_colors.json"};.',
+    f'--add-data={ROOT / "gsheet_dashboard" / "default_trackers"};default_trackers',
     '--collect-data=certifi', '--collect-data=tzdata',
 ]
 for package in ('streamlit', 'plotly', 'statsmodels', 'matplotlib', 'scipy', 'IPython', 'pytest', 'tkinter', 'PIL', 'torch', 'sympy', 'pyarrow', 'numba', 'notebook'):

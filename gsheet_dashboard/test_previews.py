@@ -108,7 +108,10 @@ class PreviewTests(unittest.TestCase):
 
     def test_manual_google_sync_and_daily_schedule(self):
         syncer = Mock(return_value=['Full Title'])
-        client = create_app(self.root / 'manual-sync', syncer=syncer).test_client()
+        from datetime import datetime
+        from server import IST
+        clock = Mock(now=lambda: datetime(2026, 9, 30, 8, tzinfo=IST), snapshot=lambda: {})
+        client = create_app(self.root / 'manual-sync', syncer=syncer, time_source=clock).test_client()
         self.assertEqual(client.post('/api/sync').status_code, 422)
         imported = client.post('/api/import', data={'file': (BytesIO(self.frame().to_csv(index=False).encode()), 'queue.csv')})
         self.assertEqual(imported.status_code, 201)
@@ -134,8 +137,13 @@ class PreviewTests(unittest.TestCase):
         client = create_app(self.root / 'api', syncer=Mock(return_value=[])).test_client()
         self.assertEqual(client.get('/api/state').json['previews'], [])
         for status in ['Available', 'Completed']:
-            response = client.post('/api/import', data={'file': (BytesIO(self.frame(status).to_csv(index=False).encode()), 'queue.csv')})
+            response = client.post('/api/import', data={'file': (BytesIO(self.frame(status).assign(**{'Order Number': '0001'}).to_csv(index=False).encode()), 'queue.csv')})
             self.assertEqual(response.status_code, 201)
+        for _ in range(200):
+            if not client.get('/api/state').json['job']['running']:
+                break
+            time.sleep(.01)
+        self.assertFalse(client.get('/api/state').json['job']['running'])
         result = client.post('/api/compare', json={'previous':1,'latest':2}).json
         self.assertEqual(result['counts']['modified'], 1)
         response = client.post('/api/compare', json={'previous':1,'latest':2,'download':True})

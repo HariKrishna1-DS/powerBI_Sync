@@ -2,8 +2,7 @@
 import io
 import json
 from pathlib import Path
-from datatrace_sync import target_worksheet
-from sheets_repository import read_tracker_rows
+from preview_store import PreviewStore
 
 import pandas as pd
 import plotly.express as px
@@ -44,22 +43,22 @@ ACCENT_PURPLE = "#7c3aed"
 st.markdown(f"""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
-    
+
     html, body, [data-testid="stAppViewContainer"], .main {{
         background-color: {BG_COLOR} !important;
         color: {TEXT_COLOR} !important;
         font-family: 'DM Sans', sans-serif !important;
     }}
-    
+
     [data-testid="stHeader"], footer, #MainMenu {{
         display: none !important;
     }}
-    
+
     .block-container {{
         padding: 1.5rem 2rem 3rem !important;
         max-width: 1400px !important;
     }}
-    
+
     .metric-card {{
         background: {CARD_BG};
         border: 1px solid {BORDER_COLOR};
@@ -90,7 +89,7 @@ st.markdown(f"""
         color: {MUTED_TEXT};
         margin-top: 0.3rem;
     }}
-    
+
     .chart-card {{
         background: {CARD_BG};
         border: 1px solid {BORDER_COLOR};
@@ -110,7 +109,7 @@ st.markdown(f"""
         color: {MUTED_TEXT};
         margin-bottom: 0.8rem;
     }}
-    
+
     .badge {{
         display: inline-block;
         padding: 3px 8px;
@@ -120,7 +119,7 @@ st.markdown(f"""
     }}
     .badge-online {{ background: rgba(20, 125, 114, 0.15); color: #0d5c54; }}
     .badge-ground {{ background: rgba(217, 119, 6, 0.15); color: #9a5406; }}
-    
+
     button[data-baseweb="tab"] {{
         background: transparent !important;
         color: {MUTED_TEXT} !important;
@@ -156,11 +155,13 @@ def load_available_sources():
 
 
 def load_preview_data(source_type, source_val):
+    from datatrace_sync import target_worksheet
+    from tracker_sync import read_trackers
     try:
         book, _ = target_worksheet()
-        df = pd.DataFrame(read_tracker_rows(book)).drop(columns=['_sheet', '_sheet_row'], errors='ignore')
+        df = pd.DataFrame([row for rows in read_trackers(book).values() for row in rows]).fillna('')
     except Exception as exc:
-        st.error(f'Google Sheets is unavailable: {exc}')
+        st.error(f'Google Sheet unavailable: {exc}')
         st.stop()
 
     if not df.empty:
@@ -203,7 +204,7 @@ if not sources:
 
 with st.sidebar:
     st.markdown("### ⚙️ Data Controls")
-    selected_source_name = st.selectbox("Select Data Capture / Preview", list(sources.keys()))
+    selected_source_name = st.selectbox("Data source", list(sources.keys()))
     st.markdown("---")
     st.markdown("### 🔍 Filters")
 
@@ -226,17 +227,17 @@ with st.sidebar:
     # Online/Ground filter
     og_options = sorted(df_raw['Online/ Ground'].dropna().astype(str).unique())
     selected_og = st.multiselect("Online / Ground", og_options, default=og_options)
-    
+
     # Client filter
     client_options = sorted(df_raw['Client'].dropna().astype(str).unique())
     selected_clients = st.multiselect("Client", client_options, default=client_options)
-    
+
     # Product filter
     product_options = sorted(df_raw['Product'].dropna().astype(str).unique())
     selected_products = st.multiselect("Product", product_options, default=product_options)
-    
+
     search_query = st.text_input("Global Search", placeholder="Search Order, Borrower, State...")
-    
+
     if st.button("Reset Filters", use_container_width=True):
         st.rerun()
 
@@ -330,14 +331,14 @@ plotly_template = "plotly_dark" if IS_DARK else "plotly_white"
 
 with tab1:
     col_a, col_b = st.columns(2)
-    
+
     with col_a:
         st.markdown("""
         <div class="chart-card">
             <div class="chart-title">Online vs Ground Share</div>
             <div class="chart-subtitle">Proportion of queue tasks extracted by delivery method</div>
         """, unsafe_allow_html=True)
-        
+
         og_summary = df['Online/ Ground'].value_counts().reset_index()
         og_summary.columns = ['Online/ Ground', 'Orders']
         fig_og = px.pie(
@@ -353,14 +354,14 @@ with tab1:
         fig_og.update_layout(showlegend=True, margin=dict(l=10, r=10, t=10, b=10), height=320)
         st.plotly_chart(fig_og, use_container_width=True, config=PLOT_CONFIG)
         st.markdown("</div>", unsafe_allow_html=True)
-        
+
     with col_b:
         st.markdown("""
         <div class="chart-card">
             <div class="chart-title">Product Distribution</div>
             <div class="chart-subtitle">Order volume grouped by DataTrace product type</div>
         """, unsafe_allow_html=True)
-        
+
         prod_summary = df['Product'].value_counts().reset_index()
         prod_summary.columns = ['Product', 'Orders']
         fig_prod = px.bar(
@@ -382,14 +383,14 @@ with tab1:
         )
         st.plotly_chart(fig_prod, use_container_width=True, config=PLOT_CONFIG)
         st.markdown("</div>", unsafe_allow_html=True)
-    
+
     # Client Breakdown Chart
     st.markdown("""
     <div class="chart-card">
         <div class="chart-title">Top Clients by Queue Volume</div>
         <div class="chart-subtitle">Breakdown of orders per client code</div>
     """, unsafe_allow_html=True)
-    
+
     client_summary = df['Client'].value_counts().head(12).reset_index()
     client_summary.columns = ['Client', 'Orders']
     fig_client = px.bar(
@@ -412,11 +413,11 @@ with tab2:
         <div class="chart-title">Client vs Online/Ground Cross-Analysis</div>
         <div class="chart-subtitle">Distribution of Online and Ground orders across top clients</div>
     """, unsafe_allow_html=True)
-    
+
     client_og = df.groupby(['Client', 'Online/ Ground']).size().reset_index(name='Orders')
     top_10_clients = df['Client'].value_counts().head(10).index
     client_og_filtered = client_og[client_og['Client'].isin(top_10_clients)]
-    
+
     fig_cross = px.bar(
         client_og_filtered,
         x='Client',
@@ -429,7 +430,7 @@ with tab2:
     fig_cross.update_layout(margin=dict(l=10, r=10, t=20, b=10), height=350)
     st.plotly_chart(fig_cross, use_container_width=True, config=PLOT_CONFIG)
     st.markdown("</div>", unsafe_allow_html=True)
-    
+
     col_c1, col_c2 = st.columns(2)
     with col_c1:
         st.markdown("""
@@ -437,7 +438,7 @@ with tab2:
             <div class="chart-title">Product Split: Full Title vs Remaining</div>
             <div class="chart-subtitle">Standardized Product classification share</div>
         """, unsafe_allow_html=True)
-        
+
         full_t = len(df[df['Product'].str.lower() == 'full title'])
         rem_t = len(df[df['Product'].str.lower() != 'full title'])
         split_df = pd.DataFrame([
@@ -456,14 +457,14 @@ with tab2:
         fig_split.update_layout(margin=dict(l=10, r=10, t=10, b=10), height=300)
         st.plotly_chart(fig_split, use_container_width=True, config=PLOT_CONFIG)
         st.markdown("</div>", unsafe_allow_html=True)
-        
+
     with col_c2:
         st.markdown("""
         <div class="chart-card">
             <div class="chart-title">Online / Ground per Product</div>
             <div class="chart-subtitle">How product categories map to delivery channels</div>
         """, unsafe_allow_html=True)
-        
+
         prod_og = df.groupby(['Product', 'Online/ Ground']).size().reset_index(name='Orders')
         fig_pog = px.bar(
             prod_og,
@@ -486,12 +487,12 @@ with tab3:
             <div class="chart-title">Order Arrival Trend ({date_col})</div>
             <div class="chart-subtitle">Daily order arrival volume over time</div>
         """, unsafe_allow_html=True)
-        
+
         df_date = df.copy()
         df_date['Parsed_Date'] = pd.to_datetime(df_date[date_col], errors='coerce').dt.date
         trend_data = df_date.dropna(subset=['Parsed_Date']).groupby('Parsed_Date').size().reset_index(name='Orders')
         trend_data.sort_values('Parsed_Date', inplace=True)
-        
+
         fig_trend = px.area(
             trend_data,
             x='Parsed_Date',
@@ -513,16 +514,16 @@ with tab3:
 
 with tab4:
     st.markdown(f"### Filtered Queue Data ({len(df):,} rows)")
-    
+
     # Display Columns Selector
     display_cols = st.multiselect(
         "Columns to display",
         list(df.columns),
         default=[c for c in ['Order Number', 'Borrower', 'Online/ Ground', 'Client', 'Product', 'Task Status', 'St', 'County', 'Arrival Time'] if c in df.columns]
     )
-    
+
     st.dataframe(df[display_cols] if display_cols else df, use_container_width=True, height=450)
-    
+
     # Export Options
     col_e1, col_e2 = st.columns([2, 8])
     with col_e1:

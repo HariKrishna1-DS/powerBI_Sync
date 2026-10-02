@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Activity, ArrowDown, ArrowUp, ArrowDownToLine, ArrowLeftRight, BarChart3, CalendarDays, Check, ChevronLeft, ChevronRight, Clock3, CloudUpload, Database, FileSpreadsheet, Filter, HardDrive, LoaderCircle, Maximize2, Minimize2, Play, Plus, Printer, Search, SlidersHorizontal, Table2, Trash2, Upload, X } from 'lucide-react';
-import { ResponsiveContainer, BarChart, Bar, LineChart, Line, AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Brush } from 'recharts';
+import { ResponsiveContainer, LabelList, BarChart, Bar, LineChart, Line, AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Brush } from 'recharts';
 import {OfflineNotice} from './DesktopExperience';
 import remainingProducts from '../../remaining_products.json';
 
@@ -476,58 +476,77 @@ function completionStatus(row) { return row; }
 
 const DAILY_SERIES = [
   {name:'Today Orders',color:'#147d72'},
-  {name:'Completed Orders',color:'#bd6268'},
+  {name:'Not in latest preview',color:'#bd6268'},
   {name:'Newly Orders',color:'#d79a32'},
-  {name:'Awaiting for Clarification',color:'#a66ad3'}
+  {name:'Unchanged',color:'#596cc0'},
+  {name:'Awaiting for Clarification',color:STATUS_COLORS['awaiting for clarification']}
 ];
 
-function DailyOrdersChart({history, selectedDate, onSelect}) {
+function PeriodOrdersChart({history, selected, onSelect, period, series, title, label: chartLabel}) {
   const [expanded,setExpanded]=useState(false);
-  const data=useMemo(()=>[...history].sort((a,b)=>a.Date.localeCompare(b.Date)),[history]);
+  const sorted=useMemo(()=>[...history].sort((a,b)=>a[period].localeCompare(b[period])),[history,period]);
+  const selectedIndex=Math.max(0,sorted.findIndex(item=>item[period]===selected));
+  const start=Math.max(0,Math.min(selectedIndex-2,sorted.length-3));
+  const data=sorted.slice(start,start+3);
+  const formatPeriod=value=>{
+    const date=new Date(period==='Date'?`${value}T12:00:00`:`${value}-01T12:00:00`);
+    return Number.isNaN(date.getTime())?value:date.toLocaleDateString('en-US',period==='Date'?{month:'short',day:'numeric'}:{month:'short',year:'numeric'});
+  };
   const renderChart=(large=false)=><>
-    <div className="daily-chart-legend">{DAILY_SERIES.map(series=><span key={series.name}><i style={{background:series.color}}/>{series.name}</span>)}</div>
-    <div className="daily-chart-scroll"><div style={{height:large?460:320,minWidth:Math.max(560,data.length*130)}}>
+    <div className="chart-period-controls">
+      <button className="secondary" disabled={start===0} onClick={()=>onSelect(sorted[Math.max(0,start-1)][period])}><ChevronLeft size={15}/>Earlier</button>
+      <span>{data.length?`${formatPeriod(data[0][period])} – ${formatPeriod(data.at(-1)[period])}`:''}</span>
+      <button className="secondary" disabled={start+3>=sorted.length} onClick={()=>onSelect(sorted[Math.min(sorted.length-1,start+5)][period])}>Later<ChevronRight size={15}/></button>
+    </div>
+    <div className="daily-chart-legend">{series.map(item=><span key={item.name}><i style={{background:item.color}}/>{item.name}</span>)}</div>
+    <div className="daily-chart-scroll"><div style={{height:large?460:340,minWidth:Math.max(620,data.length*series.length*48)}}>
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{top:18,right:20,bottom:12,left:0}} barGap={3} barCategoryGap="22%">
+        <BarChart data={data} margin={{top:32,right:24,bottom:12,left:4}} barGap={5} barCategoryGap="12%">
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e9edee"/>
-          <XAxis dataKey="Date" tick={{fontSize:12}} tickFormatter={value=>value==='Undated'?'Undated':new Date(`${value}T12:00:00`).toLocaleDateString('en-US',{month:'short',day:'numeric'})} interval={0}/>
-          <YAxis allowDecimals={false} tick={{fontSize:12}} width={48}/>
-          <Tooltip cursor={{fill:'#f0f5f3'}} formatter={value=>Number(value).toLocaleString()}/>
-          {DAILY_SERIES.map(series=><Bar key={series.name} dataKey={series.name} fill={series.color} radius={[3,3,0,0]} maxBarSize={36} isAnimationActive={false} cursor="pointer" onClick={entry=>onSelect(entry.Date||entry.payload?.Date)}>
-            {data.map(day=><Cell key={day.Date} fillOpacity={day.Date===selectedDate?1:0.7}/>)}
+          <XAxis dataKey={period} tick={{fontSize:12}} tickFormatter={formatPeriod} interval={0}/>
+          <YAxis allowDecimals={false} tick={{fontSize:12}} width={52} domain={[0,max=>Math.max(5,Math.ceil(max*1.15))]}/>
+          <Tooltip cursor={{fill:'#f0f5f3'}} formatter={(value,name,item)=>period==='Month'?`${Number(value).toLocaleString()} (${monthlyPercentage(item.payload,name)})`:Number(value).toLocaleString()}/>
+          {series.map(item=><Bar key={item.name} dataKey={item.name} fill={item.color} radius={[3,3,0,0]} maxBarSize={40} minPointSize={value=>Number(value)>0?3:0} isAnimationActive={false} cursor="pointer" onClick={entry=>onSelect(entry[period]||entry.payload?.[period])}>
+            {data.map(row=><Cell key={row[period]} fillOpacity={row[period]===selected?1:0.8}/>)}
+            <LabelList dataKey={item.name} position="top" fill="#233b37" fontSize={11} fontWeight={600} formatter={value=>Number(value)>0?Number(value).toLocaleString():''}/>
           </Bar>)}
         </BarChart>
       </ResponsiveContainer>
     </div></div>
+    <p className="chart-hint">Values appear above each bar. Zero values have no bar. Select a bar or use Earlier / Later to change the period.</p>
   </>;
-  return <section className="daily-chart" aria-label="Daily orders bar chart">
-    <div className="card-head"><h3>Daily Orders by Date</h3><IconButton title="Expand daily orders chart" onClick={()=>setExpanded(true)}><Maximize2 size={16}/></IconButton></div>
-    {data.length?renderChart():<div className="table-empty">No daily orders</div>}
-    {expanded&&<MaximizedModal title="Daily Orders by Date" onClose={()=>setExpanded(false)}>{renderChart(true)}</MaximizedModal>}
+  return <section className="daily-chart" aria-label={chartLabel}>
+    <div className="card-head"><h3>{title}</h3><IconButton title={`Expand ${chartLabel.toLowerCase()}`} onClick={()=>setExpanded(true)}><Maximize2 size={16}/></IconButton></div>
+    {data.length?renderChart():<div className="table-empty">No orders</div>}
+    {expanded&&<MaximizedModal title={title} onClose={()=>setExpanded(false)}>{renderChart(true)}</MaximizedModal>}
   </section>;
 }
+function DailyOrdersChart({history, selectedDate, onSelect}) {
+  return <PeriodOrdersChart history={history} selected={selectedDate} onSelect={onSelect} period="Date" series={DAILY_SERIES} title="Daily Orders by Date" label="Daily orders bar chart"/>;
+}
 
-function DailyOrders({preview}) {
+function DailyOrders({preview, running}) {
   const [history,setHistory]=useState([]), [error,setError]=useState(''), [date,setDate]=useState(''), [search,setSearch]=useState('');
   const [loading,setLoading]=useState(true), [snapshot,setSnapshot]=useState(null);
-  useEffect(()=>{let active=true,busy=false;setLoading(true);const refresh=async()=>{if(busy)return;busy=true;try{const data=await api('/api/daily-orders');if(active){setHistory(data.rows);setSnapshot(data);setError('');}}catch(e){if(active){setHistory([]);setError(e.message);}}finally{busy=false;if(active)setLoading(false);}};refresh();const timer=setInterval(refresh,30000);return()=>{active=false;clearInterval(timer);};},[preview.id]);
+  useEffect(()=>{let active=true;setLoading(true);api(`/api/daily-orders${preview.id?`?preview_id=${preview.id}`:''}`).then(data=>{if(active){setHistory(data.rows);setSnapshot(data);setDate(data.selected_date||'');setSearch('');setError('');}}).catch(e=>{if(active){setHistory([]);setError(e.message);}}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[preview.id,running]);
   const selectedDay=history.find(day=>day.Date===date)||history[0];
   const columns=selectedDay?.columns||[];
   const rows=(selectedDay?.rows||[]).filter(row=>!search||columns.some(column=>str(row[column]).toLowerCase().includes(search.toLowerCase())));
   const groups=[
     ['Today Orders',rows],
-    ['Completed Orders',rows.filter(row=>selectedDay?.completed_ids.includes(str(row['Order Number']).trim()))],
+    ['Not in latest preview',rows.filter(row=>selectedDay?.missing_ids.includes(str(row['Order Number']).trim()))],
     ['Newly Orders',rows.filter(row=>selectedDay?.new_ids.includes(str(row['Order Number']).trim()))],
+    ['Unchanged',rows.filter(row=>selectedDay?.unchanged_ids.includes(str(row['Order Number']).trim()))],
     ['Awaiting for Clarification',rows.filter(row=>normalized(row['Task Status'] ?? row.Status)==='awaiting for clarification')]
   ];
-  const names=['Today Orders','Completed Orders','Newly Orders','Awaiting for Clarification'];
+  const names=['Today Orders','Not in latest preview','Newly Orders','Unchanged','Awaiting for Clarification'];
   return <section className="daily-orders"><OfflineNotice snapshot={snapshot}/>
     {error&&<div className="notice error">{error}</div>}
     {loading?<div className="loading"><LoaderCircle className="spin"/>Loading daily orders...</div>:<>
       <div className="section-heading"><h2>Daily production orders</h2><label>Date<select aria-label="Daily orders date" value={selectedDay?.Date||''} onChange={e=>{setDate(e.target.value);setSearch('');}}>{history.map(day=><option key={day.Date}>{day.Date}</option>)}</select></label></div>
-      <div className="metrics">{names.map((name,index)=><div className={`metric ${['green','red','amber','purple'][index]}`} key={name}><span>{name}</span><strong>{selectedDay?.[name]??(error?'—':0)}</strong></div>)}</div>
+      <div className="metrics">{names.map((name,index)=><div className={`metric ${['green','red','amber','gray','purple'][index]}`} key={name}><span>{name}</span><strong>{selectedDay?.[name]??0}</strong></div>)}</div>
       <DailyOrdersChart history={history} selectedDate={selectedDay?.Date} onSelect={value=>{if(value){setDate(value);setSearch('');}}}/>
-      <div className="table-scroll"><table><thead><tr>{['Date',...names].map(name=><th key={name}>{name}</th>)}</tr></thead><tbody>{history.map(day=><tr key={day.Date}><td><button className="text-button" onClick={()=>{setDate(day.Date);setSearch('');}}>{day.Date}</button></td>{names.map(name=><td key={name}>{day[name]}</td>)}</tr>)}</tbody></table></div>
+      <div className="table-scroll"><table><thead><tr>{['Date','Previews',...names].map(name=><th key={name}>{name}</th>)}</tr></thead><tbody>{history.map(day=><tr key={day.Date}><td><button className="text-button" onClick={()=>{setDate(day.Date);setSearch('');}}>{day.Date}</button></td><td>{day.Previews.join(', ')}</td>{names.map(name=><td key={name}>{day[name]}</td>)}</tr>)}</tbody></table></div>
       <div className="filter-toolbar"><div className="search-input"><Search size={16}/><input aria-label="Search daily orders" placeholder="Search all columns" value={search} onChange={e=>setSearch(e.target.value)}/></div></div>
       {selectedDay?groups.map(([name,items])=><DataTable key={name} rows={items} columns={columns} filters={{}} openFilter={()=>{}} filterable={false} name={`${name} · ${items.length}`}/>):<div className="table-empty">No daily orders</div>}
     </>}
@@ -537,7 +556,8 @@ function DailyOrders({preview}) {
 const MONTHLY_SERIES = [
   {name:'Month Orders',color:'#147d72'},
   {name:'Completed Orders',color:'#bd6268'},
-  {name:'Awaiting for Clarification',color:'#a66ad3'},
+  {name:'Unchanged',color:'#596cc0'},
+  {name:'Awaiting for Clarification',color:STATUS_COLORS['awaiting for clarification']},
   {name:'SLA On Time',color:'#30874b'},
   {name:'SLA Missed',color:'#d79a32'}
 ];
@@ -548,37 +568,7 @@ function monthlyPercentage(report, name) {
 }
 
 function MonthlyOrdersChart({history, selectedMonth, onSelect}) {
-  const [expanded,setExpanded]=useState(false);
-  const data=useMemo(()=>[...history].sort((a,b)=>a.Month.localeCompare(b.Month)),[history]);
-  const renderChart=(large=false)=><>
-    <div className="daily-chart-legend">{MONTHLY_SERIES.map(series=><span key={series.name}><i style={{background:series.color}}/>{series.name}</span>)}</div>
-    <div className="daily-chart-scroll"><div style={{height:large?460:320,minWidth:Math.max(560,data.length*130)}}>
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{top:18,right:20,bottom:12,left:0}} barGap={3} barCategoryGap="22%">
-          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e9edee"/>
-          <XAxis dataKey="Month" tick={{fontSize:12}} tickFormatter={value=>{
-            try {
-              const [y, m] = value.split('-');
-              const d = new Date(Number(y), Number(m)-1, 1);
-              return d.toLocaleDateString('en-US', {month: 'short', year: 'numeric'});
-            } catch {
-              return value;
-            }
-          }} interval={0}/>
-          <YAxis allowDecimals={false} tick={{fontSize:12}} width={48}/>
-          <Tooltip cursor={{fill:'#f0f5f3'}} formatter={(value,name,item)=>`${Number(value).toLocaleString()} (${monthlyPercentage(item.payload,name)})`}/>
-          {MONTHLY_SERIES.map(series=><Bar key={series.name} dataKey={series.name} fill={series.color} radius={[3,3,0,0]} maxBarSize={36} isAnimationActive={false} cursor="pointer" onClick={entry=>onSelect(entry.Month||entry.payload?.Month)}>
-            {data.map(m=><Cell key={m.Month} fillOpacity={m.Month===selectedMonth?1:0.7}/>)}
-          </Bar>)}
-        </BarChart>
-      </ResponsiveContainer>
-    </div></div>
-  </>;
-  return <section className="daily-chart" aria-label="Monthly orders bar chart">
-    <div className="card-head"><h3>Monthly Orders by Month</h3><IconButton title="Expand monthly orders chart" onClick={()=>setExpanded(true)}><Maximize2 size={16}/></IconButton></div>
-    {data.length?renderChart():<div className="table-empty">No monthly orders</div>}
-    {expanded&&<MaximizedModal title="Monthly Orders by Month" onClose={()=>setExpanded(false)}>{renderChart(true)}</MaximizedModal>}
-  </section>;
+  return <PeriodOrdersChart history={history} selected={selectedMonth} onSelect={onSelect} period="Month" series={MONTHLY_SERIES} title="Monthly Orders by Month" label="Monthly orders bar chart"/>;
 }
 
 const SLA_COLUMNS=['Order Number','Product Group','Product','In Time','Out Time','SLA Expiration','Free Site'];
@@ -617,14 +607,14 @@ function SlaOrdersTable({rows, statusFilter, onStatusFilter, onSave, running}) {
     {error&&<div className="notice error" role="alert">{error}</div>}
     {editing&&<div className="sla-editor" role="group" aria-label={`Edit SLA for order ${editing['Order Number']}`}>
       <div><strong>Order {editing['Order Number']}</strong><p className="muted">{editing['Product Group']} · Out Time: {editing['Out Time']}</p></div>
-      <label>Free Site (SLA status)<select aria-label="Edit Free Site" value={draft} disabled={saving} onChange={e=>setDraft(e.target.value)}><option>On Time</option><option>Missed</option></select></label>
+      <label>Free Site (SLA status)<select aria-label="Edit Free Site" value={draft} disabled={saving} onChange={e=>setDraft(e.target.value)}><option>On Time</option><option>Missing</option></select></label>
       <button className="primary" onClick={()=>save(editing,draft)} disabled={saving||running||draft===editing['Free Site']}>{saving?<LoaderCircle size={16} className="spin"/>:<Check size={16}/>} {saving?'Saving…':'Save SLA'}</button>
       <button className="secondary" disabled={saving} onClick={()=>{setEditing(null);setError('');}}>Cancel</button>
     </div>}
-    {running&&<p className="muted">SLA editing is available when the current sync or extraction finishes.</p>}
+    {running&&<p className="muted">SLA editing requires a live connection and an idle workspace.</p>}
     <div className="filter-toolbar">
       <div className="search-input"><Search size={16}/><input aria-label="Search SLA orders" placeholder="Search order or product" value={search} disabled={saving} onChange={e=>setSearch(e.target.value)}/></div>
-      <select aria-label="Filter SLA status" value={statusFilter} disabled={saving} onChange={e=>onStatusFilter(e.target.value)}><option value="">All SLA results</option><option value="On Time">SLA On Time</option><option value="Missed">SLA Missed</option></select>
+      <select aria-label="Filter SLA status" value={statusFilter} disabled={saving} onChange={e=>onStatusFilter(e.target.value)}><option value="">All SLA results</option><option value="On Time">SLA On Time</option><option value="Missing">SLA Missed</option></select>
       <select aria-label="Filter SLA product group" value={group} disabled={saving} onChange={e=>setGroup(e.target.value)}><option value="">All products</option><option>Full Title</option><option>Remaining Products</option></select>
       <span className="row-tally">{filtered.length} / {rows.length} orders</span>
     </div>
@@ -632,7 +622,7 @@ function SlaOrdersTable({rows, statusFilter, onStatusFilter, onSave, running}) {
       <div><strong>{selectedCount} orders selected</strong><p className="muted">Selections carry across pages. Changing filters clears the selection.</p>
         {selectedCount<selectable.length&&<button className="text-button" disabled={saving||running} onClick={()=>selectRows(selectable,true)}>Select all {selectable.length} matching orders</button>}
       </div>
-      <label>Set selected orders to<select aria-label="Bulk SLA status" value={bulkStatus} disabled={saving} onChange={e=>setBulkStatus(e.target.value)}><option value="">Choose status</option><option>On Time</option><option>Missed</option></select></label>
+      <label>Set selected orders to<select aria-label="Bulk SLA status" value={bulkStatus} disabled={saving} onChange={e=>setBulkStatus(e.target.value)}><option value="">Choose status</option><option>On Time</option><option>Missing</option></select></label>
       <button className="primary" disabled={saving||running||!bulkStatus} onClick={()=>save(selectedRows,bulkStatus)}>{saving?<LoaderCircle size={16} className="spin"/>:<Check size={16}/>} {saving?'Saving…':`Update ${selectedCount} selected`}</button>
       <button className="secondary" disabled={saving} onClick={()=>{setSelected({});setBulkStatus('');setError('');}}>Clear selection</button>
     </div>}
@@ -697,7 +687,7 @@ function MonthlyOrders({preview,running}) {
       <div className="section-heading"><h2>Monthly production orders</h2><label>Month<select aria-label="Monthly orders date" disabled={saving} value={selectedMonth?.Month||''} onChange={e=>{setMonth(e.target.value);setSearch('');}}>{history.map(m=><option key={m.Month} value={m.Month}>{m.MonthLabel || m.Month}</option>)}</select></label></div>
       <div className="metrics">{names.slice(0,3).map((name,index)=><div className={`metric ${['green','red','purple'][index]}`} key={name}><span>{name}</span><strong>{selectedMonth?.[name]??(error?'—':0)}</strong><small>{monthlyPercentage(selectedMonth,name)}</small></div>)}</div>
       <div className="section-heading"><h2>SLA COMMENTS</h2><button className="secondary" disabled={saving} onClick={()=>setRefreshId(value=>value+1)}>Refresh SLA</button></div>
-      <div className="metrics sla-metrics">{names.slice(3).map(name=>{const value=name==='SLA On Time'?'On Time':'Missed';return <button className={`metric sla-metric ${value==='On Time'?'green':'amber'}`} key={name} disabled={saving} aria-pressed={slaFilter===value} onClick={()=>setSlaFilter(slaFilter===value?'':value)}><span>{name}</span><strong>{selectedMonth?.[name]??(error?'—':0)}</strong><small>{monthlyPercentage(selectedMonth,name)}</small></button>;})}</div>
+      <div className="metrics sla-metrics">{names.slice(3).map(name=>{const value=name==='SLA On Time'?'On Time':'Missing';return <button className={`metric sla-metric ${value==='On Time'?'green':'amber'}`} key={name} disabled={saving} aria-pressed={slaFilter===value} onClick={()=>setSlaFilter(slaFilter===value?'':value)}><span>{name}</span><strong>{selectedMonth?.[name]??(error?'—':0)}</strong><small>{monthlyPercentage(selectedMonth,name)}</small></button>;})}</div>
       <SlaOrdersTable key={selectedMonth?.Month||'empty'} rows={selectedMonth?.sla_rows||[]} statusFilter={slaFilter} onStatusFilter={setSlaFilter} onSave={saveSla} running={running||snapshot?.offline}/>
       <MonthlyOrdersChart history={history} selectedMonth={selectedMonth?.Month} onSelect={value=>{if(value){setMonth(value);setSearch('');}}}/>
       <div className="table-scroll"><table><thead><tr>{['Month','Previews',...names].map(name=><th key={name}>{name}</th>)}</tr></thead><tbody>{history.map(m=><tr key={m.Month}><td><button className="text-button" onClick={()=>{setMonth(m.Month);setSearch('');}}>{m.MonthLabel || m.Month}</button></td><td>{m.Previews.join(', ')}</td>{names.map(name=><td key={name}>{`${m[name]??0} (${monthlyPercentage(m,name)})`}</td>)}</tr>)}</tbody></table></div>
@@ -708,4 +698,4 @@ function MonthlyOrders({preview,running}) {
 }
 
 
-export {OverviewDashboard, Chart, DataTable, FilterPanel, DailyOrders, MonthlyOrders};
+export {DataTable, FilterPanel, DailyOrders, MonthlyOrders};

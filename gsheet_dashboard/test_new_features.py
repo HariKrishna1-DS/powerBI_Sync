@@ -50,7 +50,10 @@ class NewFeaturesTests(unittest.TestCase):
         self.assertEqual(wb.active['B2'].value, 'Available')
 
     def test_sync_schedule_multiple_times(self):
-        client = create_app(self.store.root).test_client()
+        from unittest.mock import Mock
+        from server import IST
+        clock = Mock(now=lambda: datetime(2026, 9, 30, 8, tzinfo=IST), snapshot=lambda: {})
+        client = create_app(self.store.root, time_source=clock).test_client()
 
         # Update with multiple times
         res = client.post('/api/sync-schedule', json={

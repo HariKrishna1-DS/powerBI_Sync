@@ -114,8 +114,8 @@
 .sla-editor p{margin:5px 0 0}
 .sla-editor select{min-width:135px}
 .sla-badge{display:inline-block;padding:5px 9px;border-radius:4px;font-size:11px;font-weight:600}
-.sla-badge.on-time{background:#e5f3e8;color:#27623b}
-.sla-badge.missed{background:#fff0d2;color:#815516}
+.sla-badge.on-time{background:#fff;color:#111827}
+.sla-badge.missed{background:#fff;color:#111827}
 .sla-orders td:last-child{min-width:76px}
 .sla-bulk-editor{display:flex;align-items:center;gap:14px;flex-wrap:wrap;padding:16px;background:#eaf3ef;border:1px solid #bcd7cb;border-radius:5px;margin-bottom:16px}
 .sla-bulk-editor>div{margin-right:auto}
@@ -127,3 +127,5 @@
 .sla-orders .sla-selected td{background:#eaf5ef}
 .sync-schedule>div{max-width:calc(100vw - 32px)}
 @media(max-width:700px){.sync-schedule>div{position:fixed;top:100px;left:16px;right:16px;width:auto;max-height:calc(100dvh - 120px);overflow-y:auto}.topbar{flex-wrap:wrap}.topbar>.inline{flex-wrap:wrap}nav{overflow-x:auto}.nav-item{flex-shrink:0;width:auto}}
+
+.chart-period-controls{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:8px 0 18px}.chart-period-controls span{font-size:13px;font-weight:600}.chart-hint{font-size:12px;color:#64756e;margin:10px 0 0}.chart-period-controls button{display:flex;align-items:center;gap:5px}

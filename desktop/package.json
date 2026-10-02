@@ -1,8 +1,8 @@
 {
-  "name": "datatrace-studio",
-  "version": "2.0.0",
+  "name": "tv-tracker",
+  "version": "2.1.0",
   "description": "Private desktop workspace for title production and Google Sheets synchronization",
-  "author": "DataTrace Studio",
+  "author": "Tv Tracker",
   "private": true,
   "main": "main.cjs",
   "scripts": {
@@ -13,10 +13,10 @@
   },
   "build": {
     "appId": "com.datatrace.studio",
-    "productName": "DataTrace Studio",
+    "productName": "Tv Tracker",
     "asar": true,
     "directories": {
-      "output": "../release",
+      "output": "../release/2.1.0",
       "buildResources": "assets"
     },
     "files": [
@@ -44,7 +44,12 @@
       {
         "from": "../desktop/extractor/node_modules",
         "to": "extractor/node_modules",
-        "filter": ["**/*", "!**/test/**", "!**/tests/**", "!**/*.map"]
+        "filter": [
+          "**/*",
+          "!**/test/**",
+          "!**/tests/**",
+          "!**/*.map"
+        ]
       }
     ],
     "win": {
@@ -63,7 +68,7 @@
       "createStartMenuShortcut": true,
       "deleteAppDataOnUninstall": false
     },
-    "artifactName": "DataTrace-Studio-${version}-${arch}.${ext}"
+    "artifactName": "Tv-Tracker-${version}-${arch}.${ext}"
   },
   "devDependencies": {
     "electron": "44.5.1",

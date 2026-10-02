@@ -3,8 +3,8 @@ const path = require('node:path');
 
 const DEFAULTS = Object.freeze({
   spreadsheetId: '', queueUrl: 'https://tv.datatracetitle.com/Queues.aspx?qid=23656',
-  fullTrackerTitle: 'TV_Search_Production_Report_Full_Search_-_September_2026',
-  remainingTrackerTitle: 'TV_Search_Production_Report_C-O_and_Update_-_September_2026',
+  fullTrackerTitle: 'TV_Search_Production_Report_Full_Search',
+  remainingTrackerTitle: 'TV_Search_Production_Report_C-O_and_Update',
   username: '', password: '', serviceAccount: '', browserPath: '', closeToTray: true, startAtLogin: false,
 });
 
@@ -65,7 +65,13 @@ function createVault(file, safeStorage) {
     read() {
       if (!fs.existsSync(file)) return {...DEFAULTS};
       requireEncryption();
-      try { return {...DEFAULTS, ...JSON.parse(safeStorage.decryptString(fs.readFileSync(file)))}; }
+      try {
+        const saved = {...DEFAULTS, ...JSON.parse(safeStorage.decryptString(fs.readFileSync(file)))};
+        for (const key of ['fullTrackerTitle', 'remainingTrackerTitle']) {
+          if (saved[key] === `${DEFAULTS[key]}_-_September_2026`) saved[key] = DEFAULTS[key];
+        }
+        return saved;
+      }
       catch { throw Error('Saved settings could not be decrypted for this Windows account. Restore your original account or move settings.vault aside to configure a new connection.'); }
     },
     write(settings) {

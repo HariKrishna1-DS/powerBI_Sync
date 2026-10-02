@@ -43,6 +43,9 @@ test('vault uses encryption, round-trips, and fails closed on a corrupt file', (
     vault.write({...DEFAULTS, password: 'do-not-store-plaintext'});
     assert.equal(fs.readFileSync(file).includes('do-not-store-plaintext'), false);
     assert.equal(vault.read().password, 'do-not-store-plaintext');
+    vault.write({...DEFAULTS, fullTrackerTitle: 'TV_Search_Production_Report_Full_Search_-_September_2026', remainingTrackerTitle: 'Customer_-_September_2026'});
+    assert.equal(vault.read().fullTrackerTitle, DEFAULTS.fullTrackerTitle);
+    assert.equal(vault.read().remainingTrackerTitle, 'Customer_-_September_2026');
     fs.writeFileSync(file, 'damaged');
     assert.throws(() => vault.read(), /could not be decrypted/);
     safeStorage.isEncryptionAvailable = () => false;

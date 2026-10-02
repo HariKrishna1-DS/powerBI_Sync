@@ -1,18 +1,18 @@
-# DataTrace Studio 2.0
+# Tv Tracker 2.1
 
-DataTrace Studio runs the existing production workspace as a Windows desktop application. There is no hosted backend, Render subscription, or PostgreSQL service. The packaged release includes Electron/Node and the Python engine. Google Sheets remains the production source of truth.
+Tv Tracker runs the existing production workspace as a Windows desktop application. There is no hosted backend, Render subscription, or PostgreSQL service. The packaged release includes Electron/Node and the Python engine. Google Sheets remains the production source of truth.
 
 ## Install or run
 
-- **Installer:** open `DataTrace-Studio-2.0.0-x64.exe` and follow the per-user installation wizard. Administrator access is not required for the default location.
-- **Portable:** extract the entire `DataTrace-Studio-2.0.0-x64.zip` into a permanent folder and open `DataTrace Studio.exe`. Keep its `resources` folder and other files together.
+- **Installer:** open `Tv-Tracker-2.1.0-x64.exe` and follow the per-user installation wizard. Administrator access is not required for the default location.
+- **Portable:** extract the entire `Tv-Tracker-2.1.0-x64.zip` into a permanent folder and open `Tv Tracker.exe`. Keep its `resources` folder and other files together.
 - This release targets Windows x64 and was tested on Windows 11. It is unsigned; a trusted code-signing certificate is needed before broad public distribution.
-- Python, Node.js, npm, and a separately running web server are not required to use the packaged app. Queue extraction uses installed Microsoft Edge or Google Chrome.
+- Python, Node.js, npm, and a separately running web server are not required to use the packaged app. Queue extraction uses an explicitly selected browser when configured, otherwise prefers installed Google Chrome and then Microsoft Edge.
 
 ## First connection
 
 1. Select **Connect your workspace**, the settings icon, or press **Ctrl+,**.
-2. Enter the Google spreadsheet URL or ID and the exact names of the two production tracker tabs. Defaults retain the existing September 2026 tracker names; change them if your Sheet uses other names.
+2. Enter the Google spreadsheet URL or ID and the exact names of the two production tracker tabs. Defaults use stable tracker names without a month suffix. The exact shipped September aliases are migrated during sync; custom tab names remain unchanged.
 3. Import a Google service-account JSON key. Enable the Google Sheets API in that Google Cloud project and share the spreadsheet with the displayed account email as **Editor**.
 4. Enter your TitleVision username, password, and queue URL. The queue must use `https://tv.datatracetitle.com`.
 5. Save settings. The local engine restarts automatically. Reopen settings and use **Test saved Google Sheets connection**.
@@ -21,23 +21,24 @@ The password and service-account JSON are encrypted with Windows DPAPI through E
 
 ## Everyday work
 
-- **Overview / Data sheets / Daily Orders / Monthly report:** production reports from the configured Sheet. A dated offline banner identifies a previously cached copy. Live corrections require a connection.
+- **Data sheets / Daily Orders / Monthly report:** production reports from the configured Sheet. A dated offline banner identifies a previously cached copy. Live corrections require a connection.
 - **Saved captures:** inspect an imported or extracted raw queue locally and export it as Excel or filtered CSV. A raw capture is not substituted for production reporting.
-- **Compare previews:** compare two captures without changing tracker statuses.
-- **Changes:** inspect the Sheet's sync audit trail and review items.
+- **Changes:** compare two captures by Order Number without changing tracker statuses.
+- **Sync activity:** inspect the latest local sync report, missing orders, ambiguities, and baseline conflicts.
 - **Ctrl+K:** find a page, open settings, or import a file.
+- Export confirms any shortened Excel sheet names and applies the shared row palette, including Free Site cells.
 - Google Sheets reads are shared and cached for 30 seconds. Saving a sync or SLA correction invalidates the cache. The connection test forces a fresh read.
-- Imported files are saved locally even before credentials are configured. Pending uploads are retried once Sheets is configured. Conflicting preview IDs in an existing cloud history are rejected by the reconciliation guard rather than overwriting that history; resolve the conflict before retrying.
+- Imported files are saved locally even before credentials are configured. Pending uploads are processed once Sheets is configured. A failed upload has three bounded attempts; a persisted failure pauses later uploads until you choose Retry sync. Validation conflicts require correction before retry. Conflicting preview IDs in an existing cloud history are rejected by the reconciliation guard rather than overwriting that history; resolve the conflict before retrying.
 
 Internet is required for extraction and Google Sheets operations. Previously saved captures and production copies remain readable without it. The application does not solve portal CAPTCHA or MFA automatically; normal portal access is still required.
 
 ## Scheduling and closing
 
-Schedule times use India Standard Time. The computer must be awake and DataTrace Studio must be running. Closing the window keeps it in the system tray by default; double-click the tray icon to reopen it. **Workspace → Quit** or the tray's **Quit** stops the app and local engine. An active job prompts before cancellation. Settings → Workspace can disable tray behavior or enable launch at Windows sign-in. Only one instance uses a given profile.
+Schedule times use India Standard Time anchored to Google HTTPS time and advanced by a monotonic clock. Until an initial network-time synchronization succeeds, schedules cannot be enabled or triggered; manual capture remains available. An established time anchor continues during a temporary outage. The computer must be awake and Tv Tracker must be running. Closing the window keeps it in the system tray by default; double-click the tray icon to reopen it. **Workspace → Quit** or the tray's **Quit** stops the app and local engine. An active job prompts before cancellation. Settings → Workspace can disable tray behavior or enable launch at Windows sign-in. Only one instance uses a given profile.
 
 ## Data, backup, and migration
 
-Use **Settings → Workspace → Open data folder** for the exact location. The app stores writable data in `app.getPath('userData')/workspace`, outside installation files. Reinstalling or upgrading does not intentionally remove this data. The installer preserves app data when uninstalling.
+Use **Settings → Workspace → Open data folder** for the exact location. The app retains `%APPDATA%/DataTrace Studio/workspace` as its writable data location for compatibility with version 2.0. The visible product name is Tv Tracker; the internal profile, installer ID and startup entry identity remain stable. On launch, startup settings refresh the executable path for the renamed app. Reinstalling or upgrading does not intentionally remove this data. The installer preserves app data when uninstalling.
 
 **Create backup** writes a ZIP containing the SQLite preview history and receipts, local schedule/product preferences, and the dated production cache. Passwords, private keys, and logs are excluded. **Restore backup** validates the archive/database, saves a safety backup of the current workspace, and restores local data. Google Sheets is not changed. Safety copies are retained beside the workspace for recovery; remove them only when you no longer need them.
 
@@ -47,6 +48,7 @@ To migrate the earlier browser application's data, close both applications, make
 
 - **Missing connection:** configure the Sheet and service-account key, then use the saved-connection test.
 - **Authentication rejected:** import a current active key and verify Editor sharing and Sheets API access.
+- **Browser exits before extraction starts:** select Chrome in Settings → Workspace → Choose browser. Chrome passed this release’s packaged fixture; Edge failed on the validation machine.
 - **Browser not found:** install Edge/Chrome or select its executable in Settings → Workspace.
 - **Startup failure:** use the displayed error and **Help → Open logs**. Backend crashes offer an engine restart. The app never binds to a public network interface.
 - **Offline:** keep reading saved captures/reports; reconnect and retry. Pending previews remain stored locally.
@@ -63,7 +65,7 @@ From the repository root in PowerShell:
 powershell -ExecutionPolicy Bypass -File desktop/build.ps1 -Python C:\Path\To\Python312\python.exe
 ```
 
-The script installs Python build dependencies into `.desktop-build/deps`, installs locked npm dependencies, builds the UI and standalone engine, and writes the installer/portable ZIP to `release`. Pass `-DirectoryOnly` for an unpacked test build. It does not publish or upload a release.
+The script installs Python build dependencies into `.desktop-build/deps`, installs locked npm dependencies, builds the UI and standalone engine, and writes the installer/portable ZIP to `release/2.1.0`. Pass `-DirectoryOnly` for an unpacked test build. It does not publish or upload a release.
 
 For desktop development after building dependencies and the UI:
 
@@ -79,7 +81,7 @@ Tests:
 npm.cmd --prefix desktop test
 node desktop/smoke.cjs
 # To smoke-test the packaged application:
-$env:DESKTOP_EXE = (Resolve-Path 'release/win-unpacked/DataTrace Studio.exe').Path
+$env:DESKTOP_EXE = (Resolve-Path 'release/2.1.0/win-unpacked/Tv Tracker.exe').Path
 node desktop/smoke.cjs
 ```
 
@@ -90,3 +92,7 @@ See `docs/DESKTOP_VALIDATION.md` for the checks actually completed and their lim
 Electron provides a predictable native window and a bundled Node runtime while retaining the tested React workflows. Its memory and download size exceed a minimal WebView shell; this release favors reliable integration and distribution. The Python engine is bundled with PyInstaller in directory mode, avoiding repeated executable extraction on each launch. The renderer is sandboxed with context isolation and without Node integration. A narrow preload API handles settings and native dialogs, checks IPC senders, and never provides generic filesystem or shell access. The local engine uses an OS-assigned loopback port and per-launch authentication. Windows Job Objects clean up extraction descendants when the engine exits.
 
 References: [Electron security guidance](https://www.electronjs.org/docs/latest/tutorial/security), [Electron safeStorage](https://www.electronjs.org/docs/latest/api/safe-storage), [PyInstaller operating modes](https://pyinstaller.org/en/stable/operating-mode.html).
+
+## Version 2.1 upgrade behavior
+
+Existing receipt tables and old workspace backups are upgraded without re-uploading confirmed captures. New backups include local audit receipts and failures. The shipped historical baseline workbooks are used during sync; opening an unconfigured app does not write them to Google Sheets. The sync rules intentionally clear tracker Comments, Assignee and iAssignee while preserving raw captures and other manual columns/formulas. Read the [integration report](DESKTOP_UPSTREAM_ALIGNMENT.md) before the first production sync.

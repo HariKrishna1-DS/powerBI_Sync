@@ -1,0 +1,17 @@
+{
+  "available": "#d9ead3",
+  "in progress": "#00b050",
+  "qc in progress": "#f4b183",
+  "ready to send": "#ffff00",
+  "search in progress": "#ffffff",
+  "typing in progress": "#00b050",
+  "typing is progress": "#00b050",
+  "waiting for effective date": "#ffffff",
+  "assign to abs": "#a6a6a6",
+  "need to assign abs": "#a6a6a6",
+  "awaiting for clarification": "#a66bd3",
+  "cancelled": "#c00000",
+  "completed and delivered": "#ffff99",
+  "task suspended": "#c9daf8",
+  "workflow suspended": "#c9daf8"
+}

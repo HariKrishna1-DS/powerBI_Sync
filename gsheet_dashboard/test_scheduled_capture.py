@@ -19,6 +19,11 @@ from order_reporting import automatic_sync_frame
 from sheets_repository import sync_production
 
 
+def server_clock():
+    import server
+    return Mock(now=lambda: server.datetime.now(IST), snapshot=lambda: {})
+
+
 class ScheduledCaptureTests(unittest.TestCase):
     def setUp(self):
         self.folder = tempfile.TemporaryDirectory()
@@ -68,7 +73,7 @@ class ScheduledCaptureTests(unittest.TestCase):
         syncer.assert_not_called()
 
     def test_schedule_save_skips_elapsed_times_and_preserves_completed_slots(self):
-        app = create_app(self.store.root, runner=lambda on_progress: {'error': 'Test run'})
+        app = create_app(self.store.root, runner=lambda on_progress: {'error': 'Test run'}, time_source=server_clock())
         client = app.test_client()
         with patch('server.datetime') as clock:
             clock.strptime = datetime.strptime
@@ -82,7 +87,7 @@ class ScheduledCaptureTests(unittest.TestCase):
         self.assertEqual(resumed['triggered_today'], ['13:00'])
 
     def test_saving_a_past_minute_waits_until_next_day(self):
-        app = create_app(self.store.root, runner=lambda on_progress: {'error': 'Should not run'})
+        app = create_app(self.store.root, runner=lambda on_progress: {'error': 'Should not run'}, time_source=server_clock())
         with patch('server.datetime') as clock:
             clock.strptime = datetime.strptime
             clock.now.return_value = datetime(2026, 9, 30, 13, 1, 10, tzinfo=IST)
@@ -170,7 +175,7 @@ class ScheduledCaptureTests(unittest.TestCase):
             with patch('server.datetime') as clock:
                 clock.strptime = datetime.strptime
                 clock.now.return_value = datetime(2026, 9, 30, 13, 1, tzinfo=IST)
-                client = create_app(self.store.root).test_client()
+                client = create_app(self.store.root, time_source=server_clock()).test_client()
                 saved = client.post('/api/sync-schedule', json={'enabled': True, 'times': ['13:00', '14:00']})
                 self.assertEqual(saved.status_code, 200)
                 self.assertEqual(json.loads(cloud['value'])['times'], ['13:00', '14:00'])
