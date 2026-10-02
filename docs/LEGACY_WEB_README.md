@@ -1,21 +1,6 @@
-# DataTrace Studio — Windows desktop
+# DataTrace Workspace & PowerBI Sync
 
-DataTrace Studio is a local desktop workspace for TitleVision extraction, Google Sheets production reporting, saved captures, comparison, and Power BI exports. The desktop release includes its Python and Node runtimes. No Render hosting or PostgreSQL is required.
-
-Open `DataTrace-Studio-2.0.0-x64.exe` to install, or extract the portable ZIP and open `DataTrace Studio.exe`. Configure Google Sheets and TitleVision through **Connections & settings** (Ctrl+,). Internet is needed for live extraction/sync; saved captures and dated production copies remain available offline.
-
-- [Desktop installation, settings, backup, and build guide](docs/DESKTOP_GUIDE.md)
-- [Implementation prompt used for this conversion](docs/DESKTOP_TRANSFORMATION_PROMPT.md)
-- [Desktop validation and release limits](docs/DESKTOP_VALIDATION.md)
-- [Production reconciliation requirements](docs/TV_Search_Sync_Prompt.md)
-
-The desktop app includes a single native window, a system tray, encrypted credentials, an authenticated loopback engine, offline production caching, backup/restore, keyboard quick actions, and local data that survives upgrades. The current Windows build is unsigned.
-
-Build from source with `desktop/build.ps1`; output is written to `release/`. Run `python make_bundle.py` to create a credential-free source ZIP. Developer dependency versions are recorded in lockfiles.
-
-## Optional browser development
-
-The original browser/Streamlit development workflows remain available below. They are not prerequisites for using the packaged desktop app. Cloud-hosting notes apply only to the legacy browser deployment. The earlier README is also preserved in [legacy web documentation](docs/LEGACY_WEB_README.md).
+DataTrace Workspace is a local web application and automation suite designed for extracting title queue data from TitleVision, generating structured previews, synchronizing data with Google Sheets, and providing exports for Power BI reporting.
 
 ## 🚀 Overview
 

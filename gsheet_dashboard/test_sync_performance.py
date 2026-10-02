@@ -45,12 +45,12 @@ class SyncPerformanceTests(unittest.TestCase):
     def test_sync_is_accepted_before_slow_preparation_and_rejects_duplicate(self):
         entered, release, returned = threading.Event(), threading.Event(), threading.Event()
         self.addCleanup(release.set)
-        original_history = PreviewStore.history
+        original_get = PreviewStore.get
 
-        def slow_history(store):
+        def slow_get(store, number):
             entered.set()
             release.wait(5)
-            return original_history(store)
+            return original_get(store, number)
 
         syncer = Mock(return_value=['Sheet1'])
         client = create_app(self.root, syncer=syncer).test_client()
@@ -60,7 +60,7 @@ class SyncPerformanceTests(unittest.TestCase):
             responses.append(client.post('/api/sync', json={'preview': self.saved['id']}))
             returned.set()
 
-        with patch.object(PreviewStore, 'history', slow_history):
+        with patch.object(PreviewStore, 'get', slow_get):
             submitter = threading.Thread(target=submit)
             submitter.start()
             try:

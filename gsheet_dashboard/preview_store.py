@@ -71,8 +71,8 @@ class PreviewStore:
     def list(self):
         with self.connect() as db:
             return [{'id': i, 'name': f'preview{i}', 'created': created, 'source': source,
-                     'row_count': len(self.decode(rows))} for i, created, source, rows in
-                    db.execute('SELECT id,created,source,rows_json FROM previews ORDER BY id DESC')]
+                     'row_count': count} for i, created, source, count in
+                    db.execute('SELECT id,created,source,json_array_length(rows_json) FROM previews ORDER BY id DESC')]
 
     def get(self, number):
         with self.connect() as db:
@@ -140,6 +140,10 @@ class PreviewStore:
         return [{'id': number, 'name': f'preview{number}', 'created': created, 'source': source,
                  'columns': self.decode(columns), 'rows': self.decode(records)}
                 for number, created, source, columns, records in rows]
+
+    def pending_count(self):
+        with self.connect() as db:
+            return db.execute('SELECT COUNT(*) FROM previews WHERE id NOT IN (SELECT preview_id FROM sync_receipts)').fetchone()[0]
 
 
 

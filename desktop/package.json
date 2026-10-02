@@ -1,0 +1,72 @@
+{
+  "name": "datatrace-studio",
+  "version": "2.0.0",
+  "description": "Private desktop workspace for title production and Google Sheets synchronization",
+  "author": "DataTrace Studio",
+  "private": true,
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test tests/*.test.cjs",
+    "pack": "electron-builder --dir --win --x64",
+    "dist": "electron-builder --win nsis zip --x64"
+  },
+  "build": {
+    "appId": "com.datatrace.studio",
+    "productName": "DataTrace Studio",
+    "asar": true,
+    "directories": {
+      "output": "../release",
+      "buildResources": "assets"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "settings.cjs",
+      "assets/**",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "../.desktop-build/backend/datatrace-engine",
+        "to": "backend"
+      },
+      {
+        "from": "../.desktop-build/extractor",
+        "to": "extractor",
+        "filter": [
+          "**/*",
+          "!**/test/**",
+          "!**/tests/**",
+          "!**/*.map"
+        ]
+      },
+      {
+        "from": "../desktop/extractor/node_modules",
+        "to": "extractor/node_modules",
+        "filter": ["**/*", "!**/test/**", "!**/tests/**", "!**/*.map"]
+      }
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "zip"
+      ],
+      "icon": "assets/icon.ico",
+      "signAndEditExecutable": true
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "deleteAppDataOnUninstall": false
+    },
+    "artifactName": "DataTrace-Studio-${version}-${arch}.${ext}"
+  },
+  "devDependencies": {
+    "electron": "44.5.1",
+    "electron-builder": "26.15.3"
+  }
+}

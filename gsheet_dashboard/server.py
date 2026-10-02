@@ -5,6 +5,7 @@ import json
 import os
 import re
 import socket
+import hmac
 from io import BytesIO
 from pathlib import Path
 import threading
@@ -19,7 +20,8 @@ from datatrace_sync import run_sync, sync_workbook, target_worksheet
 from reporting_dates import reporting_date
 from preview_store import PreviewStore, compare
 from order_reporting import automatic_sync_frame, daily_orders, monthly_orders, AUTOMATIC_RULES, completion_history
-from sync_config import BASE_DIR, TARGET_GSHEET_URL, TRACKER_TITLES
+from sync_config import BASE_DIR, ASSET_DIR, SPREADSHEET_ID, TARGET_GSHEET_URL, TRACKER_TITLES
+from production_cache import ProductionCache
 from sheets_repository import read_tracker_rows, read_preview_history, tracker_values
 from sla_comments import sla_key, sla_status
 
@@ -92,6 +94,10 @@ def workbook(frame, name):
 
 def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
     app = Flask(__name__, static_folder=None)
+    desktop_mode = os.environ.get('DATATRACE_DESKTOP') == '1'
+    desktop_token = os.environ.get('DATATRACE_DESKTOP_TOKEN', '')
+    if desktop_mode and not desktop_token:
+        raise RuntimeError('Desktop authentication is required.')
     app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024
     store = PreviewStore(root or BASE_DIR / 'previews')
     runner = runner or (lambda on_progress: run_sync(on_progress=on_progress, auto_sync=False))
@@ -106,6 +112,74 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
     snapshot_lock = threading.Lock()
     snapshot_cache = {'checked': float('-inf'), 'signature': None, 'snapshot': None}
     recovery_checked = float('-inf')
+    scheduler_stop = threading.Event()
+    maintenance = threading.Event()
+    app.extensions['stop_scheduler'] = scheduler_stop
+    production_cache = ProductionCache(store.root.parent / 'production-cache.json', '|'.join((SPREADSHEET_ID, *TRACKER_TITLES)))
+    app.extensions['production_cache'] = production_cache
+
+    @app.before_request
+    def desktop_security():
+        if desktop_mode and not hmac.compare_digest(request.headers.get('X-DataTrace-Token', ''), desktop_token):
+            return jsonify(error='Open this workspace in DataTrace Studio.'), 401
+        if request.path.startswith('/api/desktop/') and not desktop_mode:
+            return jsonify(error='This action is available in the desktop app.'), 404
+        if maintenance.is_set() and request.path not in ('/api/health', '/api/desktop/shutdown'):
+            return jsonify(error='The local workspace is being restored. Try again in a moment.'), 503
+        if request.path == '/api/desktop/restore':
+            request.max_content_length = 100 * 1024 * 1024
+
+    @app.after_request
+    def response_security(response):
+        response.headers['X-Content-Type-Options'] = 'nosniff'
+        response.headers['Referrer-Policy'] = 'no-referrer'
+        if desktop_mode:
+            response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"
+        if request.path.startswith('/api/'):
+            response.headers['Cache-Control'] = 'no-store'
+        return response
+
+    @app.get('/api/health')
+    def health():
+        with state_lock:
+            return jsonify(ready=True, running=state['running'], stage=state['stage'], desktop=desktop_mode)
+
+    @app.post('/api/desktop/shutdown')
+    def shutdown_desktop():
+        with state_lock:
+            if state['running'] and not (request.get_json(silent=True) or {}).get('force'):
+                return jsonify(error='A job is running.'), 409
+        scheduler_stop.set()
+        callback = app.config.get('DESKTOP_SHUTDOWN')
+        if callback:
+            threading.Timer(0.15, callback).start()
+        return jsonify(stopping=True)
+
+    @app.get('/api/desktop/backup')
+    def desktop_backup():
+        from workspace_backup import make_backup
+        if not gate.acquire(blocking=False):
+            return jsonify(error='Wait for the current job before backing up.'), 409
+        try:
+            return send_file(make_backup(store), as_attachment=True, download_name='DataTrace-backup.zip', mimetype='application/zip')
+        finally:
+            gate.release()
+
+    @app.post('/api/desktop/restore')
+    def desktop_restore():
+        from workspace_backup import restore_backup
+        if not gate.acquire(blocking=False):
+            return jsonify(error='Wait for the current job before restoring.'), 409
+        try:
+            maintenance.set()
+            safety = restore_backup(store, request.get_data())
+            invalidate_snapshot()
+            production_cache.reload()
+            production_cache.invalidate()
+            return jsonify(restored=True, safety_backup=safety)
+        finally:
+            maintenance.clear()
+            gate.release()
 
     def invalidate_snapshot():
         with snapshot_lock:
@@ -120,10 +194,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
             previews = store.list()
             signature = tuple((p['id'], p['created'], p['source'], p['row_count']) for p in previews)
             if signature != snapshot_cache['signature']:
-                history = store.history()
-                previews = [{'id': p['id'], 'name': p['name'], 'created': p['created'],
-                             'source': p['source'], 'row_count': len(p['rows'])}
-                            for p in sorted(history, key=lambda p: p['id'], reverse=True)]
+                history = None
                 reports = []
                 snapshot_cache['snapshot'] = (previews, history, reports)
                 snapshot_cache['signature'] = tuple((p['id'], p['created'], p['source'], p['row_count']) for p in previews)
@@ -132,7 +203,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
 
     def recover_latest_preview(required=False):
         nonlocal recovery_checked
-        if root is not None or reporting_snapshot()[0]:
+        if root is not None or reporting_snapshot()[0] or (desktop_mode and not required):
             return
         with preview_recovery_lock:
             if not required and clock.monotonic() - recovery_checked < 60:
@@ -213,13 +284,12 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
         previews, history, reports = reporting_snapshot()
         if not previews:
             raise ValueError('Capture or import a preview before syncing Google Sheets.')
-        by_id = {p['id']: p for p in history}
-        selected_preview = by_id[int(preview_id) if preview_id is not None else previews[0]['id']]
+        selected_preview = store.get(int(preview_id) if preview_id is not None else previews[0]['id'])
         if previous_id is None:
             previous_id = next((item['id'] for item in previews if item['id'] < selected_preview['id']), None)
         if previous_id is not None and int(previous_id) >= selected_preview['id']:
             raise ValueError('The previous preview must be older than the selected preview.')
-        previous_preview = by_id[int(previous_id)] if previous_id is not None else None
+        previous_preview = store.get(int(previous_id)) if previous_id is not None else None
         frame, completed_orders = automatic_sync_frame(selected_preview, previous_preview, keys, ignore,
                                                        store=store, reports=reports)
         frame.attrs['preview_name'] = selected_preview['name']
@@ -275,6 +345,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
                 state['stage'] = stage
         worksheets = syncer(frame, on_progress=progress) if syncer is sync_workbook else syncer(frame)
         store.mark_synced(frame.attrs['preview_id'], frame.attrs.get('pass_report', {}))
+        production_cache.invalidate()
         return worksheets
 
     def drain_earlier_previews(preview_id):
@@ -393,7 +464,9 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
         return jsonify(previews=previews, job=job, schedule=schedule, sheet_url=TARGET_GSHEET_URL,
                        remaining_products=remaining_products,
                        daily_completed_ids=daily_completed_ids,
-                       capabilities={'status_rules': True, 'automatic_statuses': True})
+                       pending_sync=store.pending_count(),
+                       capabilities={'status_rules': True, 'automatic_statuses': True, 'desktop': desktop_mode,
+                                     'google_configured': bool(SPREADSHEET_ID and os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON'))})
 
     @app.get('/api/remaining-products')
     def get_remaining_products():
@@ -419,6 +492,9 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
         recover_latest_preview()
         preview_id = request.args.get('preview_id', type=int)
         try:
+            if desktop_mode:
+                snapshot = production_snapshot()
+                return jsonify(rows=daily_orders(sheet_rows=snapshot['sheets']['Overview']['rows']), source=snapshot['source'], offline=snapshot['offline'], updated_at=snapshot['updated_at'])
             book, _ = target_worksheet()
             rows = daily_orders(sheet_rows=read_tracker_rows(book))
             return jsonify(rows=rows, selected_date=None, source='Google Sheets')
@@ -438,6 +514,9 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
     def get_monthly_orders():
         recover_latest_preview()
         try:
+            if desktop_mode:
+                snapshot = production_snapshot()
+                return jsonify(rows=monthly_report(snapshot['sheets']['Overview']['rows']), sla_error=None, source=snapshot['source'], offline=snapshot['offline'], updated_at=snapshot['updated_at'])
             _, sheet_rows, _ = read_sla_sheets()
             return jsonify(rows=monthly_report(sheet_rows), sla_error=None, source='Google Sheets')
         except Exception as exc:
@@ -559,31 +638,50 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
                     message += f' {sheet_count} also updated in Google Sheets.'
                 if history_count:
                     message += f' {history_count} historical {"order" if history_count == 1 else "orders"} will use the correction when synced again.'
+            production_cache.invalidate()
             return jsonify(saved=True, updated_count=len(selection), rows=monthly_report(sheet_rows, corrections), message=message)
         finally:
             gate.release()
 
-    @app.get('/api/live-sheets')
-    def get_live_sheets():
-        recover_latest_preview()
-        try:
+    def production_snapshot(force=False):
+        def load():
             book, _ = target_worksheet()
-        except RuntimeError as exc:
-            return jsonify(error=str(exc)), 502
-        try:
             sheets = {}
             trackers = tracker_values(book)
             for title, values in zip(('Full Title', 'Remaining Products'), trackers):
                 sheets[title] = {'columns': values[0], 'rows': [dict(zip(values[0], row)) for row in values[1:]]} if values else {'columns': [], 'rows': []}
             columns = list(dict.fromkeys(c for title in ('Full Title', 'Remaining Products') for c in sheets[title]['columns']))
             sheets['Overview'] = {'columns': columns, 'rows': sheets['Full Title']['rows'] + sheets['Remaining Products']['rows']}
-            for title in ('All Products', 'Status Report', 'Changes', 'Needs review'):
-                values = book.worksheet(title).get_all_values()
+            from gspread.exceptions import WorksheetNotFound
+            for title in ('Status Report', 'Changes', 'Needs review'):
+                try:
+                    values = book.worksheet(title).get_all_values()
+                except WorksheetNotFound:
+                    values = []
                 sheets[title] = {'columns': values[0], 'rows': [dict(zip(values[0], row)) for row in values[1:]]} if values else {'columns': [], 'rows': []}
             names = {row.get('Preview') for row in sheets['Status Report']['rows'] if row.get('Preview')}
-            return jsonify(preview_name=names.pop() if len(names) == 1 else None, sheets=sheets, source='Google Sheets')
+            return dict(preview_name=names.pop() if len(names) == 1 else None, sheets=sheets, source='Google Sheets')
+        return production_cache.get(load, force=force) if desktop_mode else load()
+
+    @app.get('/api/live-sheets')
+    def get_live_sheets():
+        recover_latest_preview()
+        try:
+            return jsonify(production_snapshot())
+        except RuntimeError as exc:
+            return jsonify(error=str(exc)), 502
         except Exception as exc:
             return jsonify(error=f'Could not read Google Sheets: {exc}'), 502
+
+    @app.post('/api/desktop/check-connection')
+    def check_connection():
+        try:
+            result = production_snapshot(force=True)
+            if result.get('offline'):
+                return jsonify(error=result['sync_error']), 502
+            return jsonify(connected=True, orders=len(result['sheets']['Overview']['rows']), updated_at=result.get('updated_at'))
+        except Exception as exc:
+            return jsonify(error=str(exc)), 502
 
     @app.post('/api/extract')
     def extract():
@@ -717,8 +815,10 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
             raise ValueError('Cannot read this file. Use a valid UTF-8 CSV or XLSX workbook with headers.') from exc
         saved = store.save(frame, source=Path(upload.filename).name)
         invalidate_snapshot()
-        begin_sync('import', saved['id'])
-        return jsonify(dict(saved, auto_sync=True)), 201
+        can_sync = not desktop_mode or bool(SPREADSHEET_ID and os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON'))
+        if can_sync:
+            begin_sync('import', saved['id'])
+        return jsonify(dict(saved, auto_sync=can_sync)), 201
 
     @app.get('/api/previews/<int:number>/download/<kind>')
     def download(number, kind):
@@ -787,13 +887,14 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
     @app.get('/')
     @app.get('/<path:path>')
     def frontend(path='index.html'):
-        return send_from_directory(BASE_DIR / 'frontend' / 'dist', path)
+        return send_from_directory(ASSET_DIR / 'frontend' / 'dist', path)
 
     if start_scheduler:
         def schedule_loop():
-            while True:
-                clock.sleep(15)
+            while not scheduler_stop.wait(15):
                 try:
+                    if desktop_mode and not (SPREADSHEET_ID and os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON')):
+                        continue
                     recover_latest_preview()
                     if not schedule_tick():
                         pending = store.pending()

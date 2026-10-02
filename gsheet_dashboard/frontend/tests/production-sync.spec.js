@@ -26,7 +26,7 @@ async function mockProduction(page, offline = false) {
 test('production views use retained Sheet orders and Changes uses the Sheet audit log', async ({page}) => {
   await mockProduction(page);
   await page.goto('/');
-  await expect(page.getByRole('status').filter({hasText: 'Connected Google Sheet'})).toBeVisible();
+  await expect(page.getByRole('status').filter({hasText: 'Google Sheets connected'})).toBeVisible();
   const metric = page.locator('.metric').filter({hasText: 'Visible orders'});
   await expect(metric.locator('strong')).toHaveText('2');
   await page.getByRole('button', {name: 'Data sheets', exact: true}).click();
@@ -43,7 +43,7 @@ test('production views use retained Sheet orders and Changes uses the Sheet audi
 test('a failed Sheet connection does not show raw previews as production data', async ({page}) => {
   await mockProduction(page, true);
   await page.goto('/');
-  await expect(page.getByRole('status').filter({hasText: 'Production reports are unavailable'})).toBeVisible();
+  await expect(page.getByRole('status').filter({hasText: 'Connect Google Sheets to load production reports'})).toBeVisible();
   await expect(page.locator('.metric').filter({hasText: 'Visible orders'}).locator('strong')).toHaveText('—');
   await page.getByRole('button', {name: 'Data sheets', exact: true}).click();
   await expect(page.getByText('RAW-ONLY', {exact: true})).toHaveCount(0);

@@ -10,7 +10,7 @@ import time
 
 import pandas as pd
 from openpyxl.worksheet.table import Table, TableStyleInfo
-from sync_config import BASE_DIR, SPREADSHEET_ID, WORKSHEET_GID, TARGET_GSHEET_URL
+from sync_config import BASE_DIR, ASSET_DIR, SPREADSHEET_ID, WORKSHEET_GID, TARGET_GSHEET_URL
 
 # Product list used only by dashboard filters; sync includes every product.
 REMAINING_PRODUCTS = json.loads(Path(__file__).with_name('remaining_products.json').read_text(encoding='utf-8'))
@@ -70,6 +70,8 @@ def target_worksheet():
     from google.auth.exceptions import RefreshError
     from google.oauth2.service_account import Credentials
     value = os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON', 'service_account.json').strip()
+    if os.environ.get('DATATRACE_DESKTOP') == '1' and (not value or not SPREADSHEET_ID):
+        raise RuntimeError('Open Connections & settings to add your Google Sheet and service-account key.')
     try:
         if value.startswith('{'):
             info = json.loads(value)
@@ -514,7 +516,8 @@ def read_target(gid=None, title=None):
 def run_sync(on_progress=None, auto_sync=True):
     from dotenv import load_dotenv
     from preview_store import PreviewStore
-    load_dotenv(BASE_DIR / '.env', override=True)
+    if os.environ.get('DATATRACE_DESKTOP') != '1':
+        load_dotenv(BASE_DIR / '.env', override=True)
     status = {'action': 'extract', 'started_at': dt.datetime.now(dt.timezone.utc).isoformat(),
               'scrape': 'pending', 'google_sheet': 'not_synced', 'rows': 0, 'error': None}
     def progress(stage):
@@ -537,8 +540,15 @@ def run_sync(on_progress=None, auto_sync=True):
         with tempfile.TemporaryDirectory(prefix='datatrace-') as folder:
             output = Path(folder) / 'queue.json'
             env = dict(os.environ, DATATRACE_OUTPUT_JSON=str(output))
-            process = subprocess.run(['node', str(BASE_DIR / 'scrape_datatrace.js')],
-                                     cwd=BASE_DIR, env=env, capture_output=True, text=True, timeout=300)
+            extractor = Path(os.environ.get('DATATRACE_EXTRACTOR_DIR', str(ASSET_DIR)))
+            node = os.environ.get('DATATRACE_NODE_EXECUTABLE', 'node')
+            env.pop('GOOGLE_SERVICE_ACCOUNT_JSON', None)
+            env.pop('DATATRACE_DESKTOP_TOKEN', None)
+            if os.environ.get('DATATRACE_DESKTOP') == '1':
+                env['ELECTRON_RUN_AS_NODE'] = '1'
+            process = subprocess.run([node, str(extractor / 'scrape_datatrace.js')],
+                                     cwd=extractor, env=env, capture_output=True, text=True, timeout=300,
+                                     creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
             if process.returncode:
                 details = process.stderr if isinstance(process.stderr, str) else ''
                 lines = [line.strip() for line in details.splitlines() if line.strip()]

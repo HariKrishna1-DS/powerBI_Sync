@@ -1,4 +1,26 @@
-# DataTrace Application Architecture
+# DataTrace Studio architecture
+
+The primary product is now the Windows desktop app. `desktop/main.cjs` owns the native window, single-instance lock, encrypted settings, process lifecycle, tray, and native dialogs. A sandboxed React renderer talks to a bundled Python engine through an authenticated, loopback-only HTTP service on an operating-system-assigned port. Google Sheets remains the authoritative production store; local SQLite stores captures and sync receipts, while a dated JSON cache supports offline production reads.
+
+```mermaid
+flowchart LR
+  User[Desktop window / React] -->|Narrow validated IPC| Main[Electron main process]
+  Main --> Vault[Windows DPAPI credential vault]
+  Main -->|Start / stop / authenticated requests| Engine[Bundled Python engine]
+  User -->|Authenticated loopback API| Engine
+  Engine --> Local[Per-user captures / SQLite / backups]
+  Engine --> Cache[Dated offline production cache]
+  Engine -->|Internet when connected| Sheets[Google Sheets]
+  Engine --> Extract[Bundled Node extractor]
+  Extract --> Browser[Installed Edge or Chrome]
+  Browser --> Portal[TitleVision]
+```
+
+The installer and portable archive include the application runtimes. They require no Render service. Runtime files live outside installation files. Reporting modules and charts load on demand; backend polls read preview metadata rather than deserializing the full history. See [desktop guide](docs/DESKTOP_GUIDE.md) for configuration, security boundaries, packaging, and recovery.
+
+## Retained browser-engine reference
+
+The older browser-mode architecture below describes the optional web/Streamlit workflow and the internals reused by the desktop engine.
 
 ![DataTrace application architecture](docs/datatrace-application-architecture.png)
 

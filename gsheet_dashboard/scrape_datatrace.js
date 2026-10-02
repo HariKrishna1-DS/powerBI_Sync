@@ -1,4 +1,4 @@
-const puppeteer = require('puppeteer');
+const puppeteer = require(process.env.DATATRACE_DESKTOP === '1' ? 'puppeteer-core' : 'puppeteer');
 const fs = require('fs');
 const path = require('path');
 const {browserOptions} = require('./browser_options.cjs');
