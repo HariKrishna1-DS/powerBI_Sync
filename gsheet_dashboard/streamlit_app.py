@@ -151,24 +151,18 @@ st.markdown(f"""
 # Data Loading Functions
 @st.cache_data(ttl=60)
 def load_available_sources():
-    sources = {}
-    csv_file = BASE_DIR / "queue_data_sheet2.csv"
-    if csv_file.exists():
-        sources["queue_data_sheet2.csv (Latest Baseline)"] = ("csv", csv_file)
-    
-    for preview in PreviewStore(PREVIEWS_DIR).list():
-        sources[f"{preview['name']} ({preview['source']} · ID {preview['id']})"] = ("preview", preview['id'])
-    return sources
+    return {'Google Sheets production trackers': ('sheets', None)}
 
 
 def load_preview_data(source_type, source_val):
-    if source_type == "csv":
-        df = pd.read_csv(source_val)
-    elif source_type == "preview":
-        record = PreviewStore(PREVIEWS_DIR).get(source_val)
-        df = pd.DataFrame(record['rows'], columns=record['columns'])
-    else:
-        df = pd.DataFrame()
+    from datatrace_sync import target_worksheet
+    from tracker_sync import read_trackers
+    try:
+        book, _ = target_worksheet()
+        df = pd.DataFrame([row for rows in read_trackers(book).values() for row in rows]).fillna('')
+    except Exception as exc:
+        st.error(f'Google Sheet unavailable: {exc}')
+        st.stop()
     
     if not df.empty:
         df.columns = [str(c).strip() for c in df.columns]
@@ -210,7 +204,7 @@ if not sources:
 
 with st.sidebar:
     st.markdown("### ⚙️ Data Controls")
-    selected_source_name = st.selectbox("Select Data Capture / Preview", list(sources.keys()))
+    selected_source_name = st.selectbox("Data source", list(sources.keys()))
     st.markdown("---")
     st.markdown("### 🔍 Filters")
 

@@ -46,23 +46,7 @@ FULL_TITLE_FIELDS = list(SLICED_PRODUCT_FIELDS)
 REMAINING_PRODUCT_FIELDS = list(SLICED_PRODUCT_FIELDS)
 REPORT_SHEETS = [('All Products', ALL_PRODUCT_FIELDS), ('Full Title', FULL_TITLE_FIELDS),
                  ('Remaining Products', REMAINING_PRODUCT_FIELDS)]
-STATUS_COLORS = {
-    'available': '#d9ead3',
-    'in progress': '#00b050',
-    'qc in progress': '#f4b183',
-    'ready to send': '#ffff00',
-    'search in progress': '#ffffff',
-    'typing in progress': '#00b050',
-    'typing is progress': '#00b050',
-    'waiting for effective date': '#ffffff',
-    'assign to abs': '#a6a6a6',
-    'need to assign abs': '#a6a6a6',
-    'awaiting for clarification': '#a66ad3',
-    'cancelled': '#f4cccc',
-    'completed and delivered': '#fff2cc',
-    'task suspended': '#c9daf8',
-    'workflow suspended': '#c9daf8',
-}
+STATUS_COLORS = json.loads(Path(__file__).with_name('status_colors.json').read_text(encoding='utf-8'))
 
 
 def target_worksheet():
@@ -133,7 +117,10 @@ def powerbi_table(df, timestamp):
                                  + hours[2].fillna(0) / 60).where(hours.notna().any(axis=1)).round(2)
     status = result['Task Status'].str.lower()
     result['Is Available'] = status.eq('available')
-    result['Is Suspended'] = status.str.contains('suspended', na=False)
+    from tracker_sync import suspended
+    result['WorkflowSuspended'] = [suspended(row) or str(row.get('Task Status', '')).strip().casefold() == 'workflow suspended'
+                                    for row in result.to_dict('records')]
+    result['Is Suspended'] = result['WorkflowSuspended']
     sla = result.get('SLA Expiration*', result.get('SLA Expiration', pd.Series('', index=df.index)))
     result['SLA Status'] = sla.map(lambda v: 'Overdue' if str(v).startswith('-') else 'Unknown')
     result['Sync Timestamp'] = timestamp
@@ -164,6 +151,12 @@ def parse_report_datetime(value):
     text = str(value if pd.notna(value) else '').strip()
     if not text:
         return None
+    # Excel/Google Sheets date serials can be returned as displayed numbers
+    # when an imported date column has General formatting.
+    if re.fullmatch(r'\d{5}(?:\.\d+)?', text):
+        serial = float(text)
+        if 20000 <= serial < 100000:
+            return dt.datetime(1899, 12, 30) + dt.timedelta(days=serial)
     try:
         return dt.datetime.fromisoformat(text.replace('Z', '+00:00')).replace(tzinfo=None)
     except ValueError:
@@ -178,40 +171,17 @@ def parse_report_datetime(value):
 
 
 def sla_result(row):
-    out_text = str(row.get('Out Time', '') or '').strip()
-    if not out_text:
-        return ''
-    out = parse_report_datetime(out_text)
-    if out is None:
-        return 'Missed'
-    sla = str(row.get('SLA Expiration*', row.get('SLA Expiration', '')) or '').strip()
-    if re.fullmatch(r'-?(?:(?:\d+)d\s*)?(?:(?:\d+)h\s*)?(?:(?:\d+)m\s*)?', sla) and sla:
-        return 'Missed' if sla.startswith('-') else 'On Time'
-    if re.fullmatch(r'\d{1,2}:\d{2}(?::\d{2})?\s*(?:AM|PM)?', sla, re.I):
-        return 'On Time'
-    expiration = sla_expiration(row)
-    if expiration is None:
-        return 'Missed'
-    return 'On Time' if out < expiration else 'Missed'
+    from tracker_sync import free_site
+    anchor = parse_report_datetime(row.get('Sync Timestamp', '')) or dt.datetime.now()
+    data = dict(row)
+    data['SLA Expiration'] = row.get('SLA Expiration*', row.get('SLA Expiration', ''))
+    return free_site(data, anchor)[0]
 
 
 def sla_expiration(row):
-    sla = str(row.get('SLA Expiration*', row.get('SLA Expiration', '')) or '').strip()
-    expiration = parse_report_datetime(sla)
-    if expiration is None:
-        arrival = parse_report_datetime(row.get('Arrival Time', row.get('In-Time', '')))
-        anchor = arrival or parse_report_datetime(row.get('Out Time', ''))
-        if anchor is None:
-            return None
-        for pattern in ('%Y/%m/%d %I:%M %p', '%Y/%m/%d'):
-            try:
-                expiration = dt.datetime.strptime(f'{anchor.year}/{sla}', pattern)
-                if arrival and expiration.date() < arrival.date():
-                    expiration = expiration.replace(year=expiration.year + 1)
-                break
-            except ValueError:
-                pass
-    return expiration
+    from tracker_sync import deadline
+    anchor = parse_report_datetime(row.get('Sync Timestamp', '')) or dt.datetime.now()
+    return deadline(row.get('SLA Expiration*', row.get('SLA Expiration', '')), anchor)
 
 
 def report_frame(df, fields, product=None, selected_products=None):
@@ -282,7 +252,7 @@ def report_frame(df, fields, product=None, selected_products=None):
                 elif target in ('Date', 'In-Time', 'Out Time', 'Process date'):
                     parsed = parse_report_datetime(value)
                     if parsed:
-                        value = parsed.strftime('%m/%d/%Y')
+                        value = parsed.strftime('%m/%d/%Y' if target == 'Date' else '%m/%d/%Y %I:%M:%S %p')
             values.append(value)
         matrix.append(values)
     return pd.DataFrame(matrix, columns=[target for target, _ in fields])
@@ -320,40 +290,11 @@ def completion_date(value):
 
 
 def apply_status_rules(df, rules, reporting_date=None):
-    if not isinstance(rules, list):
-        raise ValueError('Status rules must be a list.')
-    mapping = {}
-    for rule in rules:
-        if not isinstance(rule, dict):
-            raise ValueError('Invalid status rule.')
-        source, target = rule.get('source'), rule.get('target')
-        if not isinstance(source, str) or not isinstance(target, str) or not source.strip() or not target.strip():
-            raise ValueError('Choose both statuses for each rule.')
-        key = source.strip().casefold()
-        if key in mapping:
-            raise ValueError('Each Status_1 can have only one replacement.')
-        mapping[key] = target.strip()
+    from tracker_sync import mapped_status
     result = df.copy()
-    columns = [column for column in ('Task Status', 'Status') if column in result.columns]
-    if mapping and not columns:
-        raise ValueError('This preview has no status column.')
-    for column in columns:
-        result[column] = result[column].map(lambda value: mapping.get(str(value).strip().casefold(), value))
-        if 'Task Name' in result.columns:
-            tasks = result['Task Name'].astype(str).str.strip().str.casefold().str.replace(' ', '', regex=False)
-            available = result[column].astype(str).str.strip().str.casefold().eq('available')
-            result.loc[available & tasks.eq('search'), column] = 'Search In Progress'
-            result.loc[available & tasks.eq('typingmodule'), column] = 'Typing is Progress'
-            result.loc[tasks.isin(['crsp2', 'searchfix', 'n/a']), column] = 'Completed and Delivered'
-    if columns:
-        if 'Out Time' not in result.columns:
-            result['Out Time'] = ''
-        completed = result[columns[0]].astype(str).str.strip().str.casefold().eq('completed and delivered')
-        today = reporting_date or df.attrs.get('reporting_date') or dt.date.today().isoformat()
-        dated = result['Out Time'].map(completion_date).notna()
-        result.loc[completed & ~dated, 'Out Time'] = today
-    if 'Is Available' in result.columns and columns:
-        result['Is Available'] = result[columns[0]].astype(str).str.strip().str.casefold().eq('available')
+    for column in ('Task Status', 'Status'):
+        if column in result:
+            result[column] = [mapped_status(row, row.get(column, '')) for row in result.to_dict('records')]
     return result
 
 
@@ -485,7 +426,7 @@ def status_row_format_request(df, sheet_id):
         'range': {'sheetId': sheet_id, 'startRowIndex': 1,
                   'startColumnIndex': 0, 'endColumnIndex': len(df.columns)},
         'rows': [{'values': [{'userEnteredFormat': {'backgroundColor': sheet_color(status_color(value))}}
-                            for _ in df.columns]} for value in df[column].fillna('')],
+                            for name in df.columns]} for value in df[column].fillna('')],
         'fields': 'userEnteredFormat.backgroundColor'}}
 
 
@@ -570,146 +511,9 @@ def sync_dataframe(df, target=None, validate=True, row_backgrounds=None, color_s
     return sheet.title
 
 
-def retain_completed_orders(df, existing_values, valid_completed_ids=None):
-    if not existing_values or 'Order Number' not in df.columns:
-        return df
-    headers = existing_values[0]
-    status_column = next((name for name in ('Task Status', 'Status') if name in headers), None)
-    if 'Order Number' not in headers or not status_column:
-        return df
-    records = [dict(zip(headers, row)) for row in existing_values[1:]]
-    completed = [row for row in records
-                 if str(row.get(status_column, '')).strip().casefold() == 'completed and delivered'
-                 and str(row.get('Order Number', '')).strip()]
-    if valid_completed_ids is not None:
-        completed = [row for row in completed if str(row.get('Order Number', '')).strip() in valid_completed_ids]
-    result = df.copy()
-    incoming = result['Order Number'].astype(str).str.strip()
-    dates = {str(row['Order Number']).strip(): completion_date(row.get('Out Time')) for row in completed}
-    status = next((column for column in ('Task Status','Status') if column in result.columns), None)
-    if status:
-        prior_dates = incoming.map(dates)
-        mask = result[status].astype(str).str.strip().str.casefold().eq('completed and delivered') & prior_dates.notna()
-        if mask.any():
-            result.loc[mask, 'Out Time'] = prior_dates[mask]
-    # Current queue statuses take precedence over historical sheet completion.
-    missing = [row for row in completed if str(row['Order Number']).strip() not in set(incoming)]
-    if missing:
-        result = pd.concat([result, pd.DataFrame(missing).reindex(columns=df.columns).fillna('')], ignore_index=True)
-    return result
-
-
 def sync_workbook(df, selected_products=None, on_progress=None):
-    from sla_comments import sla_key
-    sla_corrections = df.attrs.get('sla_corrections', {})
-    preview_name = df.attrs.get('preview_name') or (f"preview{df.attrs['preview_id']}" if df.attrs.get('preview_id') else 'Preview')
-    if on_progress:
-        on_progress('Connecting to Google Sheets')
-    book, primary = target_worksheet()
-    if selected_products is None:
-        selected_products = df.attrs.get('selected_products')
-    if selected_products is None:
-        try:
-            stored = json.loads(Path(__file__).with_name('remaining_products.json').read_text(encoding='utf-8'))
-            if isinstance(stored, list) and stored:
-                selected_products = stored
-        except Exception:
-            pass
-    original = df.attrs.get('original_capture')
-    raw = pd.DataFrame(original['rows'], columns=original['columns']).fillna('') if original else df.copy()
-    report_date = df.attrs.get('reporting_date')
-    valid_ids = df.attrs.get('valid_completed_ids')
-    recovered_dates = df.attrs.get('completion_dates', {})
-    existing_dates = {}
-    undated_history = set()
-    worksheets = book.worksheets()
-    primary_values = primary.get_all_values()
-    def remember_dates(values):
-        if not values:
-            return
-        for values_row in values[1:]:
-            row = dict(zip(values[0], values_row))
-            identity = str(row.get('Order Number', '')).strip()
-            if valid_ids is not None and identity not in valid_ids:
-                continue
-            date = completion_date(row.get('Out Time'))
-            completed = str(row.get('Task Status', row.get('Status', ''))).strip().casefold() == 'completed and delivered'
-            if identity and date and completed:
-                existing_dates.setdefault(identity, date)
-            elif identity and completed:
-                undated_history.add(identity)
-    remember_dates(primary_values)
-    df = retain_completed_orders(df, primary_values, valid_completed_ids=valid_ids)
-    if original:
-        # Raw tabs no longer store automated completion history. Keep it in the reports.
-        for title, fields in REPORT_SHEETS[1:]:
-            sheet = next((sheet for sheet in worksheets if sheet.title == title), None)
-            values = sheet.get_all_values() if sheet else []
-            if not values:
-                continue
-            field_map = {target.strip().casefold(): source for target, source in fields if source and not source.startswith('__')}
-            field_map['order number'] = 'Order Number'
-            field_map['status'] = 'Task Status'
-            mapping = [(index, field_map[str(name).strip().casefold()]) for index, name in enumerate(values[0])
-                       if str(name).strip().casefold() in field_map]
-            records = [{source: row[index] if index < len(row) else '' for index, source in mapping}
-                       for row in values[1:]]
-            if records:
-                history = pd.DataFrame(records).fillna('')
-                history_values = [list(history.columns)] + history.values.tolist()
-                remember_dates(history_values)
-                df = retain_completed_orders(df, history_values, valid_completed_ids=valid_ids)
-    df = apply_status_rules(df, [{'source': 'Workflow Suspended', 'target': 'Awaiting for Clarification'}], reporting_date=report_date)
-    status = next((column for column in ('Task Status','Status') if column in df.columns), None)
-    if status and 'Order Number' in df.columns:
-        dates = df['Order Number'].astype(str).str.strip().map({**recovered_dates, **existing_dates})
-        mask = df[status].astype(str).str.strip().str.casefold().eq('completed and delivered') & dates.notna()
-        df.loc[mask, 'Out Time'] = dates[mask]
-        unknown = undated_history - set(existing_dates) - set(recovered_dates)
-        unknown_mask = df['Order Number'].astype(str).str.strip().isin(unknown) & df[status].astype(str).str.strip().str.casefold().eq('completed and delivered')
-        df.loc[unknown_mask, 'Out Time'] = 'Completed'
-    synced = [sync_dataframe(raw, (book, primary), color_status=True,
-                             existing_values=primary_values, on_progress=on_progress)]
-    frames = report_frames(df, selected_products=selected_products)
-    frames[0] = report_frame(raw, ALL_PRODUCT_FIELDS)
-    for index, ((title, _), frame) in enumerate(zip(REPORT_SHEETS, frames), start=1):
-        if len(worksheets) <= index:
-            worksheets.append(book.add_worksheet(title=title, rows=1, cols=1))
-        sheet = worksheets[index]
-        if sheet.title != title:
-            sheet.update_title(title)
-        prior_values = sheet.get_all_values()
-        if title in ('Full Title', 'Remaining Products'):
-            # Saved corrections also apply when an older order is reintroduced.
-            # Existing sheet values remain authoritative for manual Sheet edits.
-            for row_index, row in frame.iterrows():
-                corrected = sla_corrections.get(sla_key(row))
-                if corrected:
-                    frame.at[row_index, 'Free Site'] = corrected
-            if isinstance(prior_values, list) and prior_values and {'Order Number', 'Out Time', 'Free Site'}.issubset(prior_values[0]):
-                prior_rows = {str(row.get('Order Number', '')).strip(): row
-                              for row in (dict(zip(prior_values[0], cells)) for cells in prior_values[1:])
-                              if str(row.get('Order Number', '')).strip()}
-                for row_index, row in frame.iterrows():
-                    old = prior_rows.get(str(row['Order Number']).strip())
-                    if old and parse_report_datetime(old.get('Out Time')) == parse_report_datetime(row['Out Time']):
-                        frame.at[row_index, 'Free Site'] = old.get('Free Site', '')
-        synced.append(sync_dataframe(frame, (book, sheet), validate=False, color_status=True,
-                                     existing_values=prior_values, on_progress=on_progress))
-    now_sync_time = dt.datetime.now().astimezone().strftime('%Y-%m-%d %I:%M:%S %p')
-    if not df.attrs.get('sync_time'):
-        df.attrs['sync_time'] = now_sync_time
-    status_frame = status_report_frame(df, preview_name=preview_name, sync_time=now_sync_time)
-    index = len(REPORT_SHEETS) + 1
-    if len(worksheets) <= index:
-        worksheets.append(book.add_worksheet(title='Status Report', rows=1, cols=1))
-    sheet = worksheets[index]
-    if sheet.title != 'Status Report':
-        sheet.update_title('Status Report')
-    backgrounds = [None] + [status_color(value) for value in status_frame['Status'].tolist()]
-    synced.append(sync_dataframe(status_frame, (book, sheet), validate=False, row_backgrounds=backgrounds,
-                                 on_progress=on_progress))
-    return synced
+    from tracker_sync import sync_trackers
+    return sync_trackers(df, on_progress=on_progress)
 
 
 def read_target(gid=None, title=None):
@@ -759,11 +563,29 @@ def run_sync(on_progress=None):
         status.update(scrape='success', rows=len(df))
         df = powerbi_table(df, status['started_at'])
         progress('Saving preview')
-        preview = PreviewStore(BASE_DIR / 'previews').save(df)
+        store = PreviewStore(BASE_DIR / 'previews')
+        preview = store.save(df)
         status['preview_id'] = preview['id']
         status['preview_name'] = preview['name']
         export_to_excel_and_csv(df)
         status['local_export'] = 'success'
+        progress('Syncing preview automatically to Google Sheets')
+        from order_reporting import automatic_sync_frame
+        for number in store.pending_syncs():
+            frame, _ = automatic_sync_frame(store.get(number), store=store)
+            for attempt in range(3):
+                try:
+                    status['worksheets'] = sync_workbook(frame, on_progress=progress)
+                    store.mark_synced(number)
+                    break
+                except Exception as exc:
+                    if attempt == 2:
+                        store.mark_failed(number, str(exc))
+                        raise
+                    time.sleep(2 ** attempt)
+        status['google_sheet'] = 'success'
+        status['action'] = 'sync'
+        status['pass_report'] = frame.attrs.get('pass_report')
         status['last_success_at'] = dt.datetime.now(dt.timezone.utc).isoformat()
     except Exception as exc:
         status['error'] = str(exc)

@@ -7,7 +7,7 @@ def sla_status(value):
     if value in ('ontime', 'onetime'):
         return 'On Time'
     if value in ('missed', 'missing'):
-        return 'Missed'
+        return 'Missing'
     return ''
 
 
@@ -25,7 +25,7 @@ def sla_entry(row, status):
     return {
         'Order Number': identity,
         'Product': product,
-        'Product Group': row.get('_sheet') or group,
+        'Product Group': group,
         'In Time': next((row.get(c) for c in ('Arrival Time', 'In-Time', 'In Time', 'RequestArrivalTime') if row.get(c)), ''),
         'Out Time': row.get('Out Time', ''),
         'SLA Expiration': expiration.strftime('%m/%d/%Y %I:%M %p') if expiration else row.get('SLA Expiration*', row.get('SLA Expiration', '')),

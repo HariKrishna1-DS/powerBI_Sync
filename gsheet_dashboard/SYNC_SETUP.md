@@ -1,149 +1,101 @@
-# DataTrace Sync Setup
+# TV Search Production Sync
 
-The extraction button and `python datatrace_sync.py` run the same local pipeline:
-browser login, queue pagination, preview creation, and CSV/Excel export. Extraction
-does not update Google Sheets. Select a preview and use **Sync [preview] to Sheets**
-to publish that preview. The optional daily local-time trigger always publishes the
-newest saved preview.
-`sync_config.json` is the shared target configuration for spreadsheet
-`1xjQ3yaDpMgvp3cRSQM-SfF8UBnbTcW_HWpZp_aN5-a8`, worksheet gid `0`.
-The tab title is discovered by ID. Every successful sync replaces all values on
-that tab, including stale rows. It also refreshes three report tabs: **All Products**
-(the ExcelReport column layout), **Full Title** (the Full Search layout), and
-**Remaining Products** (the C-O/Update layout). Template-only columns remain blank;
-sample workbook rows are never imported. Other tabs and formatting are retained.
-Keep manually maintained data on a separate tab.
-
-## Requirements
-
-1. Install Python 3.10+ and Node.js 22.12+.
-2. From the repository root, run:
-
-   ```powershell
-   .\.venv\Scripts\python.exe -m pip install -r gsheet_dashboard\requirements.txt
-   npm.cmd --prefix gsheet_dashboard install
-   ```
-
-3. Create `gsheet_dashboard/.env` using `.env.example` as the template.
-   Set `DATATRACE_USERNAME` and `DATATRACE_PASSWORD`.
-   `DATATRACE_QUEUE_URL` optionally selects another queue.
-4. In Google Cloud, enable the Google Sheets API, create a service account, and
-   download its JSON key to `gsheet_dashboard/service_account.json`.
-   Alternatively, set `GOOGLE_SERVICE_ACCOUNT_JSON` to an absolute path or inline JSON.
-5. Share the target Sheet with the JSON file's `client_email` as **Editor**.
-   Public sharing is not required for this target.
-
-Credentials and `.env` are ignored by Git. Authentication reference:
-https://docs.gspread.org/en/master/oauth2.html
+The application follows `docs/TV_Search_Sync_Prompt.md` with the later tracker updates
+described here. Google Sheets supplies the live tracker and report data. Saved local
+previews supply the Changes comparison. Status Report is on Data sheets.
 
 ## Run
 
-```powershell
-.\.venv\Scripts\python.exe gsheet_dashboard\datatrace_sync.py
-npm.cmd --prefix gsheet_dashboard\frontend install
-npm.cmd --prefix gsheet_dashboard\frontend run build
-.\.venv\Scripts\python.exe gsheet_dashboard\server.py
-```
+Run `gsheet_dashboard/run.bat`, or install `gsheet_dashboard/requirements.txt`, build
+`gsheet_dashboard/frontend` with `npm run build`, and run `gsheet_dashboard/server.py`.
+The workspace normally opens at http://localhost:8510. Configure the service account
+and portal login in `gsheet_dashboard/.env` using `.env.example`. Share the configured
+Google Sheet with the service account as Editor. Never commit credentials.
 
-Or launch `gsheet_dashboard/run.bat` and click **Run AutoLogin & Extract Queue**.
-The React workspace opens at http://localhost:8510 (or the next free port printed
-by the launcher). The former Streamlit UI and demo star schema have been removed.
-The dashboard reports extraction and Google Sheets jobs separately. Failed extraction
-never uploads old local files, and a failed Sheets write retains the latest local
-preview and exports. The daily trigger is disabled by default, persists locally in
-`sync_schedule.json`, and runs only while the dashboard server is running.
+## Trackers and history
 
-Exports are `gsheet_dashboard/queue_data_sheet2.csv` and `.xlsx`.
-Each new capture also saves immutable `previews/preview1.xlsx`, `preview2.xlsx`,
-and so on, with matching CSV files and a SQLite history index. Imported CSV/XLSX
-files are saved as new numbered previews too. Existing legacy queue files are
-never loaded automatically. The UI starts empty until a capture or import.
-Excel contains the named table **DataTraceQueue**.
-The Node script produces intermediate JSON only; run the Python pipeline for
-CSV/Excel and Sheets sync. Excel generation uses the existing Python openpyxl library.
-Empty/unrecognized queues fail without replacing existing data; review the portal
-manually if a legitimately empty queue should be cleared.
-For interactive login, set `DATATRACE_HEADLESS=false`.
-Portal login and pagination still require validation with your account.
+The supplied September 2026 workbooks are bundled under `default_trackers` and loaded
+automatically. The Google Sheet tracker names are:
 
-## Power BI
+- `TV_Search_Production_Report_Full_Search`
+- `TV_Search_Production_Report_C-O_and_Update`
 
-Recommended: **Get Data > Excel**, select `queue_data_sheet2.xlsx`, then the named
-**DataTraceQueue** table. CSV import is also supported. Set Parcel ID, OPON and
-other identifiers to Text. Use the English (United States) locale for full dates.
+Existing tracker rows and manual fields are preserved. Missing default orders append
+after existing rows. Duplicate default source rows are recorded in the local sync report; the
+original workbooks remain intact. Extra manual columns are preserved.
 
-| Field | Type / purpose |
-| --- | --- |
-| Arrival Time, Completed Time | Date/time when a full date is supplied |
-| Arrival Date | Date; join to a calendar dimension |
-| Client, Product, Task Name, Task Status, St, County, Municipality, Online/Ground, Vendor | Text dimensions |
-| Parcel ID, OPON, Last User, Comment, ETA Comments | Text identifiers/details |
-| Queue Age Hours | Decimal derived from portal Time Since Arrival |
-| Is Available, Is Suspended | Boolean |
-| SLA Status | Overdue for negative portal durations; otherwise Unknown |
-| Sync Timestamp | UTC date/time of the extraction run |
+Every extraction/import saves a numbered preview locally and syncs automatically.
+`preview1`, `preview2`, etc. are immutable local snapshots in SQLite and CSV/XLSX.
+`All Products` and `Sheet1` retain accumulated raw Google Sheet history with preview
+names and timestamps. A smaller
+preview never reduces tracker totals. Preview deletion is available only as an
+explicit human action in the sidebar; raw Google Sheet history stays available.
 
-ETA and SLA Expiration may contain yearless dates or durations. Keep them as text
-until the portal year/timezone conventions are confirmed. Unknown SLA is not
-on-time. Queue age and SLA fields are snapshot values.
+Orders match by trimmed, case-insensitive Order Number. A new order starts as Search
+In Progress, except workflow-suspended orders, which become Awaiting for Clarification.
+For existing orders, changed status-driving fields can apply those same two explicit
+rules. Other statuses remain as entered in the tracker. An order disappearing from a
+preview retains its tracker row and status and appears under Not in latest preview.
+A valid Out Time date marks an order Completed and Delivered, even when its old
+status differs or the order is absent from the latest preview. Task names and
+disappearance alone do not imply delivery.
 
-```dax
-Queue Tasks = COUNTROWS(DataTraceQueue)
-Available Tasks = CALCULATE([Queue Tasks], DataTraceQueue[Is Available] = TRUE())
-Overdue Tasks = CALCULATE([Queue Tasks], DataTraceQueue[SLA Status] = "Overdue")
-Average Queue Age Hours = AVERAGE(DataTraceQueue[Queue Age Hours])
-```
+Status, ETA, Out Time and SLA Expiration update on existing orders. Comments and
+Assignee are always blank in both production trackers, including new and absent orders.
+Raw preview history retains its original values. Free Site is recalculated for all tracker rows. Manual Searcher, Shift, Review/QC,
+Expense, Typer and other columns remain intact. Out Time uses an actual Completed Time
+when the tracker status is Completed and Delivered; dates are never fabricated.
+An explicit Out Time from a new preview is also accepted.
 
-Use cards for counts, bars by Client/Status/State, a County matrix, and an arrival
-date trend. This is a current queue snapshot, not a historical completion log.
-Published Power BI reports reading local files require a refresh gateway.
-Desktop reports can refresh directly from these exports.
+SLA countdowns use the capture timestamp in IST. Partial absolute dates use that
+year. On Time includes equality with the SLA; late completion is Missing. Open orders
+stay unclassified. Ambiguous dates such as PAUSED remain in the local sync report for review.
 
-## Preview comparison and filters
+## Reliability and reporting
 
-Select **Changes** to compare the selected capture against its predecessor, or
-choose any two saved previews. Added/removed/modified counts refer to tasks;
-the change table has one row per modified field (an entire row for additions/removals).
-Matching defaults to a complete unique OPON or Task ID, then a unique composite
-of Arrival Time, Parcel ID, Task Name, Client and Product. If no reliable key is
-available, a multiset comparison preserves duplicates and reports additions/removals.
-Select custom **Matching columns** to identify updates in those datasets. Invalid
-or duplicate keys are rejected rather than pairing unrelated tasks.
+SQLite stores local snapshots and sync job receipts. No external SQL database is used.
+An OS-released SQLite lock serializes sync processes. One atomic Google Sheets batch
+writes tracker values, raw history and reports. A local SQLite receipt records the
+pass after Google Sheets readback. The `Sheet1` Preview column proves whether a
+preview committed after a lost reply, so replaying it is a no-op. Pending snapshots sync in order after restart. Automatic retries
+are bounded; failures remain saved and appear in the dashboard for manual retry.
+The scheduler operates while the server is running, using Asia/Kolkata times.
+`indian_clock.py` reads time from an HTTPS response and advances it with a monotonic
+clock. The browser uses that same network anchor. Changing the PC clock or timezone
+does not change trigger times. Scheduled runs wait for the initial network time sync;
+a later connection failure keeps the established clock running until it can refresh.
 
-Elapsed queue durations, Queue Age Hours and Sync Timestamp are ignored by default;
-change the **Ignored columns** selection to include them. Schema changes are shown
-separately. **Power BI changes.xlsx** downloads the named `DataTraceChanges` table;
-load it into Power BI with Get Data > Excel. Actual Power BI embedding/publishing
-requires a separate Power BI account/report integration and is not configured here.
+Daily/monthly API reports read the two live tracker tabs. The dashboard never substitutes
+the latest raw preview for tracker totals if Google Sheets is unavailable. Changes
+compares selected local snapshots by Order Number. Local SQLite stores pass
+reports, changes and ambiguous rows. Google Sheets has no numbered preview or audit tabs.
 
-Click a column header to list its unique values and counts, select values, search,
-or apply text/numeric/date conditions. Conditions combine across columns with AND.
-Use ISO dates (YYYY-MM-DD) for date bounds. Filters affect both charts and the table.
-Unique-value lists can be printed or downloaded. Filtered CSV exports include all
-matching rows, not just the current page; the original preview downloads remain intact.
-Choosing a previous preview automatically selects the immediately newer preview as
-the latest side of the comparison. Choosing a latest preview selects its immediate
-predecessor.
+Exports are named `Production_data.xlsx`. Because Excel limits tab names to 31
+characters, the Export button requests approval to use Full Title and Remaining
+Products in the exported copy. Google Sheet tab names remain unchanged.
+`status_colors.json` holds the exact matching colors from the sample workbook.
+Google Sheets conditional rules color full rows and respond to manual status edits.
+Free Site cells inherit the row status color. Status Report and Excel exports
+use the same palette.
+Daily and monthly charts show labeled values for three periods with Earlier/Later navigation.
 
-Charts support bar, horizontal bar, line, area, pie and donut. Choose any grouping
-column, adjust spacing, and scroll horizontally or vertically for larger datasets.
-Cartesian charts also have a draggable range selector when there are many categories.
-Click a bar or pie segment to open a table containing the rows represented by that
-count. The drill-down table follows the current search and column filters.
+To initialize or resume a migration explicitly, run `gsheet_dashboard/migrate_trackers.py`.
+Keep the `previews` directory on persistent storage for locally saved, unsynced captures.
+Committed previews can be recovered from Google Sheets after loss of local storage.
 
-Each extraction launches a new browser process. The run button is disabled only
-while a job is active and becomes available after success or failure. A browser
-refresh reconnects to an active job. Job status is in memory; numbered captures
-remain on disk after server restarts. Keep one server instance running per workspace.
+## Regression checks
 
-## Tests
+From `gsheet_dashboard`, run `python -m unittest test_tracker_v2 test_october_updates` and
+`npm --prefix frontend run build`. Legacy tests which assert that missing orders are
+automatically completed describe the superseded behavior; the v2 regression suite
+tests preservation, status rules, SLA boundaries and atomic/idempotent history writes.
 
-```powershell
-.\.venv\Scripts\python.exe -m unittest discover -s gsheet_dashboard -p "test_*.py" -v
-cd gsheet_dashboard\frontend
-npm.cmd run build
-npx.cmd playwright test
-```
+To reapply the column cleanup and recalculate current tracker SLA values, run
+`gsheet_dashboard/refresh_production_trackers.py`. It saves a backup under `previews`,
+keeps row order and raw history, and refreshes the cached reports. Blank Out Time
+keeps Free Site blank; a missing or ambiguous deadline needs review before classification.
 
-Browser tests use isolated API fixtures; they do not seed the real workspace or
-contact DataTrace/Google. Actual portal login still requires configured credentials.
+The removed Google Sheet preview and audit tabs are backed up under `previews` as
+`removed-cloud-tabs-*.json.gz`. Run `remove_cloud_audit_tabs.py` to repeat the
+backup and cleanup if those tabs appear again. The local preview database and raw
+`Sheet1` history support comparisons without numbered cloud tabs.

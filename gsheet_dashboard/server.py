@@ -21,9 +21,11 @@ from preview_store import PreviewStore, compare
 from order_reporting import automatic_sync_frame, daily_orders, monthly_orders, AUTOMATIC_RULES, completion_history
 from sync_config import BASE_DIR, TARGET_GSHEET_URL
 from sla_comments import sla_key, sla_status
+from indian_clock import IndianClock
 
 IST = timezone(timedelta(hours=5, minutes=30), 'IST')
 SETTINGS_SHEET = '__DataTrace_Config'
+from tracker_sync import TRACKERS, HEADERS, FULL, REMAINING, records, read_trackers, sheet_reports, sync_trackers, read_pass_report
 
 
 def workbook(frame, name):
@@ -44,12 +46,14 @@ def workbook(frame, name):
     return stream
 
 
-def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
+def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_source=None):
     app = Flask(__name__, static_folder=None)
     app.config['MAX_CONTENT_LENGTH'] = 20 * 1024 * 1024
     store = PreviewStore(root or BASE_DIR / 'previews')
     runner = runner or run_sync
     syncer = syncer or sync_workbook
+    indian_clock = time_source or IndianClock()
+    app.extensions['indian_clock'] = indian_clock
     gate = threading.Lock()
     state_lock = threading.Lock()
     schedule_lock = threading.Lock()
@@ -84,32 +88,30 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
             return snapshot_cache['snapshot']
 
     def recover_latest_preview():
-        if not os.environ.get('RENDER') or reporting_snapshot()[0]:
+        if root is not None or reporting_snapshot()[0]:
             return
         with preview_recovery_lock:
             if store.list():
                 return
             try:
-                book, primary = target_worksheet()
-                status = book.worksheet('Status Report').get_all_values()
-                if not status or 'Preview' not in status[0]:
-                    return
-                index = status[0].index('Preview')
-                names = {row[index] for row in status[1:] if len(row) > index and row[index]}
-                if len(names) != 1:
-                    return
-                match = re.fullmatch(r'preview([1-9]\d*)', names.pop())
-                if not match:
-                    return
-                values = primary.get_all_values()
-                if len(values) < 2:
-                    return
-                columns = values[0]
-                rows = [dict(zip(columns, row)) for row in values[1:]]
-                store.restore(int(match.group(1)), columns, rows)
+                book, _ = target_worksheet()
+                values = book.worksheet('Sheet1').get_all_values()
+                if values and 'Preview' in values[0]:
+                    columns = [c for c in values[0] if c not in ('Preview', 'Preview Timestamp')]
+                    grouped = {}
+                    for row in records(values):
+                        match = re.fullmatch(r'preview([1-9]\d*)', row.get('Preview', ''))
+                        if match:
+                            grouped.setdefault(int(match[1]), []).append(row)
+                    for number, rows in grouped.items():
+                        when = rows[0].get('Preview Timestamp', '')
+                        created = datetime.fromisoformat(when).replace(tzinfo=IST).isoformat() if when else None
+                        original = [{c: row.get(c, '') for c in columns} for row in rows if row.get('Order Number')]
+                        store.restore(number, columns, original, created=created)
+                        store.mark_synced(number)
                 invalidate_snapshot()
             except Exception:
-                app.logger.exception('Could not recover latest preview from Google Sheets')
+                app.logger.exception('Could not recover previews from raw Google Sheet history')
 
     def load_schedule():
         nonlocal cloud_schedule_loaded
@@ -184,7 +186,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
                                                        store=store, reports=reports)
         frame.attrs['preview_name'] = selected_preview['name']
         frame.attrs['preview_id'] = selected_preview['id']
-        frame.attrs['sync_time'] = datetime.now(IST).strftime('%Y-%m-%d %I:%M:%S %p IST')
+        frame.attrs['sync_time'] = datetime.now(IST).isoformat()
         if remaining_products is not None:
             frame.attrs['selected_products'] = remaining_products
             try:
@@ -194,13 +196,11 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
         return frame, selected_preview, completed_orders, previous_id
 
     def begin_sync(trigger='manual', preview_id=None, previous_id=None, keys=None, ignore=None, remaining_products=None):
-        if not gate.acquire(blocking=False):
-            return False
-        with state_lock:
-            state.update(running=True, action='sync', stage='Preparing Google Sheets sync', result=None,
-                         run_id=state['run_id'] + 1)
-
         def work():
+            gate.acquire()  # Queue behind an extraction or another sync; do not drop previews.
+            with state_lock:
+                state.update(running=True, action='sync', stage='Preparing Google Sheets sync', result=None,
+                             run_id=state['run_id'] + 1)
             try:
                 frame, selected_preview, completed_orders, prior_id = prepare_sync(preview_id, previous_id, keys, ignore, remaining_products)
                 with state_lock:
@@ -213,6 +213,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
                 result['status_rules'] = AUTOMATIC_RULES
                 result['completed_orders'] = len(completed_orders)
                 result['previous_id'] = prior_id
+                result['pass_report'] = frame.attrs.get('pass_report', {})
                 with state_lock:
                     state.update(result=result, stage='Finished')
             except Exception as exc:
@@ -228,13 +229,30 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
         return True
 
     def upload_sync(frame):
-        frame.attrs['sla_corrections'] = store.sla_corrections()
         def progress(stage):
             with state_lock:
                 state['stage'] = stage
-        if syncer is sync_workbook:
-            return syncer(frame, on_progress=progress)
-        return syncer(frame)
+        # Process pending snapshots chronologically before the selected capture.
+        # This also handles previews saved by an external extraction process.
+        for number in store.pending_syncs():
+            if number < frame.attrs['preview_id']:
+                prior, _ = automatic_sync_frame(store.get(number), store=store)
+                upload_one(prior, progress)
+        return upload_one(frame, progress)
+
+    def upload_one(frame, progress):
+        for attempt in range(3):
+            try:
+                result = syncer(frame, on_progress=progress) if syncer is sync_workbook else syncer(frame)
+                store.mark_synced(frame.attrs['preview_id'])
+                invalidate_snapshot()
+                return result
+            except Exception as exc:
+                if attempt == 2:
+                    store.mark_failed(frame.attrs['preview_id'], str(exc))
+                    raise
+                progress(f'Sync failed; retrying ({attempt + 2}/3). Preview is saved.')
+                clock.sleep(2 ** attempt)
 
     def begin_scheduled_capture():
         if not gate.acquire(blocking=False):
@@ -283,7 +301,10 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
         return True
 
     def schedule_tick(now=None):
-        now = (now or datetime.now(IST)).astimezone(IST)
+        now = now or indian_clock.now()
+        if now is None:
+            return False
+        now = now.astimezone(IST)
         with schedule_lock:
             schedule = load_schedule()
             if not schedule['enabled']:
@@ -340,7 +361,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
         except Exception:
             pass
         daily_completed_ids = list(dict.fromkeys(oid for r in daily_reports for oid in r['missing_ids']))
-        return jsonify(previews=previews, job=job, schedule=schedule, sheet_url=TARGET_GSHEET_URL,
+        return jsonify(previews=previews, job=job, schedule=schedule, clock=indian_clock.snapshot(), sheet_url=TARGET_GSHEET_URL, failed_syncs=store.failed_syncs(),
                        remaining_products=remaining_products,
                        daily_completed_ids=daily_completed_ids,
                        capabilities={'status_rules': True, 'automatic_statuses': True})
@@ -366,15 +387,17 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
 
     @app.get('/api/daily-orders')
     def get_daily_orders():
-        recover_latest_preview()
-        preview_id = request.args.get('preview_id', type=int)
-        selected_date = reporting_date(store.get(preview_id)) if preview_id is not None else None
-        return jsonify(rows=daily_orders(store, preview_id), selected_date=selected_date)
+        try:
+            book, sheet_rows, _ = read_sla_sheets()
+            trackers = {t: [r for r in sheet_rows if r['_sheet'] == t] for t in TRACKERS}
+            return jsonify(rows=sheet_reports(trackers, read_pass_report(book, store))['daily'], selected_date=None)
+        except Exception as exc:
+            return jsonify(error=f'Google Sheet unavailable: {exc}'), 502
 
     def read_sla_sheets():
         book, _ = target_worksheet()
         sheet_rows, headers = [], {}
-        for title in ('Full Title', 'Remaining Products'):
+        for title in TRACKERS:
             values = book.worksheet(title).get_all_values()
             headers[title] = values[0] if values else []
             if values:
@@ -389,11 +412,13 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
     def get_monthly_orders():
         recover_latest_preview()
         try:
-            _, sheet_rows, _ = read_sla_sheets()
+            book, sheet_rows, _ = read_sla_sheets()
+            trackers = {t: [r for r in sheet_rows if r['_sheet'] == t] for t in TRACKERS}
+            rows = sheet_reports(trackers, read_pass_report(book, store))['monthly']
         except Exception as exc:
             app.logger.warning('Could not refresh monthly SLA from Google Sheets: %s', exc)
-            return jsonify(rows=monthly_report(), sla_error='Could not read the connected Google Sheet. Showing saved preview values and SLA corrections.')
-        return jsonify(rows=monthly_report(sheet_rows), sla_error=None)
+            return jsonify(error=f'Google Sheet unavailable: {exc}'), 502
+        return jsonify(rows=rows, sla_error=None)
 
     @app.post('/api/sla-comments')
     @app.post('/api/sla-comments/bulk')
@@ -406,8 +431,8 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
         if not isinstance(orders, list) or not 1 <= len(orders) <= 10000:
             raise ValueError('Select between 1 and 10,000 orders to update.')
         status = body.get('status')
-        if status not in ('On Time', 'Missed'):
-            raise ValueError('Choose On Time or Missed.')
+        if status not in ('On Time', 'Missing'):
+            raise ValueError('Choose On Time or Missing.')
         selection = {}
         for order in orders:
             if not isinstance(order, dict):
@@ -420,7 +445,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
             if not isinstance(completion, str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', completion):
                 raise ValueError('A completion date is required.')
             datetime.strptime(completion, '%Y-%m-%d')
-            if expected not in ('On Time', 'Missed'):
+            if expected not in ('On Time', 'Missing'):
                 raise ValueError('Each selection must include its current SLA status.')
             key = (identity, completion)
             if key in selection:
@@ -504,18 +529,20 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
 
     @app.get('/api/live-sheets')
     def get_live_sheets():
-        recover_latest_preview()
         try:
             book, _ = target_worksheet()
-        except RuntimeError as exc:
+            trackers = read_trackers(book)
+            sheets = {title: {'columns': list(dict.fromkeys(HEADERS + [c for r in rows for c in r])), 'rows': rows}
+                      for title, rows in trackers.items()}
+            combined = [r for rows in trackers.values() for r in rows]
+            sheets['All Products'] = {'columns': HEADERS, 'rows': combined}
+            # Stable UI labels point to the two renamed authoritative tracker tabs.
+            sheets['Full Title'] = sheets[FULL]
+            sheets['Remaining Products'] = sheets[REMAINING]
+            previews = store.list()
+            return jsonify(preview_name=previews[0]['name'] if previews else None, sheets=sheets)
+        except Exception as exc:
             return jsonify(error=str(exc)), 502
-        sheets = {}
-        for title in ('All Products', 'Full Title', 'Remaining Products', 'Status Report'):
-            values = book.worksheet(title).get_all_values()
-            sheets[title] = {'columns': values[0], 'rows': [dict(zip(values[0], row)) for row in values[1:]]} if values else {'columns': [], 'rows': []}
-        status = sheets['Status Report']
-        names = {row.get('Preview', '') for row in status['rows'] if row.get('Preview', '')}
-        return jsonify(preview_name=names.pop() if len(names) == 1 else None, sheets=sheets)
 
     @app.post('/api/extract')
     def extract():
@@ -532,8 +559,18 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
         def work():
             try:
                 result = runner(on_progress=progress)
+                if result.get('error'):
+                    raise RuntimeError(result['error'])
+                preview_id = result.get('preview_id')
+                if not preview_id:
+                    raise RuntimeError('Extraction did not save a preview.')
+                invalidate_snapshot()
+                frame, saved, _, _ = prepare_sync(preview_id)
+                worksheets = upload_sync(frame)
+                result.update(action='sync', google_sheet='success', worksheets=worksheets,
+                              pass_report=frame.attrs.get('pass_report'), error=None)
                 with state_lock:
-                    state.update(result=result, stage=result.get('stage', 'Finished'))
+                    state.update(result=result, stage='Finished')
             except Exception as exc:
                 app.logger.exception('Extraction failed')
                 with state_lock:
@@ -586,12 +623,14 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
             validated_times = ['09:00']
         validated_times = sorted(list(dict.fromkeys(validated_times)))
 
+        now = indian_clock.now()
+        if enabled and now is None:
+            return jsonify(error='Indian time is still synchronizing. Try saving the schedule again shortly.'), 503
         with schedule_lock:
             current = load_schedule()
             changed = current['enabled'] != enabled or current.get('times') != validated_times
             current.update(enabled=enabled, times=validated_times, time=validated_times[0])
-            if changed or enabled:
-                now = datetime.now(IST)
+            if (changed or enabled) and now is not None:
                 already_triggered = current.get('triggered_today', []) if current.get('last_triggered_date') == now.date().isoformat() else []
                 current['last_triggered_date'] = now.date().isoformat()
                 current['triggered_today'] = sorted(set(already_triggered + [t for t in validated_times if t < now.strftime('%H:%M')]))
@@ -627,6 +666,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
             raise ValueError('Cannot read this file. Use a valid UTF-8 CSV or XLSX workbook with headers.') from exc
         saved = store.save(frame, source=Path(upload.filename).name)
         invalidate_snapshot()
+        begin_sync('import', saved['id'])
         return jsonify(saved), 201
 
     @app.get('/api/previews/<int:number>/download/<kind>')
@@ -635,21 +675,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
         if kind not in ('csv', 'xlsx'):
             raise ValueError('Unsupported download format.')
         if kind == 'xlsx':
-            previous_id = next((item['id'] for item in store.list() if item['id'] < preview['id']), None)
-            previous_preview = store.get(int(previous_id)) if previous_id is not None else None
-            frame, _ = automatic_sync_frame(preview, previous_preview, store=store)
-            frame.attrs['completion_dates'] = completion_history(store, preview['id'])
-            frame.attrs['preview_name'] = preview['name']
-            frame.attrs['preview_id'] = preview['id']
-            remaining_products = None
-            try:
-                path = BASE_DIR / 'remaining_products.json'
-                if path.exists():
-                    remaining_products = json.loads(path.read_text(encoding='utf-8'))
-            except Exception:
-                pass
-            stream = build_synced_workbook_stream(frame, preview_name=preview['name'], selected_products=remaining_products)
-            return send_file(stream, as_attachment=True, download_name=f"{preview['name']}_GoogleSheets.xlsx")
+            return export_google_sheets()
         else:
             frame = apply_status_rules(pd.DataFrame(preview['rows'], columns=preview['columns']), [])
             stream = BytesIO(frame.to_csv(index=False).encode('utf-8-sig'))
@@ -663,25 +689,38 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
             book, _ = target_worksheet()
             stream = BytesIO()
             preview_name = 'GoogleSheets'
+            short_names = {FULL: 'Full Title', REMAINING: 'Remaining Products'}
+            worksheets = book.worksheets()
+            too_long = [w.title for w in worksheets if len(w.title) > 31]
+            if too_long and request.args.get('short_names') != 'true':
+                return jsonify(error='Excel limits tab names to 31 characters. Confirm exporting the tracker tabs as Full Title and Remaining Products.',
+                               requires_short_names=True, proposed_names=short_names), 409
+            from openpyxl.styles import PatternFill, Font
+            from tracker_formatting import foreground
+            from datatrace_sync import status_color
             with pd.ExcelWriter(stream, engine='openpyxl') as writer:
-                for sheet in book.worksheets():
+                for sheet in worksheets:
                     values = sheet.get_all_values()
-                    pd.DataFrame(values).to_excel(writer, sheet_name=sheet.title, index=False, header=False)
-                    ws = writer.sheets[sheet.title]
+                    title = short_names.get(sheet.title, sheet.title)
+                    if len(title) > 31:
+                        raise ValueError(f'Choose a shorter export name for {sheet.title}.')
+                    pd.DataFrame(values).to_excel(writer, sheet_name=title, index=False, header=False)
+                    ws = writer.sheets[title]
                     for row in ws:
                         for cell in row:
                             if isinstance(cell.value, str):
                                 cell.data_type = 's'
+                    if values and 'Status' in values[0]:
+                        status_index = values[0].index('Status')
+                        for cells in ws.iter_rows(min_row=2):
+                            color = status_color(cells[status_index].value)
+                            for cell in cells:
+                                fill = color
+                                cell.fill = PatternFill('solid', fgColor=fill.lstrip('#'))
+                                cell.font = Font(color=foreground(fill).lstrip('#'))
                     ws.freeze_panes = 'A2'
-                    if sheet.title == 'Status Report' and values and 'Preview' in values[0]:
-                        offset = values[0].index('Preview')
-                        names = {r[offset] for r in values[1:] if len(r) > offset}
-                        if len(names) == 1:
-                            name = names.pop()
-                            if name.startswith('preview') and name[7:].isdigit():
-                                preview_name = name
             stream.seek(0)
-            return send_file(stream, as_attachment=True, download_name=f'{preview_name}_GoogleSheets.xlsx')
+            return send_file(stream, as_attachment=True, download_name='Production_data.xlsx')
         except Exception as exc:
             return jsonify(error=f'Google Sheets export failed: {exc}'), 502
         finally:
@@ -691,7 +730,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
     def comparison():
         body = request.get_json()
         previous, latest = store.get(int(body['previous'])), store.get(int(body['latest']))
-        result = compare(previous, latest, body.get('keys'), body.get('ignore'))
+        result = compare(previous, latest, ['Order Number'], body.get('ignore'))
         if body.get('download'):
             frame = pd.DataFrame(result['rows'], columns=result['columns'])
             frame['Previous Preview'] = previous['name']
@@ -707,12 +746,35 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False):
 
     if start_scheduler:
         def schedule_loop():
+            try:
+                sync_trackers()
+            except Exception as exc:
+                app.logger.exception('Default tracker initialization failed')
+                with state_lock:
+                    state.update(stage='Google Sheets setup needs attention', result={'error': str(exc)})
             while True:
-                clock.sleep(15)
                 try:
+                    # Saved but unsynced previews survive restarts and wait for the lock.
+                    for preview_id in store.pending_syncs():
+                        frame, _, _, _ = prepare_sync(preview_id)
+                        with gate:
+                            with state_lock:
+                                state.update(running=True, action='sync', stage=f'Syncing preview{preview_id}', run_id=state['run_id'] + 1)
+                            try:
+                                worksheets = upload_sync(frame)
+                                with state_lock:
+                                    state.update(stage='Finished', result={'action': 'sync', 'google_sheet': 'success',
+                                        'preview_name': frame.attrs['preview_name'], 'rows': len(frame),
+                                        'worksheets': worksheets, 'pass_report': frame.attrs.get('pass_report')})
+                            finally:
+                                with state_lock:
+                                    state['running'] = False
                     schedule_tick()
-                except Exception:
-                    app.logger.exception('Scheduled capture could not start')
+                except Exception as exc:
+                    app.logger.exception('Automatic sync failed; preview retained')
+                    with state_lock:
+                        state.update(stage='Automatic sync needs attention', result={'error': str(exc)})
+                clock.sleep(15)
         threading.Thread(target=schedule_loop, daemon=True).start()
 
     return app

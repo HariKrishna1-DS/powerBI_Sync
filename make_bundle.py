@@ -2,7 +2,8 @@ import os
 import zipfile
 
 output_filename = "DataTrace_Workspace.zip"
-exclude_dirs = {".git", ".venv", "node_modules", "__pycache__", ".pytest_cache", ".streamlit"}
+exclude_dirs = {".git", ".venv", "node_modules", "__pycache__", ".pytest_cache", ".streamlit",
+                "previews", "test-results", "playwright-report", ".codex", ".agents"}
 
 print("Packaging DataTrace Workspace...")
 with zipfile.ZipFile(output_filename, "w", zipfile.ZIP_DEFLATED) as zipf:
@@ -10,7 +11,8 @@ with zipfile.ZipFile(output_filename, "w", zipfile.ZIP_DEFLATED) as zipf:
         # Filter excluded directories in-place
         dirs[:] = [d for d in dirs if d not in exclude_dirs]
         for file in files:
-            if file == output_filename:
+            if (file == output_filename or file == '.env' or 'service_account' in file.lower()
+                    or file.endswith('.log') or file.startswith(('inspect_sync', 'update_project', 'update_frontend', 'update_server', 'update_reporting', 'update_docs'))):
                 continue
             file_path = os.path.join(root, file)
             arcname = os.path.relpath(file_path, ".")
