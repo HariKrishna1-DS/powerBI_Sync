@@ -4,6 +4,7 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const {spawn, execFile} = require('node:child_process');
 const {createVault, publicSettings, validateSettings, validateServiceAccount, allowedExternal} = require('./settings.cjs');
+const {createUpdater} = require('./updater.cjs');
 
 app.setName('Tv Tracker');
 app.setAppUserModelId('com.datatrace.studio');
@@ -12,6 +13,7 @@ app.setPath('userData', process.env.DATATRACE_TEST_USER_DATA || path.join(app.ge
 const root = path.resolve(__dirname, '..');
 let window, tray, backend, backendUrl = '', settings, vault, pendingAccount;
 let quitting = false, restarting = false, quitRequested = false;
+let updates;
 const token = crypto.randomBytes(32).toString('hex');
 const icon = path.join(__dirname, 'assets', 'icon.png');
 const dataPath = path.join(app.getPath('userData'), 'workspace');
@@ -156,6 +158,10 @@ function registerIpc() {
     try { return await handler(payload); } catch (error) { throw Error(safeError(error)); }
   });
   handle('desktop:settings', () => publicState());
+  handle('desktop:update-state', () => updates.state());
+  handle('desktop:update-check', () => updates.check());
+  handle('desktop:update-download', () => updates.download());
+  handle('desktop:update-install', () => updates.install());
   handle('desktop:discard-settings', () => { pendingAccount = undefined; });
   handle('desktop:import-account', async () => {
     const result = await dialog.showOpenDialog(window, {title: 'Import Google service-account key', properties: ['openFile'], filters: [{name: 'Google JSON key', extensions: ['json']}]});
@@ -169,6 +175,7 @@ function registerIpc() {
     return result.canceled ? null : result.filePaths[0];
   });
   handle('desktop:save-settings', async input => {
+    if (updates.state().status === 'installing') throw Error('Wait for the update to finish before changing settings.');
     const health = await (await engineRequest('/api/health')).json();
     if (health.running) throw Error('Wait for the current extraction or sync to finish before changing connections.');
     const next = validateSettings(input, settings);
@@ -209,6 +216,26 @@ async function launch() {
   await startBackend();
   window = new BrowserWindow({title: 'Tv Tracker', width: 1440, height: 960, minWidth: 980, minHeight: 680, backgroundColor: '#f5f6fa', show: false, icon,
     webPreferences: {preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, spellcheck: false}});
+  updates = createUpdater({updater: require('electron-updater').autoUpdater,
+    enabled: app.isPackaged && process.platform === 'win32', version: app.getVersion(),
+    notify: state => { if (window && !window.isDestroyed()) window.webContents.send('desktop:update-state', state); },
+    prepareInstall: async () => {
+      if (restarting || quitRequested) throw Error('Wait for the app to finish restarting before installing.');
+      // The engine atomically enters maintenance mode and rejects shutdown during active jobs.
+      await engineRequest('/api/desktop/shutdown', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({force: false})});
+      quitting = true;
+      const child = backend;
+      if (child && child.exitCode === null) {
+        await Promise.race([new Promise(resolve => child.once('exit', resolve)), new Promise(resolve => setTimeout(resolve, 3000))]);
+      }
+      await stopBackend();
+    },
+    recoverInstall: async () => {
+      quitting = false; restarting = true;
+      try { await startBackend(); configureSession(); await window.loadURL(backendUrl); }
+      finally { restarting = false; }
+    },
+  });
   configureSession(); registerIpc();
   window.webContents.on('will-navigate', (event, url) => { if (!url.startsWith(`${backendUrl}/`) && url !== backendUrl) event.preventDefault(); });
   window.webContents.setWindowOpenHandler(({url}) => { if (allowedExternal(url)) shell.openExternal(url); return {action: 'deny'}; });
@@ -221,7 +248,7 @@ async function launch() {
     {label: 'Workspace', submenu: [{label: 'Connections & settings', accelerator: 'CmdOrCtrl+,', click: () => sendCommand('settings')}, {label: 'Quick actions', accelerator: 'CmdOrCtrl+K', click: () => sendCommand('commands')}, {type: 'separator'}, {label: 'Quit Tv Tracker', accelerator: 'Alt+F4', click: requestQuit}]},
     {label: 'Edit', submenu: [{role: 'undo'}, {role: 'redo'}, {type: 'separator'}, {role: 'cut'}, {role: 'copy'}, {role: 'paste'}, {role: 'selectAll'}]},
     {label: 'View', submenu: [{role: 'resetZoom'}, {role: 'zoomIn'}, {role: 'zoomOut'}, {role: 'togglefullscreen'}]},
-    {label: 'Help', submenu: [{label: 'Open local data', click: () => shell.openPath(dataPath)}, {label: 'Open logs', click: () => shell.openPath(logPath)}, {label: 'About Tv Tracker', click: () => dialog.showMessageBox(window, {message: 'Tv Tracker', detail: `Version ${app.getVersion()}\nLocal Windows workspace. Google Sheets and TitleVision require internet access.\nSchedules run while the app is open or in the tray.`})}]},
+    {label: 'Help', submenu: [{label: 'Check for updates', click: () => { sendCommand('updates'); updates.check(); }}, {type: 'separator'}, {label: 'Open local data', click: () => shell.openPath(dataPath)}, {label: 'Open logs', click: () => shell.openPath(logPath)}, {label: 'About Tv Tracker', click: () => dialog.showMessageBox(window, {message: 'Tv Tracker', detail: `Version ${app.getVersion()}\nLocal Windows workspace. Google Sheets and TitleVision require internet access.\nSchedules run while the app is open or in the tray.`})}]},
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(menu));
   tray = new Tray(nativeImage.createFromPath(icon).resize({width: 20, height: 20}));

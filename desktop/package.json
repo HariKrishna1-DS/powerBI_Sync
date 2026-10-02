@@ -1,6 +1,6 @@
 {
   "name": "tv-tracker",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Private desktop workspace for title production and Google Sheets synchronization",
   "author": "Tv Tracker",
   "private": true,
@@ -8,15 +8,15 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test tests/*.test.cjs",
-    "pack": "electron-builder --dir --win --x64",
-    "dist": "electron-builder --win nsis zip --x64"
+    "pack": "electron-builder --dir --win --x64 --publish never",
+    "dist": "electron-builder --win nsis zip --x64 --publish never"
   },
   "build": {
     "appId": "com.datatrace.studio",
     "productName": "Tv Tracker",
     "asar": true,
     "directories": {
-      "output": "../release/2.1.0",
+      "output": "../release/2.2.0",
       "buildResources": "assets"
     },
     "files": [
@@ -24,7 +24,8 @@
       "preload.cjs",
       "settings.cjs",
       "assets/**",
-      "package.json"
+      "package.json",
+      "updater.cjs"
     ],
     "extraResources": [
       {
@@ -68,10 +69,21 @@
       "createStartMenuShortcut": true,
       "deleteAppDataOnUninstall": false
     },
-    "artifactName": "Tv-Tracker-${version}-${arch}.${ext}"
+    "artifactName": "Tv-Tracker-${version}-${arch}.${ext}",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "HariKrishna1-DS",
+        "repo": "powerBI_Sync",
+        "releaseType": "release"
+      }
+    ]
   },
   "devDependencies": {
     "electron": "44.5.1",
     "electron-builder": "26.15.3"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.9"
   }
 }

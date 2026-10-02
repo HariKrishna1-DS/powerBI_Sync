@@ -142,9 +142,14 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
 
     @app.post('/api/desktop/shutdown')
     def shutdown_desktop():
+        force = bool((request.get_json(silent=True) or {}).get('force'))
+        if not force and not gate.acquire(blocking=False):
+            return jsonify(error='Wait for the current capture or sync to finish before installing or quitting.'), 409
         with state_lock:
-            if (state['running'] or queued_ids) and not (request.get_json(silent=True) or {}).get('force'):
+            if (state['running'] or queued_ids) and not force:
+                gate.release()
                 return jsonify(error='A job is running.'), 409
+            maintenance.set()
         scheduler_stop.set()
         callback = app.config.get('DESKTOP_SHUTDOWN')
         if callback:
@@ -213,10 +218,12 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
                     store.restore(preview['id'], preview['columns'], preview['rows'], preview['source'], created=preview['created'])
                     store.mark_synced(preview['id'], {'recovered': True})
                 invalidate_snapshot()
-            except Exception:
+            except Exception as exc:
                 app.logger.exception('Could not recover latest preview from Google Sheets')
                 if required:
-                    raise RuntimeError('Connect Google Sheets before the first capture so existing preview numbering can be recovered.')
+                    if desktop_mode and not (SPREADSHEET_ID and os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON')):
+                        raise RuntimeError('Open Connections & settings, enter your spreadsheet URL, import the service-account JSON key, and Save settings. Sharing the Sheet alone does not configure this app.') from exc
+                    raise RuntimeError('Could not recover existing preview numbers from Google Sheets. Test the saved connection in Connections & settings; check internet access, the account key, and spreadsheet permissions. No new capture was created.') from exc
 
     def load_schedule():
         nonlocal cloud_schedule_loaded
@@ -711,13 +718,20 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
 
     @app.post('/api/desktop/check-connection')
     def check_connection():
+        if not gate.acquire(blocking=False):
+            return jsonify(error='Wait for the current capture or sync to finish before testing the connection.'), 409
         try:
+            recover_latest_preview(required=True)
             result = production_snapshot(force=True)
             if result.get('offline'):
                 return jsonify(error=result['sync_error']), 502
-            return jsonify(connected=True, orders=len(result['sheets']['Overview']['rows']), updated_at=result.get('updated_at'))
+            previews = store.list()
+            return jsonify(connected=True, orders=len(result['sheets']['Overview']['rows']), updated_at=result.get('updated_at'),
+                           recovered_previews=len(previews), next_preview=max((p['id'] for p in previews), default=0) + 1)
         except Exception as exc:
             return jsonify(error=str(exc)), 502
+        finally:
+            gate.release()
 
     @app.post('/api/extract')
     def extract():

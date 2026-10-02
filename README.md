@@ -43,6 +43,10 @@ Imports/extractions sync automatically when configured. A failed write gets boun
 - [Upstream production rules](docs/TV_Search_Sync_Prompt.md)
 - [Optional legacy browser/Streamlit development](docs/LEGACY_WEB_README.md)
 
-Build with `desktop/build.ps1`. Installer and portable output go to `release/2.1.0/`. Run `python make_bundle.py` to create the matching source ZIP with a SHA-256 source manifest. Dependencies are recorded in lockfiles; no new dependency was needed for this integration.
+Build with `desktop/build.ps1`. Installer and portable output go to `release/2.2.0/`. Run `python make_bundle.py` to create the matching source ZIP with a SHA-256 source manifest. Dependencies are recorded in lockfiles; 2.2.0 adds electron-updater for Windows releases.
 
 For a contribution, branch from `tv-tracker`, make a focused change, run the relevant Python, desktop-settings and Playwright suites, and open a pull request targeting `tv-tracker`. Keep credentials, captures, runtime data, and generated release files out of commits. The baseline XLSX files already supplied by upstream are required application inputs and are included in packages/source bundles.
+
+## Tv Tracker desktop updates
+
+The desktop application is maintained on `tv-tracker`. Version 2.2.0 adds **Connections & settings → Updates** and **Help → Check for updates**. See [setup and release instructions](docs/DESKTOP_UPDATES.md) and the [implementation prompt](docs/TV_TRACKER_UPDATE_PROMPT.md). Users on 2.1.0 or earlier need one manual installer upgrade before in-app updates become available.

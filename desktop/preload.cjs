@@ -1,6 +1,15 @@
 const {contextBridge, ipcRenderer} = require('electron');
 contextBridge.exposeInMainWorld('desktop', Object.freeze({
   getSettings: () => ipcRenderer.invoke('desktop:settings'),
+  getUpdateState: () => ipcRenderer.invoke('desktop:update-state'),
+  checkForUpdates: () => ipcRenderer.invoke('desktop:update-check'),
+  downloadUpdate: () => ipcRenderer.invoke('desktop:update-download'),
+  installUpdate: () => ipcRenderer.invoke('desktop:update-install'),
+  onUpdateState: callback => {
+    const listener = (_, state) => callback(state);
+    ipcRenderer.on('desktop:update-state', listener);
+    return () => ipcRenderer.removeListener('desktop:update-state', listener);
+  },
   saveSettings: value => ipcRenderer.invoke('desktop:save-settings', value),
   discardSettings: () => ipcRenderer.invoke('desktop:discard-settings'),
   importServiceAccount: () => ipcRenderer.invoke('desktop:import-account'),

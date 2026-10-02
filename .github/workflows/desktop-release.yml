@@ -1,0 +1,86 @@
+name: Tv Tracker desktop release
+on:
+  push:
+    branches: [tv-tracker]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+concurrency:
+  group: tv-tracker-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/tv-tracker'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Decide whether this version needs publishing
+        id: version
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (Get-Content desktop/package.json | ConvertFrom-Json).version
+          if ($version -notmatch '^\d+\.\d+\.\d+$') { throw 'Use a stable major.minor.patch desktop version.' }
+          "number=$version" >> $env:GITHUB_OUTPUT
+          $release = gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/v$version" 2>release-lookup.err
+          if ($LASTEXITCODE -eq 0) {
+            if (($release | ConvertFrom-Json).draft) { throw 'An unfinished draft exists. Inspect it before retrying this version.' }
+            "publish=false" >> $env:GITHUB_OUTPUT
+          } elseif ((Get-Content release-lookup.err -Raw) -match 'HTTP 404') {
+            "publish=true" >> $env:GITHUB_OUTPUT
+          } else { throw 'Could not query GitHub releases. No release will be created.' }
+          exit 0
+      - uses: actions/setup-node@v4
+        if: steps.version.outputs.publish == 'true'
+        with:
+          node-version: '22'
+      - uses: actions/setup-python@v5
+        if: steps.version.outputs.publish == 'true'
+        with:
+          python-version: '3.12'
+      - name: Build self-contained Windows application
+        if: steps.version.outputs.publish == 'true'
+        shell: pwsh
+        run: ./desktop/build.ps1 -Python python
+      - name: Run desktop and engine regression tests
+        if: steps.version.outputs.publish == 'true'
+        shell: pwsh
+        run: |
+          npm --prefix desktop test
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop tests failed' }
+          Push-Location gsheet_dashboard/frontend
+          npx playwright test --config playwright.desktop.config.js
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop interface tests failed' }
+          Pop-Location
+          $env:PYTHONPATH = "$pwd/.desktop-build/deps;$pwd/gsheet_dashboard"
+          python -m unittest discover -s gsheet_dashboard -p 'test_*.py'
+          if ($LASTEXITCODE -ne 0) { throw 'Engine tests failed' }
+          $version = '${{ steps.version.outputs.number }}'
+          $env:DESKTOP_EXE = "$pwd/release/$version/win-unpacked/Tv Tracker.exe"
+          node desktop/smoke.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged lifecycle tests failed' }
+          python make_bundle.py
+          if ($LASTEXITCODE -ne 0) { throw 'Source archive verification failed' }
+      - name: Stage and publish complete release
+        if: steps.version.outputs.publish == 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = '${{ steps.version.outputs.number }}'
+          $folder = "release/$version"
+          $assets = @("$folder/Tv-Tracker-$version-x64.exe", "$folder/Tv-Tracker-$version-x64.exe.blockmap", "$folder/latest.yml", "$folder/Tv-Tracker-$version-x64.zip", "$folder/Tv-Tracker-$version-source.zip")
+          foreach ($asset in $assets) { if (!(Test-Path -LiteralPath $asset)) { throw "Missing release asset: $asset" } }
+          @("Tv Tracker $version", '', 'Install the Windows .exe once if upgrading from 2.1.0 or earlier.', 'Afterward use Connections & settings > Updates.', 'Local captures and encrypted connections are retained.', '', "Source commit: $env:GITHUB_SHA") | Set-Content release-notes.txt
+          gh release create "v$version" --target "$env:GITHUB_SHA" --title "Tv Tracker $version" --draft --notes-file release-notes.txt
+          if ($LASTEXITCODE -ne 0) { throw 'Draft creation failed' }
+          gh release upload "v$version" @assets
+          if ($LASTEXITCODE -ne 0) { throw 'Upload failed; draft left unpublished for inspection' }
+          gh release edit "v$version" --draft=false --latest
+          if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }
