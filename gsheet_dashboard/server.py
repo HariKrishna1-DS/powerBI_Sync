@@ -41,11 +41,19 @@ def color_export_sheet(ws, values):
     status_column = next((headers.index(name) for name in ('Status', 'Task Status') if name in headers), None)
     if status_column is None:
         return
-    for number, cells in enumerate(values[1:], start=2):
+    styles = {}
+    # Indexing ws[number] recalculates max_column by scanning every populated
+    # cell for every row. Explicit bounds keep large archive exports linear.
+    rows = ws.iter_rows(min_row=2, max_row=len(values), max_col=len(headers))
+    for cells, output_row in zip(values[1:], rows):
         color = status_color(cells[status_column] if len(cells) > status_column else '')
-        for cell in ws[number]:
-            cell.fill = PatternFill('solid', fgColor=color.lstrip('#').upper())
-            cell.font = Font(color=foreground(color).lstrip('#').upper())
+        if color not in styles:
+            styles[color] = (PatternFill('solid', fgColor=color.lstrip('#').upper()),
+                             Font(color=foreground(color).lstrip('#').upper()))
+        fill, font = styles[color]
+        for cell in output_row:
+            cell.fill = fill
+            cell.font = font
 
 
 def production_export_frames(book, store=None, sources=None):

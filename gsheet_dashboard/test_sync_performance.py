@@ -4,7 +4,7 @@ import tempfile
 import threading
 import time
 import unittest
-from unittest.mock import Mock, patch
+from unittest.mock import Mock, PropertyMock, patch
 
 import pandas as pd
 
@@ -97,6 +97,28 @@ class SyncPerformanceTests(unittest.TestCase):
                 break
             time.sleep(.01)
         self.assertEqual(job['result']['google_sheet'], 'success')
+
+    def test_export_coloring_does_not_rescan_sheet_dimensions_per_row(self):
+        from openpyxl import Workbook
+        from openpyxl.worksheet.worksheet import Worksheet
+        from datatrace_sync import status_color
+        from tracker_formatting import foreground
+        values = [['Order Number', 'Status', 'Notes']] + [
+            [f'{i:05}', 'Available' if i % 2 else 'Completed and Delivered', '=literal']
+            for i in range(1000)]
+        book = Workbook()
+        sheet = book.active
+        for row in values:
+            sheet.append(row)
+        with patch.object(Worksheet, 'max_column', new_callable=PropertyMock, return_value=3) as dimensions:
+            server.color_export_sheet(sheet, values)
+        self.assertLessEqual(dimensions.call_count, 1, 'Export repeatedly scanned all cells')
+        for number in (2, 3, 1001):
+            color = status_color(values[number-1][1])
+            self.assertTrue(sheet.cell(number, 1).fill.fgColor.rgb.endswith(color.lstrip('#').upper()))
+            self.assertTrue(sheet.cell(number, 3).font.color.rgb.endswith(foreground(color).lstrip('#').upper()))
+            self.assertEqual(sheet.cell(number, 1).value, values[number-1][0])
+        self.assertEqual(sheet.cell(2, 1).style_id, sheet.cell(4, 1).style_id)
 
 
 if __name__ == '__main__':
