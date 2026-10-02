@@ -278,6 +278,13 @@ def text_value(value):
     return '' if value is None else str(value)
 
 
+def comparison_value(value):
+    # Google Sheets returns boolean cells as TRUE/FALSE; local JSON uses bools.
+    # Preserve identifiers and all other text exactly, including leading zeros.
+    rendered = text_value(value)
+    return rendered.casefold() if rendered.casefold() in ('true', 'false') else rendered
+
+
 def compare(previous, latest, keys=None, ignore=None):
     ignored = IGNORED if ignore is None else set(ignore)
     columns = [c for c in dict.fromkeys(previous['columns'] + latest['columns']) if c not in ignored]
@@ -320,7 +327,7 @@ def compare(previous, latest, keys=None, ignore=None):
                                 'Previous Value': json.dumps(a, ensure_ascii=False) if a else '',
                                 'Latest Value': json.dumps(b, ensure_ascii=False) if b else ''})
             else:
-                changed = [c for c in columns if text_value(a.get(c)) != text_value(b.get(c))]
+                changed = [c for c in columns if comparison_value(a.get(c)) != comparison_value(b.get(c))]
                 counts['modified' if changed else 'unchanged'] += 1
                 matched_rows.append(comparison_row('Matched - changed' if changed else 'Unchanged', b))
                 for c in changed:
@@ -333,7 +340,7 @@ def compare(previous, latest, keys=None, ignore=None):
         method = 'Matched by ' + ', '.join(keys)
     else:
         def fingerprints(rows):
-            return Counter(tuple(text_value(row.get(c)) for c in columns) for row in rows)
+            return Counter(tuple(comparison_value(row.get(c)) for c in columns) for row in rows)
         before, after = fingerprints(old), fingerprints(new)
         counts['unchanged'] = sum((before & after).values())
         for values, frequency in (before & after).items():

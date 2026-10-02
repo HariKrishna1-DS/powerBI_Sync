@@ -163,6 +163,25 @@ class TrackerRulesTests(unittest.TestCase):
         self.assertEqual(result['counts']['modified'], 1)
         self.assertEqual(result['counts']['removed'], 0)
 
+    def test_recovered_sheet_booleans_are_not_false_changes(self):
+        a = {'name': 'preview1', 'columns': ['Order Number', 'Is Available', 'WorkflowSuspended'],
+             'rows': [{'Order Number': '001', 'Is Available': 'TRUE', 'WorkflowSuspended': 'FALSE'}]}
+        b = {'name': 'preview2', 'columns': a['columns'],
+             'rows': [{'Order Number': '001', 'Is Available': True, 'WorkflowSuspended': False}]}
+        self.assertEqual(compare(a, b)['counts']['unchanged'], 1)
+        b['rows'][0]['WorkflowSuspended'] = True
+        result = compare(a, b)
+        self.assertEqual(result['counts']['modified'], 1)
+        self.assertEqual([r['Column'] for r in result['rows']], ['WorkflowSuspended'])
+        b['rows'][0]['Order Number'] = '1'
+        result = compare(a, b)
+        self.assertEqual((result['counts']['added'], result['counts']['removed']), (1, 1))
+
+    def test_boolean_recovery_comparison_without_unique_keys(self):
+        a = {'name': 'preview1', 'columns': ['Is Available'], 'rows': [{'Is Available': 'FALSE'}]}
+        b = {'name': 'preview2', 'columns': a['columns'], 'rows': [{'Is Available': False}]}
+        self.assertEqual(compare(a, b)['counts']['unchanged'], 1)
+
     def test_remote_database_environment_cannot_enable_access(self):
         with tempfile.TemporaryDirectory() as folder, patch.dict('os.environ', {'DATABASE_URL': 'postgresql://invalid'}):
             store = PreviewStore(folder)
