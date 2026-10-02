@@ -6,13 +6,13 @@ async function setup(page) {
   const rows=Array.from({length:31},(_,index)=>({'Order Number':String(index+1).padStart(3,'0'),
     'Product Group':index%2?'Remaining Products':'Full Title',Product:index%2?'Update':'Full Title',
     'In Time':'10/01/2026 09:00 AM','Out Time':'10/01/2026','SLA Expiration':'10/01/2026 10:00 AM',
-    'Free Site':index===0?'Missed':'On Time',completion_date:'2026-10-01'}));
+    'Free Site':index===0?'Missing':'On Time',completion_date:'2026-10-01'}));
   const report={Month:'2026-10',MonthLabel:'October 2026',Previews:['preview31'],Days:['2026-10-01'],
     'Month Orders':31,'Completed Orders':31,Unchanged:0,'Awaiting for Clarification':0,
     columns:preview.columns,rows:preview.rows,missing_ids:[],unchanged_ids:[],sla_rows:rows};
   const updateTotals=()=>{
     report['SLA On Time']=rows.filter(row=>row['Free Site']==='On Time').length;
-    report['SLA Missed']=rows.filter(row=>row['Free Site']==='Missed').length;
+    report['SLA Missed']=rows.filter(row=>row['Free Site']==='Missing').length;
   };
   updateTotals();
   const requests=[];
@@ -36,7 +36,7 @@ async function setup(page) {
       await route.fulfill({json:{saved:true,rows:[report],message}});
     } else await route.fulfill({json:{}});
   });
-  await page.goto(process.env.DASHBOARD_TEST_URL||'http://127.0.0.1:8525');
+  await page.goto(process.env.DASHBOARD_TEST_URL||'/');
   await page.getByRole('button',{name:'Monthly report',exact:true}).click();
   await expect(page.getByRole('table',{name:'SLA orders',exact:true})).toBeVisible();
   return {requests,control};
@@ -65,16 +65,16 @@ test('SLA detail filters, pagination, and edits in both directions update report
   await expect(page.getByRole('button',{name:/^SLA On Time/}).locator('strong')).toHaveText('31');
   await expect(page.getByRole('button',{name:/^SLA Missed/}).locator('strong')).toHaveText('0');
   await expect(section.getByText('No matching SLA orders')).toBeVisible();
-  expect(requests[0]).toEqual({order_number:'001',completion_date:'2026-10-01',expected_status:'Missed',status:'On Time'});
+  expect(requests[0]).toEqual({order_number:'001',completion_date:'2026-10-01',expected_status:'Missing',status:'On Time'});
   await page.getByLabel('Filter SLA status').selectOption('On Time');
   await page.getByLabel('Search SLA orders').fill('002');
   await page.getByRole('button',{name:'Edit SLA for order 002',exact:true}).click();
-  await page.getByLabel('Edit Free Site',{exact:true}).selectOption('Missed');
+  await page.getByLabel('Edit Free Site',{exact:true}).selectOption('Missing');
   await page.getByRole('button',{name:'Save SLA',exact:true}).click();
-  await expect(section.getByRole('status')).toContainText('Order 002 saved as Missed');
+  await expect(section.getByRole('status')).toContainText('Order 002 saved as Missing');
   await expect(page.getByRole('button',{name:/^SLA Missed/}).locator('strong')).toHaveText('1');
   await page.getByRole('button',{name:'Refresh SLA',exact:true}).click();
-  await page.getByLabel('Filter SLA status').selectOption('Missed');
+  await page.getByLabel('Filter SLA status').selectOption('Missing');
   await expect(table.locator('tbody tr')).toHaveCount(1);
   await expect(table.locator('tbody')).toContainText('002');
   await page.screenshot({path:test.info().outputPath('sla-comments.png'),fullPage:false});
@@ -90,7 +90,7 @@ test('failed SLA save keeps the draft, row and totals unchanged and allows retry
   await expect(page.getByRole('alert')).toContainText('save could not be confirmed');
   await expect(page.getByLabel('Edit Free Site',{exact:true})).toHaveValue('On Time');
   await expect(page.getByRole('button',{name:/^SLA Missed/}).locator('strong')).toHaveText('1');
-  await expect(page.getByRole('table',{name:'SLA orders',exact:true}).locator('tbody')).toContainText('Missed');
+  await expect(page.getByRole('table',{name:'SLA orders',exact:true}).locator('tbody')).toContainText('Missing');
   control.fail=false;
   await page.getByRole('button',{name:'Save SLA',exact:true}).click();
   await expect(page.getByRole('region',{name:'SLA order details'}).getByRole('status')).toContainText('saved as On Time');
@@ -105,16 +105,16 @@ test('bulk selection carries across pages and sends one update for selected orde
   await page.getByRole('button',{name:'Next SLA page'}).click();
   await page.getByRole('checkbox',{name:'Select order 026',exact:true}).check();
   await expect(page.getByText('3 orders selected',{exact:true})).toBeVisible();
-  await page.getByLabel('Bulk SLA status',{exact:true}).selectOption('Missed');
+  await page.getByLabel('Bulk SLA status',{exact:true}).selectOption('Missing');
   await page.getByRole('group',{name:'Update selected SLA orders',exact:true}).scrollIntoViewIfNeeded();
   await page.screenshot({path:test.info().outputPath('sla-bulk-selection.png'),fullPage:false});
   await page.getByRole('button',{name:'Update 3 selected',exact:true}).click();
   expect(requests).toHaveLength(1);
   expect(requests[0].orders.map(order=>order.order_number)).toEqual(['001','002','026']);
-  expect(requests[0].status).toBe('Missed');
+  expect(requests[0].status).toBe('Missing');
   await expect(page.getByRole('button',{name:/^SLA Missed/}).locator('strong')).toHaveText('3');
   await expect(page.getByRole('group',{name:'Update selected SLA orders',exact:true})).toHaveCount(0);
-  await page.getByLabel('Filter SLA status').selectOption('Missed');
+  await page.getByLabel('Filter SLA status').selectOption('Missing');
   await expect(page.getByRole('table',{name:'SLA orders',exact:true}).locator('tbody tr')).toHaveCount(3);
 });
 
@@ -130,7 +130,7 @@ test('select page, select all filtered, deselect and filter reset are explicit',
   await expect(page.getByRole('group',{name:'Update selected SLA orders',exact:true})).toHaveCount(0);
   await page.getByRole('checkbox',{name:'Select all orders on this page'}).check();
   await expect(page.getByText('15 orders selected',{exact:true})).toBeVisible();
-  await page.getByLabel('Bulk SLA status',{exact:true}).selectOption('Missed');
+  await page.getByLabel('Bulk SLA status',{exact:true}).selectOption('Missing');
   await page.getByRole('button',{name:'Update 15 selected',exact:true}).click();
   expect(requests[0].orders).toHaveLength(15);
   expect(requests[0].orders.every(order=>Number(order.order_number)%2===0)).toBe(true);

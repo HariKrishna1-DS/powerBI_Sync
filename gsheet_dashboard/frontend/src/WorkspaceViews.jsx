@@ -534,9 +534,9 @@ function DailyOrders({preview, running}) {
   const rows=(selectedDay?.rows||[]).filter(row=>!search||columns.some(column=>str(row[column]).toLowerCase().includes(search.toLowerCase())));
   const groups=[
     ['Today Orders',rows],
-    ['Not in latest preview',rows.filter(row=>selectedDay?.missing_ids.includes(str(row['Order Number']).trim()))],
-    ['Newly Orders',rows.filter(row=>selectedDay?.new_ids.includes(str(row['Order Number']).trim()))],
-    ['Unchanged',rows.filter(row=>selectedDay?.unchanged_ids.includes(str(row['Order Number']).trim()))],
+    ['Not in latest preview',rows.filter(row=>selectedDay?.missing_ids?.includes(str(row['Order Number']).trim()))],
+    ['Newly Orders',rows.filter(row=>selectedDay?.new_ids?.includes(str(row['Order Number']).trim()))],
+    ['Unchanged',rows.filter(row=>selectedDay?.unchanged_ids?.includes(str(row['Order Number']).trim()))],
     ['Awaiting for Clarification',rows.filter(row=>normalized(row['Task Status'] ?? row.Status)==='awaiting for clarification')]
   ];
   const names=['Today Orders','Not in latest preview','Newly Orders','Unchanged','Awaiting for Clarification'];
@@ -676,7 +676,7 @@ function MonthlyOrders({preview,running}) {
   const rows=(selectedMonth?.rows||[]).filter(row=>!search||columns.some(column=>str(row[column]).toLowerCase().includes(search.toLowerCase())));
   const groups=[
     ['Month Orders',rows],
-    ['Completed Orders',rows.filter(row=>selectedMonth?.completed_ids.includes(str(row['Order Number']).trim()))],
+    ['Completed Orders',rows.filter(row=>selectedMonth?.completed_ids?.includes(str(row['Order Number']).trim()))],
     ['Awaiting for Clarification',rows.filter(row=>normalized(row['Task Status'] ?? row.Status)==='awaiting for clarification')]
   ];
   const names=MONTHLY_SERIES.map(series=>series.name);

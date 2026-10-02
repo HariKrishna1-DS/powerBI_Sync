@@ -26,8 +26,9 @@ class Sheet:
         self.row_count, self.col_count = 100, 30
         self.conditional_formats = []
 
-    def get_all_values(self):
-        values = [[str(v) if v is not None else '' for v in r] for r in self.values]
+    def get_all_values(self, value_render_option=None):
+        values = [[v if value_render_option == 'UNFORMATTED_VALUE' else str(v)
+                   if v is not None else '' for v in r] for r in self.values]
         for row in values:
             while row and row[-1] == '':
                 row.pop()
@@ -210,6 +211,31 @@ class SheetTransactionTests(unittest.TestCase):
         count = len(self.book.batches)
         sync_trackers(frame, book=self.book)
         self.assertEqual(len(self.book.batches), count)
+
+    def test_numeric_archive_round_trip_retry_does_not_duplicate(self):
+        frame = self.frame(1, [{'Order Number': '001', 'Product': 'Full Title',
+                               'Queue Age Hours': 240.0, 'WorkflowSuspended': False}])
+        sync_trackers(frame, book=self.book)
+        archive = self.book.worksheet('Sheet1')
+        archive.values[1][archive.values[0].index('Queue Age Hours')] = 240
+        count = len(self.book.batches)
+        sync_trackers(frame, book=self.book)
+        self.assertEqual(len(self.book.batches), count)
+        self.assertEqual(len(records(archive.get_all_values())), 1)
+
+    def test_numeric_change_or_text_identifier_change_still_blocks_retry(self):
+        frame = self.frame(1, [{'Order Number': '001', 'Product': 'Full Title',
+                               'Queue Age Hours': 240.125}])
+        sync_trackers(frame, book=self.book)
+        archive = self.book.worksheet('Sheet1')
+        age = archive.values[0].index('Queue Age Hours')
+        archive.values[1][age] = 240.126
+        with self.assertRaisesRegex(ValueError, 'different saved snapshot'):
+            sync_trackers(frame, book=self.book)
+        archive.values[1][age] = 240.125
+        archive.values[1][archive.values[0].index('Order Number')] = '1'
+        with self.assertRaisesRegex(ValueError, 'different saved snapshot'):
+            sync_trackers(frame, book=self.book)
 
     def test_retry_after_lost_reply_does_not_duplicate_appends(self):
         self.book.fail_after_commit = True

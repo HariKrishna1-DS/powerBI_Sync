@@ -6,6 +6,7 @@ disappearance, typing tasks and completion-looking task names are not completion
 from collections import Counter
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
 import hashlib
 import json
 from pathlib import Path
@@ -48,6 +49,24 @@ def text(value):
     if isinstance(value, (datetime, pd.Timestamp)):
         return value.strftime('%m/%d/%Y %I:%M:%S %p')
     return str(value).strip()
+
+
+def archive_value_matches(expected, actual):
+    """Compare the value written to Sheets, allowing its numeric round trip.
+
+    Only numeric source cells use numeric equality: text identifiers such as
+    '001' must not silently become '1'. Read unformatted values so a sheet's
+    display format or locale cannot disguise a changed number.
+    """
+    if text(expected).casefold() in ('true', 'false'):
+        return text(expected).casefold() == text(actual).casefold()
+    if isinstance(expected, (int, float)) and not isinstance(actual, bool):
+        try:
+            left, right = Decimal(str(expected)), Decimal(str(actual))
+            return left.is_finite() and right.is_finite() and left == right
+        except InvalidOperation:
+            return False
+    return text(expected) == text(actual)
 
 
 def key(row):
@@ -458,7 +477,7 @@ def sync_trackers(frame=None, on_progress=None, book=None):
                 worksheets[title] = book.add_worksheet(title=title, rows=1, cols=1)
             return worksheets[title]
         history_sheet = sheet('Sheet1')
-        history_values = history_sheet.get_all_values()
+        history_values = history_sheet.get_all_values(value_render_option='UNFORMATTED_VALUE')
         history = records(history_values)
         committed = {}
         for row in history:
@@ -475,16 +494,13 @@ def sync_trackers(frame=None, on_progress=None, book=None):
             import_default_details(book)
             return list(TRACKERS)
         if frame is not None and preview in committed:
-            def comparable(value):
-                value = text(value)
-                return value.casefold() if value.casefold() in ('true', 'false') else value
             columns = original['columns'] if original else list(frame.columns)
-            wanted = [[comparable(r.get(c, '')) for c in columns] for r in incoming]
             raw_committed = committed[preview]
             if not incoming and len(raw_committed) == 1 and not any(text(raw_committed[0].get(c)) for c in columns):
                 raw_committed = []  # The archive marker represents a valid empty capture.
-            actual = [[comparable(r.get(c, '')) for c in columns] for r in raw_committed]
-            if wanted != actual:
+            if len(incoming) != len(raw_committed) or any(
+                    not archive_value_matches(wanted.get(c, ''), actual.get(c, ''))
+                    for wanted, actual in zip(incoming, raw_committed) for c in columns):
                 raise ValueError('This preview name already identifies a different saved snapshot.')
             if receipt and receipt['sha256'] != digest:
                 raise ValueError('This preview has a different saved snapshot hash.')
