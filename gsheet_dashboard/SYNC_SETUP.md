@@ -1,18 +1,10 @@
 # DataTrace Sync Setup
 
-The extraction button and `python datatrace_sync.py` run the same local pipeline:
-browser login, queue pagination, preview creation, and CSV/Excel export. Extraction
-does not update Google Sheets. Select a preview and use **Sync [preview] to Sheets**
-to publish that preview. The optional daily local-time trigger always publishes the
-newest saved preview.
-`sync_config.json` is the shared target configuration for spreadsheet
-`1xjQ3yaDpMgvp3cRSQM-SfF8UBnbTcW_HWpZp_aN5-a8`, worksheet gid `0`.
-The tab title is discovered by ID. Every successful sync replaces all values on
-that tab, including stale rows. It also refreshes three report tabs: **All Products**
-(the ExcelReport column layout), **Full Title** (the Full Search layout), and
-**Remaining Products** (the C-O/Update layout). Template-only columns remain blank;
-sample workbook rows are never imported. Other tabs and formatting are retained.
-Keep manually maintained data on a separate tab.
+The extraction button, CSV/XLSX imports, scheduled AutoLogin jobs, and `python datatrace_sync.py` automatically sync new previews. The manual sync control retries an existing snapshot.
+
+`sync_config.json` selects the Google spreadsheet and a raw worksheet GID. Production trackers use the full September 2026 tab names from [the specification](../docs/TV_Search_Sync_Prompt.md). Optional `full_tracker_title` and `remaining_tracker_title` settings select another reporting period. Both trackers reside in the configured spreadsheet.
+
+Sync appends new orders, patches only allowed fields in existing rows, and preserves missing orders and manual data. Raw Sheet1/All Products tabs are append-only history. Google Sheets also stores the preview fingerprint index, Changes log, Needs review list, and refreshed report tabs. No remote database or database connection string is required.
 
 ## Requirements
 
@@ -47,17 +39,16 @@ npm.cmd --prefix gsheet_dashboard\frontend run build
 
 Or launch `gsheet_dashboard/run.bat` and click **Run AutoLogin & Extract Queue**.
 The React workspace opens at http://localhost:8510 (or the next free port printed
-by the launcher). The former Streamlit UI and demo star schema have been removed.
+by the launcher). The optional Streamlit dashboard also reads the Google Sheets trackers.
 The dashboard reports extraction and Google Sheets jobs separately. Failed extraction
 never uploads old local files, and a failed Sheets write retains the latest local
-preview and exports. The daily trigger is disabled by default, persists locally in
-`sync_schedule.json`, and runs only while the dashboard server is running.
+preview and exports. The schedule uses India Standard Time, persists locally in `sync_schedule.json` (and in the Sheet on Render), and runs only while the backend is running. Failed previews are kept in an ordered outbox and retried unattended.
 
 Exports are `gsheet_dashboard/queue_data_sheet2.csv` and `.xlsx`.
 Each new capture also saves immutable `previews/preview1.xlsx`, `preview2.xlsx`,
 and so on, with matching CSV files and a SQLite history index. Imported CSV/XLSX
 files are saved as new numbered previews too. Existing legacy queue files are
-never loaded automatically. The UI starts empty until a capture or import.
+never loaded automatically. Synced cloud previews are recovered after local storage loss, and production dashboards can load retained Sheet orders without a new capture.
 Excel contains the named table **DataTraceQueue**.
 The Node script produces intermediate JSON only; run the Python pipeline for
 CSV/Excel and Sheets sync. Excel generation uses the existing Python openpyxl library.
@@ -68,8 +59,7 @@ Portal login and pagination still require validation with your account.
 
 ## Power BI
 
-Recommended: **Get Data > Excel**, select `queue_data_sheet2.xlsx`, then the named
-**DataTraceQueue** table. CSV import is also supported. Set Parcel ID, OPON and
+For production reporting, use Export to download `Production_data.xlsx` from Google Sheets. The latest local `queue_data_sheet2.xlsx` and its **DataTraceQueue** table contain raw extraction data for inspection. CSV import is also supported. Set Parcel ID, OPON and
 other identifiers to Text. Use the English (United States) locale for full dates.
 
 | Field | Type / purpose |
@@ -147,3 +137,5 @@ npx.cmd playwright test
 
 Browser tests use isolated API fixtures; they do not seed the real workspace or
 contact DataTrace/Google. Actual portal login still requires configured credentials.
+
+The included Render blueprint keeps the free plan and omits its unsupported persistent disk. Synced history recovers from Sheets; preserving unsynced captures across host restarts requires persistent storage. See [Render disk requirements](https://render.com/docs/disks).

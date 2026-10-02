@@ -540,21 +540,12 @@ function DataTable({rows, columns, filters, openFilter, name, filterable=true, o
   </section>;
 }
 
-function completionStatus(row) {
-  if (row['Comparison Status'] !== 'Missing') return row;
-  const next = {...row};
-  for (const column of ['Task Status', 'Status']) {
-    if (column in next) next[column] = 'Completed and Delivered';
-  }
-  if ('Is Available' in next) next['Is Available'] = false;
-  return next;
-}
+function completionStatus(row) { return row; }
 
 const DAILY_SERIES = [
   {name:'Today Orders',color:'#147d72'},
-  {name:'Missing (Completed Orders)',color:'#bd6268'},
+  {name:'Completed Orders',color:'#bd6268'},
   {name:'Newly Orders',color:'#d79a32'},
-  {name:'Unchanged',color:'#596cc0'},
   {name:'Awaiting for Clarification',color:'#a66ad3'}
 ];
 
@@ -567,7 +558,7 @@ function DailyOrdersChart({history, selectedDate, onSelect}) {
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data} margin={{top:18,right:20,bottom:12,left:0}} barGap={3} barCategoryGap="22%">
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e9edee"/>
-          <XAxis dataKey="Date" tick={{fontSize:12}} tickFormatter={value=>new Date(`${value}T12:00:00`).toLocaleDateString('en-US',{month:'short',day:'numeric'})} interval={0}/>
+          <XAxis dataKey="Date" tick={{fontSize:12}} tickFormatter={value=>value==='Undated'?'Undated':new Date(`${value}T12:00:00`).toLocaleDateString('en-US',{month:'short',day:'numeric'})} interval={0}/>
           <YAxis allowDecimals={false} tick={{fontSize:12}} width={48}/>
           <Tooltip cursor={{fill:'#f0f5f3'}} formatter={value=>Number(value).toLocaleString()}/>
           {DAILY_SERIES.map(series=><Bar key={series.name} dataKey={series.name} fill={series.color} radius={[3,3,0,0]} maxBarSize={36} isAnimationActive={false} cursor="pointer" onClick={entry=>onSelect(entry.Date||entry.payload?.Date)}>
@@ -587,25 +578,24 @@ function DailyOrdersChart({history, selectedDate, onSelect}) {
 function DailyOrders({preview}) {
   const [history,setHistory]=useState([]), [error,setError]=useState(''), [date,setDate]=useState(''), [search,setSearch]=useState('');
   const [loading,setLoading]=useState(true);
-  useEffect(()=>{let active=true;setLoading(true);api(`/api/daily-orders${preview.id?`?preview_id=${preview.id}`:''}`).then(data=>{if(active){setHistory(data.rows);setDate(data.selected_date||'');setSearch('');setError('');}}).catch(e=>{if(active){setHistory([]);setError(e.message);}}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[preview.id]);
+  useEffect(()=>{let active=true,busy=false;setLoading(true);const refresh=async()=>{if(busy)return;busy=true;try{const data=await api('/api/daily-orders');if(active){setHistory(data.rows);setError('');}}catch(e){if(active){setHistory([]);setError(e.message);}}finally{busy=false;if(active)setLoading(false);}};refresh();const timer=setInterval(refresh,30000);return()=>{active=false;clearInterval(timer);};},[preview.id]);
   const selectedDay=history.find(day=>day.Date===date)||history[0];
   const columns=selectedDay?.columns||[];
   const rows=(selectedDay?.rows||[]).filter(row=>!search||columns.some(column=>str(row[column]).toLowerCase().includes(search.toLowerCase())));
   const groups=[
     ['Today Orders',rows],
-    ['Missing (Completed Orders)',rows.filter(row=>selectedDay?.missing_ids.includes(str(row['Order Number']).trim()))],
+    ['Completed Orders',rows.filter(row=>selectedDay?.completed_ids.includes(str(row['Order Number']).trim()))],
     ['Newly Orders',rows.filter(row=>selectedDay?.new_ids.includes(str(row['Order Number']).trim()))],
-    ['Unchanged',rows.filter(row=>selectedDay?.unchanged_ids.includes(str(row['Order Number']).trim()))],
     ['Awaiting for Clarification',rows.filter(row=>normalized(row['Task Status'] ?? row.Status)==='awaiting for clarification')]
   ];
-  const names=['Today Orders','Missing (Completed Orders)','Newly Orders','Unchanged','Awaiting for Clarification'];
+  const names=['Today Orders','Completed Orders','Newly Orders','Awaiting for Clarification'];
   return <section className="daily-orders">
     {error&&<div className="notice error">{error}</div>}
     {loading?<div className="loading"><LoaderCircle className="spin"/>Loading daily orders...</div>:<>
-      <div className="section-heading"><h2>Daily capture history</h2><label>Date<select aria-label="Daily orders date" value={selectedDay?.Date||''} onChange={e=>{setDate(e.target.value);setSearch('');}}>{history.map(day=><option key={day.Date}>{day.Date}</option>)}</select></label></div>
-      <div className="metrics">{names.map((name,index)=><div className={`metric ${['green','red','amber','gray','purple'][index]}`} key={name}><span>{name}</span><strong>{selectedDay?.[name]??0}</strong></div>)}</div>
+      <div className="section-heading"><h2>Daily production orders</h2><label>Date<select aria-label="Daily orders date" value={selectedDay?.Date||''} onChange={e=>{setDate(e.target.value);setSearch('');}}>{history.map(day=><option key={day.Date}>{day.Date}</option>)}</select></label></div>
+      <div className="metrics">{names.map((name,index)=><div className={`metric ${['green','red','amber','purple'][index]}`} key={name}><span>{name}</span><strong>{selectedDay?.[name]??(error?'—':0)}</strong></div>)}</div>
       <DailyOrdersChart history={history} selectedDate={selectedDay?.Date} onSelect={value=>{if(value){setDate(value);setSearch('');}}}/>
-      <div className="table-scroll"><table><thead><tr>{['Date','Previews',...names].map(name=><th key={name}>{name}</th>)}</tr></thead><tbody>{history.map(day=><tr key={day.Date}><td><button className="text-button" onClick={()=>{setDate(day.Date);setSearch('');}}>{day.Date}</button></td><td>{day.Previews.join(', ')}</td>{names.map(name=><td key={name}>{day[name]}</td>)}</tr>)}</tbody></table></div>
+      <div className="table-scroll"><table><thead><tr>{['Date',...names].map(name=><th key={name}>{name}</th>)}</tr></thead><tbody>{history.map(day=><tr key={day.Date}><td><button className="text-button" onClick={()=>{setDate(day.Date);setSearch('');}}>{day.Date}</button></td>{names.map(name=><td key={name}>{day[name]}</td>)}</tr>)}</tbody></table></div>
       <div className="filter-toolbar"><div className="search-input"><Search size={16}/><input aria-label="Search daily orders" placeholder="Search all columns" value={search} onChange={e=>setSearch(e.target.value)}/></div></div>
       {selectedDay?groups.map(([name,items])=><DataTable key={name} rows={items} columns={columns} filters={{}} openFilter={()=>{}} filterable={false} name={`${name} · ${items.length}`}/>):<div className="table-empty">No daily orders</div>}
     </>}
@@ -615,7 +605,6 @@ function DailyOrders({preview}) {
 const MONTHLY_SERIES = [
   {name:'Month Orders',color:'#147d72'},
   {name:'Completed Orders',color:'#bd6268'},
-  {name:'Unchanged',color:'#596cc0'},
   {name:'Awaiting for Clarification',color:'#a66ad3'},
   {name:'SLA On Time',color:'#30874b'},
   {name:'SLA Missed',color:'#d79a32'}
@@ -740,7 +729,7 @@ function MonthlyOrders({preview,running}) {
       try{
         const data=await api('/api/monthly-orders');
         if(active&&version===reportVersion.current){setHistory(data.rows);setError(data.sla_error||'');}
-      }catch(e){if(active&&version===reportVersion.current)setError(e.message);}
+      }catch(e){if(active&&version===reportVersion.current){setHistory([]);setError(e.message);}}
       finally{busy=false;if(active)setLoading(false);}
     };
     refresh();
@@ -765,8 +754,7 @@ function MonthlyOrders({preview,running}) {
   const rows=(selectedMonth?.rows||[]).filter(row=>!search||columns.some(column=>str(row[column]).toLowerCase().includes(search.toLowerCase())));
   const groups=[
     ['Month Orders',rows],
-    ['Completed Orders',rows.filter(row=>selectedMonth?.missing_ids.includes(str(row['Order Number']).trim()))],
-    ['Unchanged',rows.filter(row=>selectedMonth?.unchanged_ids.includes(str(row['Order Number']).trim()))],
+    ['Completed Orders',rows.filter(row=>selectedMonth?.completed_ids.includes(str(row['Order Number']).trim()))],
     ['Awaiting for Clarification',rows.filter(row=>normalized(row['Task Status'] ?? row.Status)==='awaiting for clarification')]
   ];
   const names=MONTHLY_SERIES.map(series=>series.name);
@@ -774,10 +762,10 @@ function MonthlyOrders({preview,running}) {
   return <section className="daily-orders">
     {error&&<div className="notice error">{error}</div>}
     {loading?<div className="loading"><LoaderCircle className="spin"/>Loading monthly orders...</div>:<>
-      <div className="section-heading"><h2>Monthly capture history</h2><label>Month<select aria-label="Monthly orders date" disabled={saving} value={selectedMonth?.Month||''} onChange={e=>{setMonth(e.target.value);setSearch('');}}>{history.map(m=><option key={m.Month} value={m.Month}>{m.MonthLabel || m.Month}</option>)}</select></label></div>
-      <div className="metrics">{names.slice(0,4).map((name,index)=><div className={`metric ${['green','red','gray','purple'][index]}`} key={name}><span>{name}</span><strong>{selectedMonth?.[name]??0}</strong><small>{monthlyPercentage(selectedMonth,name)}</small></div>)}</div>
+      <div className="section-heading"><h2>Monthly production orders</h2><label>Month<select aria-label="Monthly orders date" disabled={saving} value={selectedMonth?.Month||''} onChange={e=>{setMonth(e.target.value);setSearch('');}}>{history.map(m=><option key={m.Month} value={m.Month}>{m.MonthLabel || m.Month}</option>)}</select></label></div>
+      <div className="metrics">{names.slice(0,3).map((name,index)=><div className={`metric ${['green','red','purple'][index]}`} key={name}><span>{name}</span><strong>{selectedMonth?.[name]??(error?'—':0)}</strong><small>{monthlyPercentage(selectedMonth,name)}</small></div>)}</div>
       <div className="section-heading"><h2>SLA COMMENTS</h2><button className="secondary" disabled={saving} onClick={()=>setRefreshId(value=>value+1)}>Refresh SLA</button></div>
-      <div className="metrics sla-metrics">{names.slice(4).map(name=>{const value=name==='SLA On Time'?'On Time':'Missed';return <button className={`metric sla-metric ${value==='On Time'?'green':'amber'}`} key={name} disabled={saving} aria-pressed={slaFilter===value} onClick={()=>setSlaFilter(slaFilter===value?'':value)}><span>{name}</span><strong>{selectedMonth?.[name]??0}</strong><small>{monthlyPercentage(selectedMonth,name)}</small></button>;})}</div>
+      <div className="metrics sla-metrics">{names.slice(3).map(name=>{const value=name==='SLA On Time'?'On Time':'Missed';return <button className={`metric sla-metric ${value==='On Time'?'green':'amber'}`} key={name} disabled={saving} aria-pressed={slaFilter===value} onClick={()=>setSlaFilter(slaFilter===value?'':value)}><span>{name}</span><strong>{selectedMonth?.[name]??(error?'—':0)}</strong><small>{monthlyPercentage(selectedMonth,name)}</small></button>;})}</div>
       <SlaOrdersTable key={selectedMonth?.Month||'empty'} rows={selectedMonth?.sla_rows||[]} statusFilter={slaFilter} onStatusFilter={setSlaFilter} onSave={saveSla} running={running}/>
       <MonthlyOrdersChart history={history} selectedMonth={selectedMonth?.Month} onSelect={value=>{if(value){setMonth(value);setSearch('');}}}/>
       <div className="table-scroll"><table><thead><tr>{['Month','Previews',...names].map(name=><th key={name}>{name}</th>)}</tr></thead><tbody>{history.map(m=><tr key={m.Month}><td><button className="text-button" onClick={()=>{setMonth(m.Month);setSearch('');}}>{m.MonthLabel || m.Month}</button></td><td>{m.Previews.join(', ')}</td>{names.map(name=><td key={name}>{`${m[name]??0} (${monthlyPercentage(m,name)})`}</td>)}</tr>)}</tbody></table></div>
@@ -876,7 +864,7 @@ function App() {
   useEffect(()=>{let active=true,timer;const poll=async()=>{try{if(active)await refresh();}catch(e){if(active)setError(e.message);}finally{if(active)timer=setTimeout(poll,1800);}};poll();return()=>{active=false;clearTimeout(timer);};},[]);
   useEffect(()=>{if(!selected)return;let cancelled=false;setLoading(true);setPreview(EMPTY);setFilters({});setFilterColumn(null);setSearch('');setKeys([]);api(`/api/previews/${selected}`).then(data=>{if(!cancelled)setPreview(data);}).catch(e=>{if(!cancelled)setError(e.message);}).finally(()=>{if(!cancelled)setLoading(false);});return()=>{cancelled=true;};},[selected]);
   useEffect(()=>{
-    if(!['overview','sheets'].includes(view)||!preview.name)return;
+    if(!['overview','sheets','changes'].includes(view))return;
     let active=true, busy=false;
     const refresh=async()=>{
       if(busy)return;
@@ -887,7 +875,7 @@ function App() {
     };
     refresh();const timer=setInterval(refresh,30000);
     return()=>{active=false;clearInterval(timer);};
-  },[view,preview.name]);
+  },[view,preview.name,state.job.running]);
   useEffect(()=>{setFilters({});setFilterColumn(null);setSearch('');setChartSelection(null);},[view,previous,selected]);
   useEffect(()=>{
     setDiff(null);setCompareBusy(false);setCompareError('');
@@ -911,32 +899,16 @@ function App() {
     return()=>{cancelled=true;};
   },[previous,selected,keys,ignore,compareAttempt,view]);
   const comparisonTable = diff?.record_columns ? {columns:diff.record_columns,rows:[...diff.matched_rows,...diff.unmatched_rows]} : EMPTY;
-  const completedOrderIds = useMemo(()=>new Set((state.daily_completed_ids || []).map(id=>str(id).trim()).filter(Boolean)),[state.daily_completed_ids]);
-  const mappedPreview = useMemo(()=>({...preview, columns:[...new Set([...preview.columns,'Out Time'])], rows:preview.rows.map(row=>{
-    const next = {...row};
-    for (const column of ['Task Status','Status']) if (column in next) {
-      if (completedOrderIds.has(str(row['Order Number']).trim())||['crsp2','searchfix','n/a'].includes(normalized(row['Task Name']))) next[column] = 'Completed and Delivered';
-      else if (normalized(row[column])==='workflow suspended') next[column] = 'Awaiting for Clarification';
-      else if (normalized(row[column])==='available') {
-        const task=normalized(row['Task Name']).replaceAll(' ','');
-        if(task==='search') next[column]='Search In Progress';
-        if(task==='typingmodule') next[column]='Typing is Progress';
-      }
-    }
-    if ('Is Available' in next) next['Is Available'] = normalized(next['Task Status'] ?? next.Status)==='available';
-    if(normalized(next['Task Status'] ?? next.Status)==='completed and delivered') next['Out Time']='Completed';
-    return next;
-  })}),[preview,completedOrderIds]);
-  const liveCurrent=!!preview.name&&!!liveSheets&&liveSheets.preview_name===preview.name&&['overview','sheets'].includes(view);
-  const table = view==='changes' ? comparisonTable : liveCurrent ? liveSheets.sheets['All Products'] : mappedPreview;
-  const liveFull=liveCurrent?liveSheets.sheets['Full Title']:null;
-  const liveRemaining=liveCurrent?liveSheets.sheets['Remaining Products']:null;
+  const liveCurrent=!!liveSheets&&['overview','sheets','changes'].includes(view);
+  const table = view==='compare' ? comparisonTable : view==='changes' ? (liveSheets?.sheets?.Changes||EMPTY) : (liveSheets?.sheets?.Overview||EMPTY);
+  const liveFull=liveSheets?.sheets?.['Full Title'];
+  const liveRemaining=liveSheets?.sheets?.['Remaining Products'];
   const filtered = useMemo(()=>table.rows.filter(row=>matches(row,filters)&&(!search||table.columns.some(c=>str(row[c]).toLowerCase().includes(search.toLowerCase())))),[table,filters,search]);
-  const matchedComparison = view==='changes' ? filtered.filter(row=>['Unchanged','Matched - changed'].includes(row['Comparison Status'])) : [];
-  const missingComparison = view==='changes' ? filtered.filter(row=>row['Comparison Status']==='Missing') : [];
+  const matchedComparison = view==='compare' ? filtered.filter(row=>['Unchanged','Matched - changed'].includes(row['Comparison Status'])) : [];
+  const missingComparison = view==='compare' ? filtered.filter(row=>row['Comparison Status']==='Missing') : [];
   const chartRows = useMemo(()=>chartSelection?filtered.filter(row=>label(row[chartSelection.column])===chartSelection.value):[],[chartSelection,filtered]);
   const productSplit = useMemo(()=>{
-    if(['changes','daily','monthly'].includes(view) || !table.columns.includes('Product')) return null;
+    if(['compare','daily','monthly'].includes(view) || !table.columns.includes('Product')) return null;
     let remainingRows = filtered.filter(row=>!['full title', 'full search'].includes(normalized(row.Product)));
     if (selectedRemainingProducts.length > 0) {
       const spSet = new Set(selectedRemainingProducts.map(p => p.toLowerCase()));
@@ -949,7 +921,9 @@ function App() {
   },[filtered,table.columns,view,selectedRemainingProducts]);
 
   const overviewMetrics = useMemo(() => {
-    if (view === 'changes') return [];
+    if (view === 'compare') return [];
+    if(view==='changes')return [['Sync log entries',liveSheets?filtered.length.toLocaleString():'—','gray']];
+    if(!liveSheets)return ['Visible orders','Online queue','Ground queue','Active clients','Full Title share'].map(title=>[title,'—','gray']);
     const ogC = table.columns.includes('Online/ Ground') ? 'Online/ Ground' : table.columns.includes('Online/Ground') ? 'Online/Ground' : null;
     const clC = table.columns.includes('Client') ? 'Client' : null;
     const prC = table.columns.includes('Product') ? 'Product' : null;
@@ -967,7 +941,7 @@ function App() {
       ['Active clients', clN.toLocaleString(), 'gray'],
       ['Full Title share', `${ftN.toLocaleString()} (${((ftN/tot)*100).toFixed(1)}%)`, 'gray']
     ];
-  }, [view, filtered, table.columns]);
+  }, [view, filtered, table.columns, liveSheets]);
 
   async function extract(){setPending(true);setError('');try{await api('/api/extract',{method:'POST'});await refresh();}catch(e){setError(e.message);}finally{setPending(false);}}
   const [exporting,setExporting]=useState(false);
@@ -1001,9 +975,9 @@ function App() {
   async function downloadChanges(){try{const response=await fetch('/api/compare',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({previous:Number(previous),latest:selected,keys,ignore,download:true})});if(!response.ok)throw Error((await response.json()).error);saveBlob(await response.blob(),`${diff.previous}-to-${diff.latest}-changes.xlsx`);}catch(e){setError(e.message);}}
   const running=state.job.running||pending, result=state.job.result;
   return <div className="workspace">
-    <aside className="sidebar"><div className="brand"><div className="brand-mark"><Activity size={23}/></div><div>DataTrace<span>WORKSPACE</span></div></div><div className="nav-label">WORKSPACE</div><nav>{[['overview','Overview',BarChart3],['sheets','Data sheets',Table2],['daily','Daily Orders',FileSpreadsheet],['monthly','Monthly report',CalendarDays],['changes','Changes',ArrowLeftRight]].map(([id,title,Icon])=><button className={view===id?'nav-item selected':'nav-item'} key={id} onClick={()=>setView(id)}><Icon size={18}/>{title}{id==='changes'&&diff&&<small>{diff.record_counts?diff.record_counts.missing+diff.record_counts.newly_added:diff.counts.added+diff.counts.removed}</small>}</button>)}</nav><div className="preview-heading"><span className="nav-label">SAVED PREVIEWS</span><span>{state.previews.length}</span></div><div className="preview-list">{state.previews.map(p=><div key={p.id} className={`preview-item ${selected===p.id?'selected':''}`}><button className="preview-select" onClick={()=>{setSelected(p.id);const index=state.previews.findIndex(x=>x.id===p.id);setPrevious(String(state.previews[index+1]?.id||''));}}><FileSpreadsheet size={17}/><div><strong>{p.name}</strong><small>{p.row_count.toLocaleString()} rows · {new Date(p.created).toLocaleDateString()}</small></div>{p.id===state.previews[0].id&&<i>Latest</i>}</button><IconButton title={`Delete ${p.name}`} onClick={event=>deletePreview(event,p.id)}><Trash2 size={15}/></IconButton></div>)}{!state.previews.length&&<p className="no-previews">No saved previews</p>}</div><div className="sidebar-footer"><span className="status-dot"/>Local workspace<a href={state.sheet_url} target="_blank" rel="noreferrer">Google Sheet ↗</a></div></aside>
-    <main><header className="topbar"><div className="breadcrumb">Workspace <span>/</span> {view==='overview'?'Overview':view==='sheets'?'Data sheets':view==='daily'?'Daily Orders':view==='monthly'?'Monthly report':'Changes'}</div><div className="inline"><span className={`run-state ${running?'running':''}`}>{running&&<LoaderCircle size={14} className="spin"/>}{pending&&!state.job.running?'Starting…':state.job.stage}</span><button className="secondary" onClick={()=>upload.current.click()} disabled={uploading}><Upload size={16}/>{uploading?'Importing…':'Import file'}</button><button className="secondary" onClick={exportSheets} disabled={exporting||running} title="Download all Google Sheet tabs as Excel">{exporting?<LoaderCircle size={16} className="spin"/>:<ArrowDownToLine size={16}/>} {exporting?'Exporting...':'Export'}</button><input ref={upload} type="file" hidden accept=".csv,.xlsx" onChange={importFile}/></div></header>
-      <div className="content"><div className="page-heading"><div><span className="eyebrow">DATATRACE QUEUE</span><h1>{view==='changes'?'Preview comparison':view==='sheets'?'Data sheets':view==='daily'?'Daily Orders':view==='monthly'?'Monthly report':'Queue overview'}</h1><p className="muted">{preview.name?`${preview.name} · ${new Date(preview.created).toLocaleString()} · ${preview.source}`:'No data captured yet'}</p></div><div className="page-actions"><button className="secondary" onClick={syncSheets} disabled={running||!selected||loading||compareBusy||!!compareError}>{state.job.action==='sync'&&running?<LoaderCircle size={17} className="spin"/>:<CloudUpload size={17}/>}<span>{state.job.action==='sync'&&running?'Syncing…':`Sync ${preview.name||'preview'} to Sheets`}</span></button><details className="sync-schedule"><summary><Clock3 size={16}/>AutoLogin Trigger</summary><div>
+    <aside className="sidebar"><div className="brand"><div className="brand-mark"><Activity size={23}/></div><div>DataTrace<span>WORKSPACE</span></div></div><div className="nav-label">WORKSPACE</div><nav>{[['overview','Overview',BarChart3],['sheets','Data sheets',Table2],['daily','Daily Orders',FileSpreadsheet],['monthly','Monthly report',CalendarDays],['changes','Changes',FileSpreadsheet],['compare','Compare previews',ArrowLeftRight]].map(([id,title,Icon])=><button className={view===id?'nav-item selected':'nav-item'} key={id} onClick={()=>setView(id)}><Icon size={18}/>{title}{id==='compare'&&diff&&<small>{diff.record_counts?diff.record_counts.missing+diff.record_counts.newly_added:diff.counts.added+diff.counts.removed}</small>}</button>)}</nav><div className="preview-heading"><span className="nav-label">SAVED PREVIEWS</span><span>{state.previews.length}</span></div><div className="preview-list">{state.previews.map(p=><div key={p.id} className={`preview-item ${selected===p.id?'selected':''}`}><button className="preview-select" onClick={()=>{setSelected(p.id);const index=state.previews.findIndex(x=>x.id===p.id);setPrevious(String(state.previews[index+1]?.id||''));}}><FileSpreadsheet size={17}/><div><strong>{p.name}</strong><small>{p.row_count.toLocaleString()} rows · {new Date(p.created).toLocaleDateString()}</small></div>{p.id===state.previews[0].id&&<i>Latest</i>}</button><IconButton title={`Delete ${p.name}`} disabled={state.job.running||pending} onClick={event=>deletePreview(event,p.id)}><Trash2 size={15}/></IconButton></div>)}{!state.previews.length&&<p className="no-previews">No saved previews</p>}</div><div className="sidebar-footer"><span className="status-dot"/>Local workspace<a href={state.sheet_url} target="_blank" rel="noreferrer">Google Sheet ↗</a></div></aside>
+    <main><header className="topbar"><div className="breadcrumb">Workspace <span>/</span> {view==='overview'?'Overview':view==='sheets'?'Data sheets':view==='daily'?'Daily Orders':view==='monthly'?'Monthly report':view==='changes'?'Changes':'Compare previews'}</div><div className="inline"><span className={`run-state ${running?'running':''}`}>{running&&<LoaderCircle size={14} className="spin"/>}{pending&&!state.job.running?'Starting…':state.job.stage}</span><button className="secondary" onClick={()=>upload.current.click()} disabled={uploading}><Upload size={16}/>{uploading?'Importing…':'Import file'}</button><button className="secondary" onClick={exportSheets} disabled={exporting||running} title="Download all Google Sheet tabs as Excel">{exporting?<LoaderCircle size={16} className="spin"/>:<ArrowDownToLine size={16}/>} {exporting?'Exporting...':'Export'}</button><input ref={upload} type="file" hidden accept=".csv,.xlsx" onChange={importFile}/></div></header>
+      <div className="content"><div className="page-heading"><div><span className="eyebrow">DATATRACE QUEUE</span><h1>{view==='changes'?'Sync changes':view==='compare'?'Preview comparison':view==='sheets'?'Data sheets':view==='daily'?'Daily Orders':view==='monthly'?'Monthly report':'Queue overview'}</h1><p className="muted">{preview.name?`${preview.name} · ${new Date(preview.created).toLocaleString()} · ${preview.source}`:'No data captured yet'}</p></div><div className="page-actions"><button className="secondary" onClick={syncSheets} disabled={running||!selected||loading||compareBusy||!!compareError}>{state.job.action==='sync'&&running?<LoaderCircle size={17} className="spin"/>:<CloudUpload size={17}/>}<span>{state.job.action==='sync'&&running?'Syncing…':`Retry ${preview.name||'preview'} sync`}</span></button><details className="sync-schedule"><summary><Clock3 size={16}/>AutoLogin Trigger</summary><div>
         <TriggerClock schedule={state.schedule}/>
         <button className="secondary" disabled={savingSchedule||!state.schedule} onClick={()=>saveSchedule(!state.schedule?.enabled,state.schedule?.times||[state.schedule?.time||'09:00'])}>{state.schedule?.enabled?'Pause schedule':'Resume schedule'}</button>
         <div className="schedule-times-label">Scheduled times (IST):</div>
@@ -1024,27 +998,29 @@ function App() {
         <button className="primary" onClick={()=>saveSchedule()} disabled={savingSchedule||!scheduleDraft.times.length}>{savingSchedule?'Saving…':'Save AutoLogin Trigger'}</button>
         {state.schedule?.last_triggered_date&&<small>Last triggered {state.schedule.last_triggered_date}</small>}
       </div></details><button className="primary" onClick={extract} disabled={running}>{state.job.action==='extract'&&running?<LoaderCircle size={17} className="spin"/>:<Play size={17}/>}<span>{state.job.action==='extract'&&running?'Extracting queue…':'Run AutoLogin & Extract Queue'}</span></button></div></div>
-      {view==='overview' && selected && <section className="automatic-statuses"><span className="eyebrow">AUTOMATIC STATUSES</span><div><span>Workflow Suspended</span><span aria-hidden="true">&#8594;</span><span className="status-rule-target" style={{background:statusColor('Awaiting for Clarification')}}>Awaiting for Clarification</span></div><div><span>Missing orders</span><span aria-hidden="true">&#8594;</span><span className="status-rule-target" style={{background:statusColor('Completed and Delivered')}}>Completed and Delivered</span></div></section>}
+      {view==='overview' && selected && <section className="automatic-statuses"><span className="eyebrow">AUTOMATIC STATUSES</span><div><span>Workflow Suspended</span><span aria-hidden="true">&#8594;</span><span className="status-rule-target" style={{background:statusColor('Awaiting for Clarification')}}>Awaiting for Clarification</span></div><div><span>Missing orders</span><span aria-hidden="true">&#8594;</span><span>Retained with existing status</span></div></section>}
       {error&&<div className="notice error" role="alert">{error}<IconButton title="Dismiss error" onClick={()=>setError('')}><X size={16}/></IconButton></div>}
-      {liveSheetError&&['overview','sheets'].includes(view)&&<div className="notice warning" role="status">Google Sheet unavailable; showing saved preview. {liveSheetError}</div>}
-      {liveCurrent&&<div className="notice" role="status">Connected Google Sheet · {preview.name}</div>}
+      {liveSheetError&&['overview','sheets','changes'].includes(view)&&<div className="notice warning" role="status">Google Sheet unavailable. Production reports are unavailable until the connection is restored. {liveSheetError}</div>}
+      {liveCurrent&&<div className="notice" role="status">Connected Google Sheet · all retained tracker orders</div>}
       {result?.error&&<div className="notice warning" role="status">{result.preview_name&&<strong>{result.preview_name} saved. </strong>}{result.error}</div>}
-      {result&&!result.error&&!running&&<div className="notice success"><Check size={16}/>{result.action==='sync'?`${result.preview_name} synced · ${result.rows} rows · ${result.worksheets?.length||0} Google Sheets tabs updated`:`${result.preview_name} saved locally · ${result.rows} rows · Google Sheets not changed`}</div>}
-      {!state.previews.length ? <div className="empty-state"><div className="empty-icon"><Database size={40} strokeWidth={1.3}/></div><h2>No queue data yet</h2><p>Your saved previews will appear here.</p><button className="secondary" onClick={()=>upload.current.click()}><Plus size={17}/>Import Excel or CSV</button></div> : <>
-      {view==='changes'&&<section className="compare-controls"><label>Previous preview<select aria-label="Previous preview" value={previous} onChange={e=>choosePrevious(e.target.value)}><option value="">Select a preview</option>{state.previews.filter(p=>p.id!==selected).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label><ArrowLeftRight size={18}/><label>Latest preview<select aria-label="Latest preview" value={selected||''} onChange={e=>chooseLatest(e.target.value)}>{state.previews.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label><details className="match-options"><summary><SlidersHorizontal size={16}/>Matching columns {keys.length?`(${keys.length})`:'(Auto)'}</summary><div>{preview.columns.map(c=><label className="check-row" key={c}><input type="checkbox" checked={keys.includes(c)} onChange={()=>setKeys(keys.includes(c)?keys.filter(k=>k!==c):[...keys,c])}/>{c}</label>)}</div></details><details className="match-options"><summary>Ignored columns ({ignore.length})</summary><div>{preview.columns.map(c=><label className="check-row" key={c}><input type="checkbox" checked={ignore.includes(c)} onChange={()=>setIgnore(ignore.includes(c)?ignore.filter(k=>k!==c):[...ignore,c])}/>{c}</label>)}</div></details><button className="secondary" disabled={!diff||compareBusy} onClick={downloadChanges}><ArrowDownToLine size={16}/>Power BI changes.xlsx</button></section>}
-      {view==='changes'&&compareError&&<div className="notice warning" role="alert">{compareError}<button className="secondary" onClick={()=>setCompareAttempt(value=>value+1)}>Retry comparison</button></div>}
-      {view==='changes'&&!previous&&<div className="notice">Capture or import a second preview to compare changes.</div>}
-      {view==='changes'&&diff&&<><p className="comparison-method">{diff.method}</p>{(diff.added_columns.length>0||diff.removed_columns.length>0)&&<div className="notice">Columns added: {diff.added_columns.join(', ')||'None'} · Columns removed: {diff.removed_columns.join(', ')||'None'}</div>}</>}
-      {!['daily','monthly'].includes(view)&&<div className="metrics">{(view==='changes'?[['Matched',diff?.record_counts?.matched??'—','green'],['Missing Previews',diff?.record_counts?.missing??'—','red'],['Newly added',diff?.record_counts?.newly_added??'—','amber'],['Unchanged',diff?.record_counts?.unchanged??'—','gray']]:overviewMetrics).map(([title,value,color])=><div className={`metric ${color}`} key={title}><span>{title}</span><strong>{value}</strong></div>)}</div>}
-      {!['daily','monthly'].includes(view)&&<div className="filter-toolbar"><div className="search-input"><Search size={16}/><input aria-label="Search rows" placeholder="Search all columns" value={search} onChange={e=>setSearch(e.target.value)}/></div><select aria-label="Choose column filter" value={filterColumn||''} onChange={e=>setFilterColumn(e.target.value||null)}><option value="">Filter a column…</option>{table.columns.map(c=><option key={c}>{c}</option>)}</select>{Object.keys(filters).map(c=><button className="filter-chip" key={c} onClick={()=>setFilterColumn(c)}><Filter size={12}/>{c}</button>)}{Object.keys(filters).length>0&&<button className="text-button" onClick={()=>setFilters({})}>Clear filters</button>}<span className="row-tally">{filtered.length.toLocaleString()} / {table.rows.length.toLocaleString()} rows</span>{view!=='changes'&&preview.id&&<><a className="secondary" href={`/api/previews/${preview.id}/download/xlsx`} title="Download entire Google Sheet workbook (all sheets)"><ArrowDownToLine size={16}/>Excel</a><a className="secondary" href={`/api/previews/${preview.id}/download/csv`}>CSV</a></>}</div>}
-      {(loading||(view==='changes'&&compareBusy))?<div className="loading"><LoaderCircle className="spin"/>Loading preview…</div>:<><div className={filterColumn?'data-layout with-filter':'data-layout'}><div className="data-main">{view==='overview'&&<><OverviewDashboard rows={filtered} columns={table.columns} onSelect={setChartSelection} selectedProducts={selectedRemainingProducts} setSelectedProducts={handleProductSelectionChange}/><Chart rows={filtered} columns={table.columns} onSelect={setChartSelection}/>{chartSelection&&<div className="chart-drilldown"><DataTable rows={chartRows} columns={table.columns} filters={{}} openFilter={()=>{}} filterable={false} onClose={()=>setChartSelection(null)} name={`${chartSelection.value} · ${chartRows.length} orders`}/></div>}</>}
+      {result&&!result.error&&!running&&<div className="notice success"><Check size={16}/>{result.action==='sync'?`${result.preview_name} synced · ${result.rows} rows · ${result.worksheets?.length||0} Google Sheets tabs updated`:`${result.preview_name} saved locally · ${result.rows} rows · Google Sheets sync pending`}</div>}
+      {result?.pass_report&&!running&&<div className="notice" role="status">{result.pass_report.scanned} scanned · {result.pass_report.added} added · {result.pass_report.updated} updated · {result.pass_report.unchanged} unchanged · {result.pass_report.not_in_latest?.length||0} not in latest preview</div>}
+      {result?.pass_report&&!running&&((result.pass_report.ambiguous?.length||0)+(result.pass_report.unprocessed?.length||0)>0)&&<div className="notice warning" role="status">{(result.pass_report.ambiguous?.length||0)+(result.pass_report.unprocessed?.length||0)} review items · check Changes and the Needs review tab in Google Sheets.</div>}
+      {!state.previews.length && !liveSheets ? <div className="empty-state"><div className="empty-icon"><Database size={40} strokeWidth={1.3}/></div><h2>No queue data yet</h2><p>Your saved previews will appear here.</p><button className="secondary" onClick={()=>upload.current.click()}><Plus size={17}/>Import Excel or CSV</button></div> : <>
+      {view==='compare'&&<section className="compare-controls"><label>Previous preview<select aria-label="Previous preview" value={previous} onChange={e=>choosePrevious(e.target.value)}><option value="">Select a preview</option>{state.previews.filter(p=>p.id!==selected).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label><ArrowLeftRight size={18}/><label>Latest preview<select aria-label="Latest preview" value={selected||''} onChange={e=>chooseLatest(e.target.value)}>{state.previews.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label><details className="match-options"><summary><SlidersHorizontal size={16}/>Matching columns {keys.length?`(${keys.length})`:'(Auto)'}</summary><div>{preview.columns.map(c=><label className="check-row" key={c}><input type="checkbox" checked={keys.includes(c)} onChange={()=>setKeys(keys.includes(c)?keys.filter(k=>k!==c):[...keys,c])}/>{c}</label>)}</div></details><details className="match-options"><summary>Ignored columns ({ignore.length})</summary><div>{preview.columns.map(c=><label className="check-row" key={c}><input type="checkbox" checked={ignore.includes(c)} onChange={()=>setIgnore(ignore.includes(c)?ignore.filter(k=>k!==c):[...ignore,c])}/>{c}</label>)}</div></details><button className="secondary" disabled={!diff||compareBusy} onClick={downloadChanges}><ArrowDownToLine size={16}/>Power BI changes.xlsx</button></section>}
+      {view==='compare'&&compareError&&<div className="notice warning" role="alert">{compareError}<button className="secondary" onClick={()=>setCompareAttempt(value=>value+1)}>Retry comparison</button></div>}
+      {view==='compare'&&!previous&&<div className="notice">Capture or import a second preview to compare changes.</div>}
+      {view==='compare'&&diff&&<><p className="comparison-method">{diff.method}</p>{(diff.added_columns.length>0||diff.removed_columns.length>0)&&<div className="notice">Columns added: {diff.added_columns.join(', ')||'None'} · Columns removed: {diff.removed_columns.join(', ')||'None'}</div>}</>}
+      {!['daily','monthly'].includes(view)&&<div className="metrics">{(view==='compare'?[['Matched',diff?.record_counts?.matched??'—','green'],['Missing Previews',diff?.record_counts?.missing??'—','red'],['Newly added',diff?.record_counts?.newly_added??'—','amber'],['Unchanged',diff?.record_counts?.unchanged??'—','gray']]:overviewMetrics).map(([title,value,color])=><div className={`metric ${color}`} key={title}><span>{title}</span><strong>{value}</strong></div>)}</div>}
+      {!['daily','monthly'].includes(view)&&<div className="filter-toolbar"><div className="search-input"><Search size={16}/><input aria-label="Search rows" placeholder="Search all columns" value={search} onChange={e=>setSearch(e.target.value)}/></div><select aria-label="Choose column filter" value={filterColumn||''} onChange={e=>setFilterColumn(e.target.value||null)}><option value="">Filter a column…</option>{table.columns.map(c=><option key={c}>{c}</option>)}</select>{Object.keys(filters).map(c=><button className="filter-chip" key={c} onClick={()=>setFilterColumn(c)}><Filter size={12}/>{c}</button>)}{Object.keys(filters).length>0&&<button className="text-button" onClick={()=>setFilters({})}>Clear filters</button>}<span className="row-tally">{filtered.length.toLocaleString()} / {table.rows.length.toLocaleString()} rows</span>{view!=='compare'&&preview.id&&<><a className="secondary" href='/api/export/google-sheets' title="Download Production_data.xlsx from Google Sheets"><ArrowDownToLine size={16}/>Excel</a><a className="secondary" href={`/api/previews/${preview.id}/download/csv`}>CSV</a></>}</div>}
+      {(loading||(view==='compare'&&compareBusy))?<div className="loading"><LoaderCircle className="spin"/>Loading preview…</div>:<><div className={filterColumn?'data-layout with-filter':'data-layout'}><div className="data-main">{view==='overview'&&<><OverviewDashboard rows={filtered} columns={table.columns} onSelect={setChartSelection} selectedProducts={selectedRemainingProducts} setSelectedProducts={handleProductSelectionChange}/><Chart rows={filtered} columns={table.columns} onSelect={setChartSelection}/>{chartSelection&&<div className="chart-drilldown"><DataTable rows={chartRows} columns={table.columns} filters={{}} openFilter={()=>{}} filterable={false} onClose={()=>setChartSelection(null)} name={`${chartSelection.value} · ${chartRows.length} orders`}/></div>}</>}
         {view==='daily'&&<DailyOrders preview={preview}/>}
         {view==='monthly'&&<MonthlyOrders preview={preview} running={running}/>}
         {['overview','daily','monthly'].includes(view) ? null : productSplit ? <>
-          <DataTable rows={filtered} columns={table.columns} filters={filters} openFilter={setFilterColumn} name={`${preview.name||'Queue'} - All Products`}/>
-          <DataTable rows={liveFull?liveFull.rows.filter(row=>!search||liveFull.columns.some(column=>str(row[column]).toLowerCase().includes(search.toLowerCase()))):productSplit.fullTitle} columns={liveFull?.columns||table.columns} filters={liveFull?{}:filters} openFilter={setFilterColumn} name={`${preview.name||'Queue'} - Full Title`}/>
-          <DataTable rows={liveRemaining?liveRemaining.rows.filter(row=>!search||liveRemaining.columns.some(column=>str(row[column]).toLowerCase().includes(search.toLowerCase()))):productSplit.remaining} columns={liveRemaining?.columns||table.columns} filters={liveRemaining?{}:filters} openFilter={setFilterColumn} name={`${preview.name||'Queue'} - Remaining Products`}/>
-        </> : <>{view==='changes'&&diff?.order_append&&<section className="order-append"><div className="order-append-summary"><div><span>Previous last order</span><strong>{diff.order_append.anchor_order||'Not available'}</strong></div><div><span>First new order</span><strong>{diff.order_append.first_added_order||'—'}</strong></div><div><span>Latest new order</span><strong>{diff.order_append.latest_added_order||'—'}</strong></div><div><span>Orders added after it</span><strong>{diff.order_append.available?diff.order_append.count:'—'}</strong></div></div>{diff.order_append.available&&<DataTable rows={diff.order_append.rows} columns={diff.order_append.columns} filters={{}} openFilter={()=>{}} filterable={false} name={`Orders after ${diff.order_append.anchor_order}`}/>}</section>}{view==='changes'?<><DataTable rows={matchedComparison} columns={table.columns} filters={filters} openFilter={setFilterColumn} name={`Matched orders · ${diff?.previous||'Previous'} and ${diff?.latest||'Latest'}`}/><DataTable rows={missingComparison} columns={table.columns} filters={filters} openFilter={setFilterColumn} name="Missing Previews"/></>:<DataTable rows={filtered} columns={table.columns} filters={filters} openFilter={setFilterColumn} name={preview.name||'Queue'}/>}</>}
+          <DataTable rows={filtered} columns={table.columns} filters={filters} openFilter={setFilterColumn} name={'Production trackers'}/>
+          <DataTable rows={liveFull?liveFull.rows.filter(row=>!search||liveFull.columns.some(column=>str(row[column]).toLowerCase().includes(search.toLowerCase()))):productSplit.fullTitle} columns={liveFull?.columns||table.columns} filters={liveFull?{}:filters} openFilter={setFilterColumn} name={'Full Title'}/>
+          <DataTable rows={liveRemaining?liveRemaining.rows.filter(row=>!search||liveRemaining.columns.some(column=>str(row[column]).toLowerCase().includes(search.toLowerCase()))):productSplit.remaining} columns={liveRemaining?.columns||table.columns} filters={liveRemaining?{}:filters} openFilter={setFilterColumn} name={'Remaining Products'}/>
+        </> : <>{view==='compare'&&diff?.order_append&&<section className="order-append"><div className="order-append-summary"><div><span>Previous last order</span><strong>{diff.order_append.anchor_order||'Not available'}</strong></div><div><span>First new order</span><strong>{diff.order_append.first_added_order||'—'}</strong></div><div><span>Latest new order</span><strong>{diff.order_append.latest_added_order||'—'}</strong></div><div><span>Orders added after it</span><strong>{diff.order_append.available?diff.order_append.count:'—'}</strong></div></div>{diff.order_append.available&&<DataTable rows={diff.order_append.rows} columns={diff.order_append.columns} filters={{}} openFilter={()=>{}} filterable={false} name={`Orders after ${diff.order_append.anchor_order}`}/>}</section>}{view==='compare'?<><DataTable rows={matchedComparison} columns={table.columns} filters={filters} openFilter={setFilterColumn} name={`Matched orders · ${diff?.previous||'Previous'} and ${diff?.latest||'Latest'}`}/><DataTable rows={missingComparison} columns={table.columns} filters={filters} openFilter={setFilterColumn} name="Missing Previews"/></>:<DataTable rows={filtered} columns={table.columns} filters={filters} openFilter={setFilterColumn} name={view==='changes'?'Google Sheets sync log':'Production trackers'}/>}</>}
       </div>{filterColumn&&<FilterPanel key={filterColumn} column={filterColumn} rows={table.rows} filters={filters} setFilters={setFilters} close={()=>setFilterColumn(null)}/>}</div></>}
       </>}
       <footer className="page-footer"><span>DataTrace Workspace</span><span>{state.previews.length} saved previews · Local storage</span></footer></div>

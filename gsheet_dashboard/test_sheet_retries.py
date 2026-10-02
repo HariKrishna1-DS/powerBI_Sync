@@ -45,7 +45,7 @@ class SheetRetryTests(unittest.TestCase):
         book.batch_update.side_effect = ReadTimeout('Test')
         with patch('datatrace_sync.time.sleep'), self.assertRaisesRegex(RuntimeError, 'timed out.*Full Title') as caught:
             sync.sync_dataframe(frame, (book, sheet), validate=False)
-        self.assertEqual(book.batch_update.call_count, 2)
+        self.assertEqual(book.batch_update.call_count, 3)
         self.assertNotIn('Editor', str(caught.exception))
         self.assertIn('may have completed', str(caught.exception))
 

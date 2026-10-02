@@ -2,7 +2,8 @@
 import io
 import json
 from pathlib import Path
-from preview_store import PreviewStore
+from datatrace_sync import target_worksheet
+from sheets_repository import read_tracker_rows
 
 import pandas as pd
 import plotly.express as px
@@ -151,25 +152,17 @@ st.markdown(f"""
 # Data Loading Functions
 @st.cache_data(ttl=60)
 def load_available_sources():
-    sources = {}
-    csv_file = BASE_DIR / "queue_data_sheet2.csv"
-    if csv_file.exists():
-        sources["queue_data_sheet2.csv (Latest Baseline)"] = ("csv", csv_file)
-    
-    for preview in PreviewStore(PREVIEWS_DIR).list():
-        sources[f"{preview['name']} ({preview['source']} · ID {preview['id']})"] = ("preview", preview['id'])
-    return sources
+    return {'Google Sheets production trackers': ('sheets', None)}
 
 
 def load_preview_data(source_type, source_val):
-    if source_type == "csv":
-        df = pd.read_csv(source_val)
-    elif source_type == "preview":
-        record = PreviewStore(PREVIEWS_DIR).get(source_val)
-        df = pd.DataFrame(record['rows'], columns=record['columns'])
-    else:
-        df = pd.DataFrame()
-    
+    try:
+        book, _ = target_worksheet()
+        df = pd.DataFrame(read_tracker_rows(book)).drop(columns=['_sheet', '_sheet_row'], errors='ignore')
+    except Exception as exc:
+        st.error(f'Google Sheets is unavailable: {exc}')
+        st.stop()
+
     if not df.empty:
         df.columns = [str(c).strip() for c in df.columns]
         # Standardize column names if needed

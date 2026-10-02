@@ -164,7 +164,7 @@ class SyncTests(unittest.TestCase):
                 patch.object(sync.subprocess, 'run', side_effect=scrape), \
                 patch.object(sync, 'sync_workbook') as upload:
             (Path(folder) / 'sync_status.json').write_text(json.dumps({'last_success_at': 'previous'}))
-            result = sync.run_sync()
+            result = sync.run_sync(auto_sync=False)
             self.assertEqual(result['scrape'], 'success')
             self.assertEqual(result['google_sheet'], 'not_synced')
             upload.assert_not_called()

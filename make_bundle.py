@@ -2,7 +2,7 @@ import os
 import zipfile
 
 output_filename = "DataTrace_Workspace.zip"
-exclude_dirs = {".git", ".venv", "node_modules", "__pycache__", ".pytest_cache", ".streamlit"}
+exclude_dirs = {".git", ".venv", "node_modules", "__pycache__", ".pytest_cache", ".streamlit", ".test-deps", "test-results", "playwright-report"}
 
 print("Packaging DataTrace Workspace...")
 with zipfile.ZipFile(output_filename, "w", zipfile.ZIP_DEFLATED) as zipf:

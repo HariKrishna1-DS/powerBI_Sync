@@ -24,19 +24,23 @@ class SyncPerformanceTests(unittest.TestCase):
         }]))
 
     def test_polls_reuse_reports_and_import_invalidates_cache(self):
-        client = create_app(self.root).test_client()
+        client = create_app(self.root, syncer=Mock(return_value=[])).test_client()
         with patch('server.daily_orders', wraps=server.daily_orders) as reports:
             first = client.get('/api/state').json
             self.assertEqual(client.get('/api/state').json['previews'], first['previews'])
-            self.assertEqual(reports.call_count, 1)
+            self.assertEqual(reports.call_count, 0)
             response = client.post('/api/import', data={'file': (
                 BytesIO(b'Order Number,Task Status\n002,Available\n'), 'new.csv')})
             self.assertEqual(response.status_code, 201)
             self.assertEqual(len(client.get('/api/state').json['previews']), 2)
-            self.assertEqual(reports.call_count, 2)
-            client.delete('/api/previews/2')
+            self.assertEqual(reports.call_count, 0)
+            for _ in range(100):
+                if not client.get('/api/state').json['job']['running']:
+                    break
+                time.sleep(.01)
+            self.assertEqual(client.delete('/api/previews/2').status_code, 200)
             self.assertEqual(len(client.get('/api/state').json['previews']), 1)
-            self.assertEqual(reports.call_count, 3)
+            self.assertEqual(reports.call_count, 0)
 
     def test_sync_is_accepted_before_slow_preparation_and_rejects_duplicate(self):
         entered, release, returned = threading.Event(), threading.Event(), threading.Event()

@@ -5,10 +5,10 @@ DataTrace Workspace is a local web application and automation suite designed for
 ## 🚀 Overview
 
 - **TitleVision Queue Extraction**: Automated headless/headed browser scraping using Node.js & Puppeteer.
-- **Preview Store**: Neon PostgreSQL when `DATABASE_URL` is configured; SQLite for local use without it. Excel/CSV exports remain available.
-- **Google Sheets Synchronization**: Sync the configured primary tab (currently Sheet1), All Products, Full Title, Remaining Products, and Status Report using Google Sheets API (`gspread`).
-- **Editable SLA Comments**: In Monthly report, filter SLA orders by On Time/Missed or Full Title/Remaining Products. Choose **Edit** for one order, or check multiple orders, choose **Bulk SLA status**, and click **Update selected**. The header checkbox selects the current page; **Select all matching orders** includes every page of the current filter. Selections carry across pages and clear when filters change. The order table, totals, percentages, and chart update together. Matching Google Sheet cells are updated and verified in a batch; corrections persist in one database transaction. Historical orders absent from the current Sheet use the saved correction when synced again.
-- **Power BI Integration**: Direct consumption of structured Excel tables (`DataTraceQueue`, `DataTraceChanges`) for reporting and dashboards.
+- **Preview Store**: Append-only Google Sheets history, plus a local SQLite retry index and numbered Excel/CSV snapshots. No remote database is required.
+- **Google Sheets Synchronization**: Automatically reconcile both named production tracker tabs, preserve manual cells and missing orders, and refresh all report views using the Google Sheets API (`gspread`).
+- **Editable SLA Comments**: In Monthly report, filter SLA orders by On Time/Missed or Full Title/Remaining Products. Choose **Edit** for one order, or check multiple orders, choose **Bulk SLA status**, and click **Update selected**. The header checkbox selects the current page; **Select all matching orders** includes every page of the current filter. Selections carry across pages and clear when filters change. The order table, totals, percentages, and chart update together. Matching master tracker cells are updated and verified in a batch. Reports read those Sheet values; cached local corrections never supply production data. A new preview recalculates derived Free Site values.
+- **Power BI Integration**: Use the Google Sheets production export for production reporting. Raw `DataTraceQueue` snapshots and `DataTraceChanges` comparisons remain available for inspection.
 - **Streamlit & React Web Applications**:
   - React/Vite local workspace UI (`http://localhost:8510`)
   - Streamlit analytics dashboard (`http://localhost:8501`)
@@ -19,11 +19,11 @@ DataTrace Workspace is a local web application and automation suite designed for
 
 | Layer | Component / Tool | Responsibility |
 | --- | --- | --- |
-| **Frontend UI** | React + Vite + Lucide + Recharts | Fast interactive dashboard for filtering, visual breakdowns, preview comparison, & manual sync triggers |
+| **Frontend UI** | React + Vite + Lucide + Recharts | Google Sheets production reporting, audit logs, preview comparison, and automatic sync with a retry control |
 | **Analytics UI** | Streamlit + Plotly | Interactive analytics dashboard with KPI cards and visualizations |
 | **Backend API** | Python (Flask, Waitress) | Local application service for extraction management, previews, diffing, and sync scheduling |
 | **Automation** | Node.js + Puppeteer | Headless browser engine for TitleVision portal login, pagination, and queue extraction |
-| **Data Storage** | Neon PostgreSQL / SQLite, openpyxl, pandas | Numbered snapshot storage, CSV/XLSX file generation, and diff tracking |
+| **Data Storage** | Google Sheets, local SQLite retry cache, openpyxl, pandas | Numbered snapshot storage, CSV/XLSX file generation, and diff tracking |
 | **Integrations** | Google Sheets API, Power BI | Automated cloud sync & BI ready data structures |
 
 ---
@@ -108,24 +108,26 @@ Open [http://localhost:8501](http://localhost:8501) in your browser.
 - Manual CSV/XLSX uploads are automatically integrated as new saved previews.
 
 ### 🔄 Google Sheets Sync
-- Extraction saves previews locally; it does not automatically upload them.
-- Manual sync updates the configured primary tab, **All Products**, **Full Title**, **Remaining Products**, and **Status Report**.
-- Status rules are automatic on every manual or scheduled sync. **Workflow Suspended** becomes **Awaiting for Clarification**. Order numbers in both **Missing** and **Newly Added** comparison rows become **Completed and Delivered**; completion takes priority.
-- Status colors extend across complete data rows, and Google Sheets column filters are enabled. Status values are read back before success is reported.
-- Manual Status_1/Status_2 controls are removed. Legacy browser rules are ignored. Original saved previews remain unchanged. A first capture has no completion comparison; later captures use the selected older preview, or the preceding saved capture for scheduled syncs. Order Number is required in both comparison inputs before automatic completion can sync.
-- Missing rows remain in the uploaded reports. Completed orders already present in the primary Google Sheets tab are retained on later syncs, including their completion status. The report tabs are regenerated from that combined data.
-- Search and dropdown slicers filter the displayed data; they do not restrict which rows are uploaded.
-- Optional daily automated local trigger to push the latest preview snapshot.
-- The scheduler runs only while the backend is running and applies the same automatic status rules to the latest capture.
-- **Daily Orders** shows one history row per saved capture, filterable by server-local capture date, with total, Missing (Completed Orders), Newly Added, and Unchanged counts against its preceding capture. Select a capture to inspect its data and missing/unchanged tables. First-capture comparison counts are unavailable, not zero. Totals are not summed across captures, avoiding double counting.
-- All five overview metrics share one line, with horizontal scrolling on narrow screens.
+- Every extraction, import, and scheduled capture automatically syncs. Failed previews remain saved and are retried while the backend runs.
+- Google Sheets is the source for Overview, Data sheets, Daily Orders, Monthly report, Changes, and production exports. Reports show a connection error when Sheets is unavailable.
+- The two master tabs use the full September 2026 production tracker names, configurable in `sync_config.json`. Legacy tracker tabs are migrated by title and headers; unrelated tabs are preserved.
+- Orders match by trimmed, case-insensitive Order Number. New orders append. Existing manual fields and formulas are preserved. Missing orders keep their existing status and Out Time.
+- New orders start as Search In Progress, except workflow-suspended orders, which become Awaiting for Clarification. Existing statuses only follow the documented two mapping rules. Queue disappearance never means completion.
+- Snapshots append to raw Sheet1 and All Products history, with a fingerprint index in `__DataTrace_Previews`. All synced captures can be recovered from Google Sheets.
+- One atomic batch commits tracker updates, history, reports, and the audit receipt. A host-wide writer lock and receipt verification protect concurrent jobs and retries.
+- SLA countdowns use the capture timestamp. Completed orders use real Out Time values, including the time of day. Ambiguous dates are flagged; open orders retain a blank Free Site.
+- Daily/monthly totals include every retained tracker order. SLA completions are grouped by actual Out Time. Status colors and On Time/Missing colors are applied to Sheets and `Production_data.xlsx` exports.
+- Changes shows the Google Sheets sync log. Compare previews separately inspects raw saved captures.
+
+The reconciled rules and conflict resolutions are documented in [TV Search sync specification](docs/TV_Search_Sync_Prompt.md).
+Run one backend writer per spreadsheet. Scheduled jobs run while the backend runs; use a persistent disk to preserve unsynced captures across hosting restarts. Synced history lives in Google Sheets.
 
 ### 📈 Diff & Comparison Engine
 - Compare any two snapshot previews for added, removed, or modified task records.
 - Custom key matching rules and field-level change exports (`DataTraceChanges` table for Power BI).
 
 ### 📈 Power BI Integration
-- Direct Excel import via table `DataTraceQueue` (`queue_data_sheet2.xlsx`).
+- Use `Production_data.xlsx` from Export for retained production totals. The `DataTraceQueue` table contains a raw queue snapshot, not the production source.
 - Pre-configured field types (Date, Text identifiers, Booleans, SLA Status, Queue Age Hours).
 
 ---
@@ -139,7 +141,7 @@ Open [http://localhost:8501](http://localhost:8501) in your browser.
 # Frontend build & Playwright E2E tests
 cd gsheet_dashboard\frontend
 npm.cmd run build
-npx.cmd playwright test
+npx.cmd playwright test --config playwright.production.config.js
 ```
 
 ---
@@ -185,7 +187,7 @@ This project includes a pre-configured [`Dockerfile`](file:///c:/Users/Harikrish
    - `DATATRACE_PASSWORD` = `your_password`
    - `DATATRACE_HEADLESS` = `true`
    - `GOOGLE_SERVICE_ACCOUNT_JSON` = contents of your `service_account.json`
-6. *(Optional)* Add a **Persistent Disk** mounted at `/app/gsheet_dashboard/previews` so your saved data previews persist across app restarts.
+6. The included free-service blueprint recovers synced history from Google Sheets. Render persistent disks require a paid service; unsynced local previews are lost on ephemeral-host restarts. To preserve failed captures across restarts, use a persistent local backend or explicitly configure a paid service with a disk at `/app/gsheet_dashboard/previews`. See [Render persistent disk documentation](https://render.com/docs/disks).
 
 ---
 

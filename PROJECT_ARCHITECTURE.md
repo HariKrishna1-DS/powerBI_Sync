@@ -24,7 +24,7 @@ run on the user's Windows computer.
 3. Extraction opens TitleVision, signs in, reads the queue, and saves a numbered preview.
 4. Select a preview to search, filter, inspect columns, view charts, and download data.
 5. Compare any two previews to review matched, missing, newly added, and unchanged orders.
-6. Select a preview and sync it to Google Sheets manually, or enable the optional daily trigger.
+6. Every extraction/import automatically syncs the saved preview. Enable AutoLogin times in IST for unattended captures; use the sync control to retry failures.
 7. Check and verify the synchronized Google Sheets tabs.
 8. Manually refresh or import the data in Power BI.
 9. Review the Power BI reports and dashboards.
@@ -34,17 +34,15 @@ run on the user's Windows computer.
 | Layer | Responsibility |
 | --- | --- |
 | Browser workspace | Preview selection, filters, charts, comparisons, exports, and sync controls |
-| Streamlit analytics dashboard | Interactive visual breakdown for Online/Ground, Client, and Product columns with KPI cards, Plotly charts, and filters |
+| Streamlit analytics dashboard | Google Sheets tracker analytics with KPI cards, Plotly charts, and filters |
 | Local application service | Coordinates extraction, imports, previews, comparisons, downloads, and sync jobs |
 | TitleVision automation | Opens Chromium, signs in, refreshes the queue, follows pagination, and extracts rows |
 | Data processing | Cleans queue records and produces Excel/CSV outputs and report-specific layouts |
-| Preview storage | Keeps numbered Excel/CSV previews and a local SQLite history index |
-| Google Sheets | Receives the selected preview in Full Report, All Products, Full Title, and Remaining Products tabs |
+| Preview storage | Keeps append-only Google Sheets snapshots plus local Excel/CSV previews and a SQLite retry index |
+| Google Sheets | Stores authoritative named trackers, raw preview history, report views, Changes, and Needs review |
 | Power BI | Uses manually verified sheet or Excel/CSV data for reporting |
 
-The Google Sheets and Power BI stages are separate. DataTrace can sync a selected
-preview to Google Sheets, but a user must verify the sheet and refresh or import it
-in Power BI. Automatic Power BI publishing is not configured.
+The Google Sheets and Power BI stages are separate. DataTrace automatically reconciles production trackers and verifies Sheets writes. Power BI refresh/import remains a separate user action. Automatic Power BI publishing is not configured.
 
 ## 4. Technologies And AI
 

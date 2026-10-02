@@ -1,24 +1,15 @@
 # DataTrace Workspace
 
-React dashboard for DataTrace queue captures, Google Sheets sync and Power BI exports.
+React dashboard for TitleVision extraction, automatic Google Sheets production sync, and Power BI exports.
 
-Start with [SYNC_SETUP.md](SYNC_SETUP.md) for credentials and installation.
-Run `run.bat`, then open the local URL printed by the launcher (normally
-http://localhost:8510).
+Start with [SYNC_SETUP.md](SYNC_SETUP.md). Run `run.bat`, then open the URL printed by the launcher, normally http://localhost:8510.
 
-- Each extraction saves numbered Excel/CSV previews locally. Use the sync button to upload a selected preview to Google Sheets.
-- Imports become new saved previews. No demo data or star schema is loaded.
-- Compare any two previews, inspect field-level changes, and export DataTraceChanges to Power BI.
-- Click column headers for unique values, counts and custom filters.
-- Switch chart types, group by any column, and scroll or adjust the chart range.
-- Sync automatically converts Workflow Suspended to Awaiting for Clarification, and only missing order numbers to Completed and Delivered. New orders keep their current status. Historical completed orders are retained only when absent from the current queue.
-- Daily Orders shows capture history, counts, and missing/unchanged order tables.
-- Sync colors complete data rows by status and updates the Status Report tab.
+- Extraction, imports, and scheduled AutoLogin captures automatically sync without a confirmation click.
+- Google Sheets stores the authoritative long-named tracker tabs, raw append-only history, report views, audit log, and review list.
+- Missing orders remain unchanged. New orders append as Search In Progress, with workflow suspension taking precedence.
+- Manual fields and formulas are preserved. SLA calculations retain timestamps and use capture time for countdowns.
+- Overview, Data sheets, Daily Orders, Monthly report, and Changes read Google Sheets. Compare previews is a separate raw snapshot tool.
+- Export downloads color-coded `Production_data.xlsx` from the live trackers. Individual preview downloads remain immutable raw snapshots.
+- PostgreSQL/Neon dependencies and setup are removed. Local SQLite and numbered CSV/XLSX files serve only as retry/recovery cache.
 
-See the [project README](../README.md#folder-and-file-review) for required folders,
-optional tools, cleanup candidates, and saved-data guidance.
-
-The Python extraction CLI remains available: `python datatrace_sync.py`.
-The React production build is served by `server.py`; `app.py` is a compatibility
-entry point for the same server. For frontend development, run `npm run dev` in
-`frontend` with the API running on port 8510.
+See [the revised specification](../docs/TV_Search_Sync_Prompt.md) for every rule, conflict resolution, and operational limitation.

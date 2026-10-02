@@ -2,11 +2,12 @@
 import pandas as pd
 import sys
 from datatrace_sync import target_worksheet, REPORT_SHEETS, status_row_format_request, status_color, sheet_color
+from sync_config import TRACKER_TITLES
 
 
 def main():
     book, primary = target_worksheet()
-    targets = [primary] + [book.worksheet(title) for title, _ in REPORT_SHEETS]
+    targets = list({sheet.id: sheet for sheet in [primary] + [book.worksheet(title) for title in (*TRACKER_TITLES, *(title for title, _ in REPORT_SHEETS), 'Status Report')]}.values())
     snapshots = []
     requests = []
     for sheet in targets:
@@ -18,6 +19,11 @@ def main():
         update = status_row_format_request(frame, sheet.id)
         if update:
             requests.append(update)
+            if 'Free Site' in frame.columns:
+                free_col = list(frame.columns).index('Free Site')
+                requests.append({'updateCells': {'start': {'sheetId': sheet.id, 'rowIndex': 1, 'columnIndex': free_col},
+                    'rows': [{'values': [{'userEnteredFormat': {'backgroundColor': sheet_color('#00b050' if value == 'On Time' else '#ff0000' if value in ('Missing', 'Missed') else '#ffffff')}}]} for value in frame['Free Site']],
+                    'fields': 'userEnteredFormat.backgroundColor'}})
             snapshots.append((sheet, frame, values))
     if '--verify-only' not in sys.argv:
         book.batch_update({'requests': requests})
@@ -43,8 +49,12 @@ def main():
                        and (index + 1, column_index) != (merge['startRowIndex'], merge['startColumnIndex'])
                        for merge in merges):
                     continue
+                cell_expected = expected
+                if frame.columns[column_index] == 'Free Site':
+                    value = frame.iloc[index]['Free Site']
+                    cell_expected = sheet_color('#00b050' if value == 'On Time' else '#ff0000' if value in ('Missing', 'Missed') else '#ffffff')
                 actual = cell.get('userEnteredFormat', {}).get('backgroundColor', {})
-                assert all(abs(actual.get(key, 0) - value) < 0.000001 for key, value in expected.items()), f'Color mismatch on {sheet.title}, row {index + 2}, column {column_index + 1}, status {status}: expected {expected}, actual {actual}'
+                assert all(abs(actual.get(key, 0) - value) < 0.000001 for key, value in cell_expected.items()), f'Color mismatch on {sheet.title}, row {index + 2}, column {column_index + 1}, status {status}: expected {expected}, actual {actual}'
         print(f'{sheet.title}: verified full-row colors on {len(frame)} rows; values unchanged', flush=True)
 
 

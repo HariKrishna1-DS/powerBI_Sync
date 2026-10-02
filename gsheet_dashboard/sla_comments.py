@@ -12,7 +12,7 @@ def sla_status(value):
 
 
 def sla_key(row):
-    # Product report tabs store completion dates without the time of day.
+    # Completion timestamps retain the time; identity includes its calendar day.
     out = parse_report_datetime(row.get('Out Time', ''))
     return (str(row.get('Order Number', '')).strip(), out.date().isoformat() if out else '')
 
@@ -25,7 +25,7 @@ def sla_entry(row, status):
     return {
         'Order Number': identity,
         'Product': product,
-        'Product Group': row.get('_sheet') or group,
+        'Product Group': group,
         'In Time': next((row.get(c) for c in ('Arrival Time', 'In-Time', 'In Time', 'RequestArrivalTime') if row.get(c)), ''),
         'Out Time': row.get('Out Time', ''),
         'SLA Expiration': expiration.strftime('%m/%d/%Y %I:%M %p') if expiration else row.get('SLA Expiration*', row.get('SLA Expiration', '')),

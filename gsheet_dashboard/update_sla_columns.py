@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import tempfile
 
+from sync_config import TRACKER_TITLES
 from datatrace_sync import parse_report_datetime, sla_expiration, sla_result, sheet_cell, target_worksheet
 
 
@@ -13,7 +14,7 @@ def main():
     args = parser.parse_args()
     book, _ = target_worksheet()
     requests, backups, checks = [], {}, []
-    for title in ('Full Title', 'Remaining Products'):
+    for title in TRACKER_TITLES:
         sheet = book.worksheet(title)
         values = sheet.get_all_values()
         if not values:
@@ -25,10 +26,10 @@ def main():
             if not str(row.get('Order Number', '')).strip():
                 continue
             updates = {'Free Site': sla_result(row)}
-            for column in ('Date', 'In-Time', 'Out Time', 'Process date'):
+            for column in ('Date', 'In-Time', 'Out Time'):
                 parsed = parse_report_datetime(row.get(column, ''))
                 if parsed:
-                    updates[column] = parsed.strftime('%m/%d/%Y')
+                    updates[column] = parsed.strftime('%m/%d/%Y') if column == 'Date' else parsed.strftime('%m/%d/%Y %I:%M:%S %p')
             expiration = sla_expiration(row)
             if expiration:
                 updates['SLA Expiration'] = expiration.strftime('%m/%d/%Y %I:%M %p')

@@ -14,6 +14,9 @@ from openpyxl import load_workbook
 
 from preview_store import PreviewStore
 from server import IST, create_app
+from test_production_sync import Book, preview, raw
+from order_reporting import automatic_sync_frame
+from sheets_repository import sync_production
 
 
 class ScheduledCaptureTests(unittest.TestCase):
@@ -125,50 +128,36 @@ class ScheduledCaptureTests(unittest.TestCase):
         with patch('server.target_worksheet', return_value=(book, sheets[0])):
             response = create_app(self.store.root).test_client().get('/api/export/google-sheets')
         self.assertEqual(response.status_code, 200)
-        self.assertIn('preview25_GoogleSheets.xlsx', response.headers['Content-Disposition'])
+        self.assertIn('Production_data.xlsx', response.headers['Content-Disposition'])
         workbook = load_workbook(BytesIO(response.data))
         self.assertEqual(workbook.sheetnames, ['Sheet1', 'Status Report', 'Extra tab'])
         self.assertEqual(workbook['Sheet1']['A2'].value, '001')
         self.assertEqual(workbook['Extra tab']['A2'].data_type, 's')
 
     def test_preview_name_survives_historical_merge(self):
-        import datatrace_sync as sync
-        frame = pd.DataFrame([{'Order Number': '1', 'Product': 'Full Title', 'Task Status': 'Available'}])
-        frame.attrs['preview_name'] = 'preview25'
-        primary = Mock(title='Sheet1')
-        primary.get_all_values.return_value = [list(frame.columns), ['old', 'Full Title', 'Completed and Delivered']]
-        book = Mock()
-        book.worksheets.return_value = [primary] + [Mock(title=title) for title in
-            ['All Products', 'Full Title', 'Remaining Products', 'Status Report']]
-        with patch.object(sync, 'target_worksheet', return_value=(book, primary)), patch.object(sync, 'sync_dataframe') as upload:
-            sync.sync_workbook(frame)
-        self.assertEqual(set(upload.call_args.args[0]['Preview']), {'preview25'})
+        book = Book()
+        capture = preview(1, [raw('A')])
+        capture.update(id=25, name='preview25')
+        frame, _ = automatic_sync_frame(capture)
+        with patch('datatrace_sync.target_worksheet', return_value=(book, book.sheets[0])), patch('sheets_repository.BASE_DIR', self.root):
+            sync_production(frame)
+        values = book.worksheet('Status Report').get_all_values()
+        offset = values[0].index('Preview')
+        self.assertEqual({row[offset] for row in values[1:]}, {'preview25'})
 
     def test_render_recovers_latest_numbered_preview_from_sheet(self):
-        primary = Mock()
-        primary.get_all_values.return_value = [
-            ['Order Number', 'Product', 'Task Status', 'Out Time', 'Free Site'],
-            ['001', 'Full Title', 'Completed and Delivered', '09/30/2026', 'Missed']]
-        status = Mock()
-        status.get_all_values.return_value = [['Preview'], ['preview27']]
-        settings = Mock()
-        settings.acell.return_value.value = ''
-        book = Mock()
-        product = Mock()
-        product.get_all_values.return_value = [primary.get_all_values.return_value[0], primary.get_all_values.return_value[1]]
-        empty_product = Mock()
-        empty_product.get_all_values.return_value = []
-        book.worksheet.side_effect = lambda title: {'Status Report': status, '__DataTrace_Config': settings,
-                                                     'Full Title': product, 'Remaining Products': empty_product}[title]
-        with patch.dict(os.environ, {'RENDER': 'true'}), patch('server.target_worksheet', return_value=(book, primary)):
-            client = create_app(self.store.root).test_client()
-            response = client.get('/api/state')
-            self.assertEqual(response.status_code, 200, response.get_data(as_text=True))
-            state = response.json
-            report = client.get('/api/monthly-orders').json
+        book = Book()
+        capture = preview(1, [raw('001')])
+        capture.update(id=27, name='preview27')
+        frame, _ = automatic_sync_frame(capture)
+        with patch('datatrace_sync.target_worksheet', return_value=(book, book.sheets[0])), patch('sheets_repository.BASE_DIR', self.root):
+            sync_production(frame)
+        with patch('server.BASE_DIR', self.root), patch('server.target_worksheet', return_value=(book, book.sheets[0])):
+            client = create_app().test_client()
+            state = client.get('/api/state').json
         self.assertEqual(state['previews'][0]['name'], 'preview27')
         self.assertEqual(client.get('/api/previews/27').json['rows'][0]['Order Number'], '001')
-        self.assertEqual(report['rows'][0]['SLA Missed'], 1)
+        self.assertEqual(self.store.get(27)['created'], capture['created'])
 
     def test_render_schedule_survives_local_file_loss(self):
         settings = Mock()
