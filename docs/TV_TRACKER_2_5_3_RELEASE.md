@@ -7,6 +7,8 @@ Existing monthly views are backed up before their schema is replaced.
 Saved captures has a dedicated scrollable area. Navigation and settings remain
 fixed; shorter windows reduce navigation spacing before reducing the capture
 area. Capture rows retain their two-line labels, selection state and search.
+While a capture loads, its summary uses placeholders instead of briefly showing
+zero rows and an incorrect local-file source.
 
 ## Completion and SLA rule
 
@@ -46,6 +48,10 @@ checks passed; the stalled shutdown completed in 7.5 seconds. The live Sheet
 repair retained all 7,257 production rows, corrected 625 rows and verified both
 26-column monthly views (149 Full Search rows, 371 Remaining rows). Raw history
 and unrelated tracker fields were checked unchanged after the write.
+Native review with the user's 35 saved captures verified fixed navigation,
+independent list scrolling and opening an older 329-row capture. All 35 captures,
+six CSV/Excel exports and encrypted connections were verified unchanged. An
+additional delayed-response UI test covers the loading-summary correction.
 
 No dependencies or new configuration are required. Existing credentials and
 capture history stay in the user's local profile. Windows signing remains

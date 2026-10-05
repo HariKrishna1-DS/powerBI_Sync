@@ -198,7 +198,7 @@ function App() {
 
   const overviewMetrics = useMemo(() => {
     if (view === 'changes') return [];
-    if (view === 'captures') return [['Saved rows', preview.rows.length.toLocaleString(), 'green'], ['Columns', preview.columns.length, 'gray'], ['Source', preview.source || 'Local file', 'gray']];
+    if (view === 'captures') return loading || (selected && preview.id !== selected) ? [['Saved rows', '—', 'green'], ['Columns', '—', 'gray'], ['Source', loading ? 'Loading…' : 'Unavailable', 'gray']] : [['Saved rows', preview.rows.length.toLocaleString(), 'green'], ['Columns', preview.columns.length, 'gray'], ['Source', preview.source || 'Local file', 'gray']];
     if(view==='audit')return [['Sync log entries',filtered.length.toLocaleString(),'gray']];
     if(!liveSheets)return ['Visible orders','Online queue','Ground queue','Active clients','Full Title share'].map(title=>[title,'—','gray']);
     const ogC = table.columns.includes('Online/ Ground') ? 'Online/ Ground' : table.columns.includes('Online/Ground') ? 'Online/Ground' : null;
@@ -218,7 +218,7 @@ function App() {
       ['Active clients', clN.toLocaleString(), 'gray'],
       ['Full Title share', `${ftN.toLocaleString()} (${((ftN/tot)*100).toFixed(1)}%)`, 'gray']
     ];
-  }, [view, filtered, table.columns, liveSheets]);
+  }, [view, filtered, table.columns, liveSheets, preview, loading, selected]);
 
   async function extract(){setPending(true);setError('');try{await api('/api/extract',{method:'POST'});await refresh();}catch(e){setError(e.message);}finally{setPending(false);}}
   const [exporting,setExporting]=useState(false);

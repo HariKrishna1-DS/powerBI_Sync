@@ -47,6 +47,18 @@ test('sheet segments use the correct sources and keep search and sorting availab
   await expect(page.locator('.orders-table')).not.toContainText('Full Title');
 });
 
+test('slow capture loading never presents a false zero row count or local-file source',async({page})=>{
+  const fixture=await setup(page);
+  let release;
+  const held=new Promise(resolve=>{release=resolve;});
+  await page.route('**/api/previews/31',async route=>{await held;await route.fulfill({json:fixture.response('/api/previews/31')});});
+  await page.locator('.preview-select').filter({has:page.locator('strong',{hasText:/^preview31$/})}).click();
+  await expect(page.locator('.metric').filter({hasText:'Saved rows'}).locator('strong')).toHaveText('—');
+  await expect(page.locator('.metric').filter({hasText:'Source'}).locator('strong')).toHaveText('Loading…');
+  release();
+  await expect(page.locator('.metric').filter({hasText:'Saved rows'}).locator('strong')).toHaveText('228');
+});
+
 test('settings and appearance remain reachable in short desktop windows',async({page})=>{
   await page.setViewportSize({width:1280,height:620});
   await setup(page,35);
