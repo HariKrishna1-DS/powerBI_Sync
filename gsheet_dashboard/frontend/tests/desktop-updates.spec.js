@@ -16,7 +16,7 @@ async function setup(page, running=false) {
       installUpdate:async()=>{window.updateCalls.push('install');return send({status:'installing',message:'Closing Tv Tracker to install the update…'});},
     };
   });
-  await page.route('**/api/**',route=>route.fulfill({status:route.request().url().endsWith('/api/state')?200:502,json:route.request().url().endsWith('/api/state')?{previews:[],job:{running,stage:running?'Syncing':'Ready'},schedule:{enabled:false,times:['09:00']},capabilities:{desktop:true,google_configured:false}}:{error:'Offline'}}));
+  await page.route('**/api/**',route=>route.fulfill({status:new URL(route.request().url()).pathname==='/api/state'?200:502,json:new URL(route.request().url()).pathname==='/api/state'?{previews:[],job:{running,stage:running?'Syncing':'Ready'},schedule:{enabled:false,times:['09:00']},capabilities:{desktop:true,google_configured:false}}:{error:'Offline'}}));
   await page.goto('/');
   await page.getByRole('button',{name:'Settings',exact:true}).click();
   await page.getByRole('tab',{name:'Updates',exact:true}).click();

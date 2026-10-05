@@ -61,8 +61,17 @@ function validateUiPreferences(input, previous = {theme:'system', orderViews:[]}
   const object = value => value && typeof value === 'object' && !Array.isArray(value);
   const text = (value, max) => typeof value === 'string' && value.length <= max;
   if (!object(input) || Buffer.byteLength(JSON.stringify(input)) > 131072 ||
-      Object.keys(input).some(key => !['theme','orderViews','sidebarCollapsed'].includes(key))) throw Error('Invalid workspace preferences.');
+      Object.keys(input).some(key => !['theme','orderViews','sidebarCollapsed','tableLayout'].includes(key))) throw Error('Invalid workspace preferences.');
   const next = {...previous};
+  if ('tableLayout' in input) {
+    const value = input.tableLayout;
+    if (!object(value) || !['compact','all','custom'].includes(value.mode) ||
+        !Array.isArray(value.hidden) || value.hidden.length > 100 || !value.hidden.every(key=>text(key,256)) ||
+        !object(value.widths) || Object.keys(value.widths).length > 100 ||
+        !Object.entries(value.widths).every(([key,width])=>text(key,256)&&Number.isInteger(width)&&width>=120&&width<=400) ||
+        typeof value.pinIdentifier !== 'boolean' || typeof value.wrap !== 'boolean') throw Error('Invalid table layout.');
+    next.tableLayout = JSON.parse(JSON.stringify(value));
+  }
   if ('sidebarCollapsed' in input) {
     if (typeof input.sidebarCollapsed !== 'boolean') throw Error('Invalid sidebar preference.');
     next.sidebarCollapsed = input.sidebarCollapsed;

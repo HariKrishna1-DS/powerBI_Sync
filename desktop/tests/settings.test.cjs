@@ -6,6 +6,18 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const {DEFAULTS, validateSettings, validateServiceAccount, validateUiPreferences, publicSettings, createVault, allowedExternal} = require('../settings.cjs');
 
+test('table layout preferences are bounded and retain existing saved views',()=>{
+  const tableLayout={mode:'custom',hidden:['County'],widths:{'Order Number':240},pinIdentifier:true,wrap:true};
+  const previous={theme:'dark',orderViews:[]};
+  const result=validateUiPreferences({tableLayout},previous);
+  assert.deepEqual(result,{...previous,tableLayout});
+  tableLayout.widths['Order Number']=400;
+  assert.equal(result.tableLayout.widths['Order Number'],240);
+  for(const patch of [{widths:{Status:800}},{hidden:[42]},{mode:'invalid'},{wrap:'yes'},{widths:[]}]) {
+    assert.throws(()=>validateUiPreferences({tableLayout:{...tableLayout,...patch}}),/Invalid table layout/);
+  }
+});
+
 test('workspace preferences use narrow bounded contracts and preserve other preferences',()=>{
   const views=[{name:'My orders',search:'Full Title',group:'attention',product:'all',filters:{Status:{values:['Available'],operator:'contains',query:'avail'}}}];
   const initial=validateUiPreferences({orderViews:views});

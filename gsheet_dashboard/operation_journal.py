@@ -56,3 +56,11 @@ class OperationJournal:
                                 'FROM operation_history ORDER BY id DESC LIMIT 200')
             names = [item[0] for item in cursor.description]
             return [dict(zip(names, row)) for row in cursor]
+
+    def scheduled_summary(self):
+        with self.store.connect() as db:
+            latest = db.execute("SELECT started,status,finished,error_code FROM operation_history WHERE kind='scheduled_capture' ORDER BY id DESC LIMIT 1").fetchone()
+            success = db.execute("SELECT finished FROM operation_history WHERE kind='scheduled_capture' AND status='completed' ORDER BY id DESC LIMIT 1").fetchone()
+        return {'last_attempt': latest[0] if latest else None, 'last_status': latest[1] if latest else None,
+                'last_finished': latest[2] if latest else None, 'last_error_code': latest[3] if latest else None,
+                'last_success': success[0] if success else None}

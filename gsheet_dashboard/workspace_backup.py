@@ -13,6 +13,21 @@ SETTINGS = ('remaining_products.json', 'sync_schedule.json', 'production-cache.j
 TABLES = {'previews', 'sla_corrections', 'sync_receipts', 'sync_jobs', 'sync_reports', 'sync_failures', 'operation_history', 'monthly_operations', 'sqlite_sequence'}
 
 
+def save_safety_backup(store, reason):
+    if reason not in ('before-delete', 'before-update'):
+        raise ValueError('Unknown backup reason.')
+    stamp = datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S-%f')
+    destination = store.root.parent / 'backups' / f'{reason}-{stamp}.zip'
+    destination.parent.mkdir(exist_ok=True)
+    temporary = destination.with_suffix('.tmp')
+    try:
+        temporary.write_bytes(make_backup(store).getvalue())
+        temporary.replace(destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return destination
+
+
 def make_backup(store):
     stream = BytesIO()
     with tempfile.TemporaryDirectory() as folder:

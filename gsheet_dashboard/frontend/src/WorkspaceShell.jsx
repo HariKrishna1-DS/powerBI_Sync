@@ -1,5 +1,5 @@
 import React, {useDeferredValue, useMemo, useState} from 'react';
-import {Activity, ArrowLeftRight, CalendarDays, Check, Clock3, Database, FileSpreadsheet, HardDrive, Home, PanelLeftClose, PanelLeftOpen, Search, Settings2, Table2, Trash2, X} from 'lucide-react';
+import {Activity, ArrowLeftRight, CalendarDays, Check, Clock3, Database, ExternalLink, RefreshCw, FileSpreadsheet, HardDrive, Home, PanelLeftClose, PanelLeftOpen, Search, Settings2, Table2, Trash2, X} from 'lucide-react';
 import {ThemeControl} from './StudioWorkspace';
 import {IconButton} from './workspaceUtils';
 import {useWorkspacePreference} from './useWorkspacePreference';
@@ -32,14 +32,18 @@ export function useSidebarState(){
   return useWorkspacePreference('sidebarCollapsed','tv-tracker-sidebar-collapsed',false,value=>typeof value==='boolean');
 }
 
-export function WorkspaceContext({production,view,preview,snapshot,running,stage,pending,selected}) {
+export function WorkspaceContext({production,view,preview,snapshot,running,stage,pending,selected,sheetUrl,onRefresh,refreshing}) {
   const report=['daily','monthly'].includes(view);
   const source=production?(snapshot?.offline?'Saved Google Sheets copy':snapshot?'Live Google Sheets':'Google Sheets unavailable'):report?'Production report':view==='audit'?'Local activity log':'Saved capture';
   const updated=report||view==='audit'?null:production?snapshot?.updated_at:preview?.created;
+  let productionUrl;
+  try{const url=new URL(sheetUrl);if(url.protocol==='https:'&&url.hostname==='docs.google.com'&&url.pathname.startsWith('/spreadsheets/d/')&&!url.username&&!url.password)productionUrl=url.href;}catch{}
+  const sourceContent=<><Database size={14}/>{source}</>;
   return <div className="workspace-context" aria-label="Workspace context">
-    <span className={`context-source ${snapshot?.offline&&production?'stale':''}`}><Database size={14}/>{source}</span>
+    {production&&productionUrl?<a className={`context-source source-link ${snapshot?.offline?'stale':''}`} href={productionUrl} target="_blank" rel="noopener noreferrer" title="Open the production spreadsheet in your browser">{sourceContent}<ExternalLink size={12}/></a>:<span className={`context-source ${snapshot?.offline&&production?'stale':''}`}>{sourceContent}</span>}
     <span className="context-preview"><FileSpreadsheet size={14}/>{selected?(preview.name||`preview${selected}`):'No capture selected'}</span>
     <span className="context-freshness"><Clock3 size={14}/>{updated?`${production?'Refreshed':'Captured'} ${new Date(updated).toLocaleString(undefined,{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}`:report?'Reporting period below':view==='audit'?'Saved on this computer':'Freshness unavailable'}</span>
+    {production&&<button className="text-button context-refresh" onClick={onRefresh} disabled={refreshing||running} aria-label="Refresh production data"><RefreshCw size={14} className={refreshing?'spin':''}/>{refreshing?'Refreshing…':'Refresh'}</button>}
     <span className={`context-job ${running?'is-running':''}`} role="status">{running?<i className="job-pulse"/>:<Check size={14}/>}<span>{running?stage||'Working…':pending?`${pending} awaiting sync`:'Ready'}</span></span>
   </div>;
 }

@@ -108,8 +108,10 @@ def extend_headers(headers, rows):
     return result
 
 
-def production_sources(book):
-    return [(tab_identity(s.title)[0], s, s.get_all_values()) for s in book.worksheets() if tab_identity(s.title)]
+def production_sources(book, sheets=None):
+    from sheet_reads import read_values
+    selected = [sheet for sheet in (book.worksheets() if sheets is None else sheets) if tab_identity(sheet.title)]
+    return [(tab_identity(sheet.title)[0], sheet, values) for sheet, values in zip(selected, read_values(book, selected))]
 
 
 def snapshot(book):

@@ -93,7 +93,7 @@ test('background capture discovery preserves an active order search',async({page
   await expect(page.locator('.orders-table tbody tr')).toHaveCount(1);
   const next={id:3,name:'preview3',created:'2026-10-02T06:12:00Z',row_count:120};
   await page.route('**/api/previews/3',route=>route.fulfill({json:{...next,columns:Object.keys(rows[0]),rows}}));
-  await page.route('**/api/state',route=>route.fulfill({json:{previews:[next,{...next,id:2,name:'preview2'}],job:{running:false,stage:'Ready'},schedule:{enabled:false,times:['09:00']}}}));
+  await page.route('**/api/state*',route=>route.fulfill({json:{previews:[next,{...next,id:2,name:'preview2'}],job:{running:false,stage:'Ready'},schedule:{enabled:false,times:['09:00']}}}));
   await page.clock.fastForward(11000);
   await expect(page.getByRole('button',{name:/preview3 120 rows/})).toBeVisible();
   await expect(page.getByLabel('Search rows')).toHaveValue('TV-062119');

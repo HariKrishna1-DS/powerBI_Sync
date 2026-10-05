@@ -21,7 +21,9 @@ function textColorForBg(color) {
   return (r * 299 + g * 587 + b * 114) / 1000 > 155 ? '#111827' : '#ffffff';
 }
 async function api(url, options = {}) {
-  const response = await fetch(url, {signal: AbortSignal.timeout(30000), ...options});
+  const timeout = AbortSignal.timeout(30000);
+  const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
+  const response = await fetch(url, {...options, signal});
   if (!response.ok) { let body; try { body = await response.json(); } catch { body = {}; } throw Error(body.error || `Request failed (${response.status})`); }
   const body = await response.json();
   if (body.clock) body.clock.receivedAt = performance.now();

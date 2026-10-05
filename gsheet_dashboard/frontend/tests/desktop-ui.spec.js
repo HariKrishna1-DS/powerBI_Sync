@@ -5,7 +5,7 @@ test('first run has a keyboard-accessible setup dialog and loads no charts',asyn
   const scripts=[];
   page.on('request',request=>{if(request.resourceType()==='script')scripts.push(request.url());});
   await page.addInitScript(()=>{window.desktop={getSettings:async()=>({spreadsheetId:'',queueUrl:'https://tv.datatracetitle.com/Queues.aspx',fullTrackerTitle:'Full',remainingTrackerTitle:'Remaining',username:'',passwordSet:false,serviceAccountEmail:'',googleConfigured:false,browserPath:'',browserDetected:true,closeToTray:true,startAtLogin:false}),onCommand:()=>()=>{},discardSettings:async()=>{}};});
-  await page.route('**/api/**',route=>route.fulfill({status:route.request().url().endsWith('/api/state')?200:502,json:route.request().url().endsWith('/api/state')?empty:{error:'Connect Sheets'}}));
+  await page.route('**/api/**',route=>route.fulfill({status:new URL(route.request().url()).pathname==='/api/state'?200:502,json:new URL(route.request().url()).pathname==='/api/state'?empty:{error:'Connect Sheets'}}));
   await page.goto('/');
   await expect(page.getByRole('heading',{name:'Clear work. Confident decisions.'})).toBeVisible();
   expect(scripts.some(url=>url.includes('/charts-'))).toBe(false);
@@ -20,7 +20,7 @@ test('first run has a keyboard-accessible setup dialog and loads no charts',asyn
 
 test('cached production is explicitly marked offline',async({page})=>{
   const frame={columns:['Order Number','Product','Status'],rows:[{'Order Number':'CACHED-ONLY',Product:'Full Title',Status:'Search In Progress'}]};
-  await page.route('**/api/**',route=>route.fulfill({json:route.request().url().endsWith('/api/state')?empty:{offline:true,updated_at:'2026-10-01T12:00:00Z',sheets:{Overview:frame,'Full Title':frame,'Remaining Products':{columns:frame.columns,rows:[]},Changes:{columns:[],rows:[]}}}}));
+  await page.route('**/api/**',route=>route.fulfill({json:new URL(route.request().url()).pathname==='/api/state'?empty:{offline:true,updated_at:'2026-10-01T12:00:00Z',sheets:{Overview:frame,'Full Title':frame,'Remaining Products':{columns:frame.columns,rows:[]},Changes:{columns:[],rows:[]}}}}));
   await page.goto('/');
   await expect(page.getByText('Viewing a saved Google Sheets copy')).toBeVisible();
   await expect(page.getByText('Google Sheets connected',{exact:false})).toHaveCount(0);

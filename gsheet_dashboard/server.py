@@ -13,7 +13,7 @@ import threading
 import time as clock
 from urllib.parse import urlparse
 
-from flask import Flask, jsonify, request, send_file, send_from_directory
+from flask import Flask, g, jsonify, request, send_file, send_from_directory
 import pandas as pd
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
@@ -24,12 +24,26 @@ from order_reporting import automatic_sync_frame, daily_orders, monthly_orders, 
 from sync_config import BASE_DIR, ASSET_DIR, SPREADSHEET_ID, TARGET_GSHEET_URL, TRACKER_TITLES
 from production_cache import ProductionCache
 from operation_journal import OperationJournal
+from request_metrics import RequestMetrics
 from tracker_sync import read_tracker_rows, read_preview_history, tracker_sources, TRACKERS, FULL, REMAINING, HEADERS, sheet_reports, read_pass_report
 from indian_clock import IndianClock
 from sla_comments import sla_key, sla_status
 
 IST = timezone(timedelta(hours=5, minutes=30), 'IST')
 SETTINGS_SHEET = '__DataTrace_Config'
+
+
+def compact_job(job):
+    """Keep polling small; the full immutable report remains available from sync-reports."""
+    result = job.get('result')
+    if not result or not isinstance(result.get('pass_report'), dict):
+        return job
+    report = result['pass_report']
+    summary = {key: value for key, value in report.items() if isinstance(value, (str, int, float, bool)) or value is None}
+    for key in ('not_in_latest', 'ambiguous', 'unprocessed'):
+        value = report.get(key, 0)
+        summary[key + '_count'] = len(value) if isinstance(value, list) else value if isinstance(value, int) else 0
+    return dict(job, result=dict(result, pass_report=summary))
 
 
 def color_export_sheet(ws, values):
@@ -95,6 +109,17 @@ def workbook(frame, name):
 
 def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_source=None):
     app = Flask(__name__, static_folder=None)
+    metrics = RequestMetrics()
+
+    @app.before_request
+    def begin_request_timing():
+        g.request_started = clock.perf_counter()
+
+    @app.after_request
+    def finish_request_timing(response):
+        if request.url_rule:
+            metrics.record(request.url_rule.rule, (clock.perf_counter() - g.request_started) * 1000, response.status_code)
+        return response
     desktop_mode = os.environ.get('DATATRACE_DESKTOP') == '1'
     desktop_token = os.environ.get('DATATRACE_DESKTOP_TOKEN', '')
     if desktop_mode and not desktop_token:
@@ -163,7 +188,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
                        captures=len(store.list()), pending_sync=store.pending_count(),
                        failed_syncs=len(store.failed_syncs()), active_operation=active,
                        schedule={'timezone': 'Asia/Kolkata', 'catch_up': 'one run for all missed times today'},
-                       operations=journal.list())
+                       operations=journal.list(), request_metrics=metrics.snapshot())
 
     @app.before_request
     def desktop_security():
@@ -584,6 +609,9 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
             job['running'] = job['running'] or bool(queued_ids)
         with schedule_lock:
             schedule = load_schedule()
+        schedule.update(journal.scheduled_summary())
+        if request.args.get('light') == '1':
+            job = compact_job(job)
         remaining_products = []
         try:
             path = BASE_DIR / 'remaining_products.json'
@@ -761,7 +789,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
         finally:
             gate.release()
 
-    def production_snapshot(force=False):
+    def production_snapshot(force=False, known_revision=None):
         def load():
             book, _ = target_worksheet()
             sheets, trackers, groups = {}, {}, {}
@@ -789,7 +817,9 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
             audit = read_pass_report(book, store)
             reports = sheet_reports(trackers, audit)
             return dict(preview_name=audit.get('preview_name'), sheets=sheets, reports=reports, source='Google Sheets', offline=False)
-        result = production_cache.get(load, force=force) if desktop_mode else load()
+        result = production_cache.get(load, force=force, known_revision=known_revision) if desktop_mode else load()
+        if result.get('unchanged'):
+            return result
         # Older desktop caches did not include reports. Derive them from their saved tracker rows.
         if 'reports' not in result:
             trackers = {title: result['sheets'][label]['rows'] for title, label in zip(TRACKERS, ('Full Title', 'Remaining Products'))}
@@ -800,7 +830,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
     def get_live_sheets():
         recover_latest_preview()
         try:
-            return jsonify(production_snapshot())
+            return jsonify(production_snapshot(force=request.args.get('refresh') == '1', known_revision=request.args.get('revision')))
         except RuntimeError as exc:
             return jsonify(error=str(exc)), 502
         except Exception as exc:
@@ -945,9 +975,16 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
         if not gate.acquire(blocking=False):
             return jsonify(error='Wait for extraction or sync to finish before deleting a preview.'), 409
         try:
+            # Verify the ID before writing a backup, and fail closed if it cannot be saved.
+            store.get(number)
+            from workspace_backup import save_safety_backup
+            try:
+                backup = save_safety_backup(store, 'before-delete')
+            except OSError:
+                return jsonify(error='The recovery copy could not be saved. Check free disk space; the capture was not deleted.'), 503
             store.delete(number)
             invalidate_snapshot()
-            return jsonify(deleted=number)
+            return jsonify(deleted=number, recovery_backup=backup.name)
         finally:
             gate.release()
 

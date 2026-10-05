@@ -300,10 +300,12 @@ def read_trackers(book):
 def tracker_sources(book):
     """Read existing legacy names without renaming a Sheet on a read request."""
     from monthly_production import production_sources
-    monthly = production_sources(book)
+    from sheet_reads import read_values
+    available = book.worksheets()
+    monthly = production_sources(book, available)
     if monthly:
         return monthly
-    sheets = {sheet.title: sheet for sheet in book.worksheets()}
+    sheets = {sheet.title: sheet for sheet in available}
     result = []
     for title, old, short in ((FULL, OLD_FULL, 'Full Title'), (REMAINING, OLD_REMAINING, 'Remaining Products')):
         default = old.removesuffix('_-_September_2026')
@@ -311,8 +313,8 @@ def tracker_sources(book):
         source = next((sheets[name] for name in aliases if name in sheets), None)
         if source is None:
             raise ValueError(f'Tracker tab "{title}" is missing. Import or capture a queue to initialize it, or check Connections.')
-        result.append((title, source, source.get_all_values()))
-    return result
+        result.append((title, source))
+    return [(title, sheet, values) for (title, sheet), values in zip(result, read_values(book, [sheet for _, sheet in result]))]
 
 
 def read_tracker_rows(book):
