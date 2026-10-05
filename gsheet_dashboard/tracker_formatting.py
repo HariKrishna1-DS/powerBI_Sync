@@ -15,9 +15,10 @@ def rules_for(sheet_id, headers):
     from gspread.utils import rowcol_to_a1
     from datatrace_sync import sheet_color
     rules = []
-    if 'Status' not in headers:
+    status_header = next((column for column in ('Status', 'Task Status') if column in headers), None)
+    if status_header is None:
         return rules
-    status_col = rowcol_to_a1(1, headers.index('Status') + 1)[:-1]
+    status_col = rowcol_to_a1(1, headers.index(status_header) + 1)[:-1]
     def rule(ranges, expression, color):
         return {'ranges': ranges, 'booleanRule': {
             'condition': {'type': 'CUSTOM_FORMULA', 'values': [{'userEnteredValue':
@@ -29,6 +30,18 @@ def rules_for(sheet_id, headers):
     for status, color in PALETTE.items():
         rules.append(rule(ranges, f'LOWER(TRIM(${status_col}2))="{status}"', color))
     return rules
+
+
+def format_requests(sheet_id, values, existing_rules=()):
+    """Style app-owned output while preserving unrelated conditional rules."""
+    from monthly_production import plain_format
+    headers = values[0] if values else []
+    requests = [{'deleteConditionalFormatRule': {'sheetId': sheet_id, 'index': i}}
+                for i in reversed(range(len(existing_rules))) if MARKER in json.dumps(existing_rules[i])]
+    requests.extend(plain_format(sheet_id, len(values), len(headers)))
+    requests.extend({'addConditionalFormatRule': {'index': i, 'rule': rule}}
+                    for i, rule in enumerate(rules_for(sheet_id, headers)))
+    return requests
 
 
 def comparable_rule(rule, row_count=None):
@@ -52,24 +65,18 @@ def ensure_tracker_formatting(book, attempt=0):
     """
     from tracker_sync import TRACKERS
     from datatrace_sync import sheet_color
-    from monthly_production import tab_identity, plain_format
+    from monthly_production import tab_identity
+    from monthly_views import view_identity
     meta = book.fetch_sheet_metadata(params={'fields': 'sheets(properties,conditionalFormats)'})
     requests = []
     for item in meta['sheets']:
         props = item['properties']
-        if props['title'] not in (*TRACKERS, 'Status Report') and not tab_identity(props['title']):
+        if props['title'] not in (*TRACKERS, 'Status Report', 'All Products', 'Sheet1') and not tab_identity(props['title']) and not view_identity(props['title']):
             continue
         values = book.worksheet(props['title']).get_all_values()
-        if not values or 'Status' not in values[0]:
+        if not values or not any(column in values[0] for column in ('Status', 'Task Status')):
             continue
         rules = item.get('conditionalFormats', [])
-        if props['title'] in TRACKERS or tab_identity(props['title']):
-            # Production is deliberately monochrome, including old status rules.
-            # Other report sheets keep their established status colors.
-            for i in reversed(range(len(rules))):
-                requests.append({'deleteConditionalFormatRule': {'sheetId': props['sheetId'], 'index': i}})
-            requests.extend(plain_format(props['sheetId'], len(values), len(values[0])))
-            continue
         owned = [i for i, rule in enumerate(rules) if MARKER in json.dumps(rule)]
         wanted = rules_for(props['sheetId'], values[0])
         row_count = props.get('gridProperties', {}).get('rowCount')

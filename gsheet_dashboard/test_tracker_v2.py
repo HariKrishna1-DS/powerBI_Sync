@@ -229,7 +229,7 @@ class SheetTransactionTests(unittest.TestCase):
         sync_trackers(frame, book=self.book)
         count = len(self.book.batches)
         sync_trackers(frame, book=self.book)
-        self.assertEqual(len(self.book.batches), count+1)  # Formatting is reapplied without rewriting data.
+        self.assertEqual(len(self.book.batches), count)  # Unchanged formatting no longer consumes a write.
         self.assertFalse(any('updateCells' in r for r in self.book.batches[-1]['requests']))
 
     def test_numeric_archive_round_trip_retry_does_not_duplicate(self):
@@ -240,7 +240,7 @@ class SheetTransactionTests(unittest.TestCase):
         archive.values[1][archive.values[0].index('Queue Age Hours')] = 240
         count = len(self.book.batches)
         sync_trackers(frame, book=self.book)
-        self.assertEqual(len(self.book.batches), count+1)
+        self.assertEqual(len(self.book.batches), count)
         self.assertFalse(any('updateCells' in r for r in self.book.batches[-1]['requests']))
         self.assertEqual(len(records(archive.get_all_values())), 1)
 
@@ -330,6 +330,11 @@ class AutomaticApiTests(unittest.TestCase):
         client = create_app(root=self.root, runner=runner, syncer=lambda frame: calls.append(frame.attrs['preview_id']) or [FULL]).test_client()
         self.assertEqual(client.post('/api/extract').status_code, 202)
         self.wait_synced(1)
+        for _ in range(400):
+            if not client.get('/api/health').json['running']:
+                break
+            time.sleep(.01)
+        self.assertFalse(client.get('/api/health').json['running'])
         self.assertEqual(calls, [1])
 
     def test_live_sheet_failure_is_not_replaced_by_preview_totals(self):

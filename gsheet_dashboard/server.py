@@ -1054,8 +1054,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
                                 cell.font = Font(color='000000', bold=cell.row == 1)
                                 cell.fill = PatternFill('solid', fgColor='FFFFFF')
                                 cell.border = border
-                    else:
-                        color_export_sheet(ws, values)
+                    color_export_sheet(ws, values)
             stream.seek(0)
             return send_file(stream, as_attachment=True, download_name='Production_data.xlsx')
         except Exception as exc:

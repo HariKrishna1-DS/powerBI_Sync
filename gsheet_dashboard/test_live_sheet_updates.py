@@ -12,7 +12,7 @@ class LiveSheetUpdatesTests(unittest.TestCase):
     def test_sheet_edits_refresh_reports_without_local_previews(self):
         with tempfile.TemporaryDirectory() as folder:
             row = {'Order Number': 'A', 'Date': '09/30/2026', 'Product': 'Full Title', 'Status': 'Completed and Delivered',
-                   'Out Time': '09/30/2026 12:00 PM', 'Free Site': 'Missing'}
+                   'Out Time': '09/30/2026 12:00 PM', 'SLA Expiration': '09/30/2026 11:00 AM', 'Free Site': 'Missing'}
             book = Book([[row], []])
             for title in ('All Products', 'Status Report', 'Changes', 'Needs review'):
                 book.sheets.append(Sheet(title, len(book.sheets), [['Preview'], ['preview1']]))

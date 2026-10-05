@@ -122,8 +122,13 @@ def suspended(row):
 
 
 def mapped_status(row, existing='', new=False):
-    if timestamp(row.get('Out Time')):
+    from production_timing import completed, precise_timestamp
+    if completed(row) and (precise_timestamp(row.get('Out Time')) or precise_timestamp(row.get('Completed Time'))):
         return 'Completed and Delivered'
+    if text(row.get('Status')).casefold() in ('cancelled', 'canceled'):
+        return 'Cancelled'
+    if text(existing).casefold() in ('cancelled', 'task suspended', 'workflow suspended'):
+        return existing
     if suspended(row):
         return 'Awaiting for Clarification'
     if new or (text(row.get('Task Name')).casefold() == 'search'
@@ -134,12 +139,12 @@ def mapped_status(row, existing='', new=False):
 
 def driving(row):
     return (text(row.get('Task Name')).casefold(), text(row.get('Task Status')).casefold(),
-            suspended(row), text(row.get('Completed Time', row.get('Completed Time (hours)', ''))))
+            suspended(row), text(row.get('Status')).casefold(), text(row.get('Completed Time')), text(row.get('Out Time')))
 
 
 def timestamp(value):
-    from datatrace_sync import parse_report_datetime
-    return parse_report_datetime(value)
+    from monthly_production import local_datetime
+    return local_datetime(value)
 
 
 def deadline(raw, anchor):
@@ -162,16 +167,8 @@ def deadline(raw, anchor):
 
 
 def free_site(row, anchor):
-    # An open order remains unclassified, including when its countdown is negative.
-    if not text(row.get('Out Time')):
-        return '', None
-    out = timestamp(row.get('Out Time'))
-    due = deadline(row.get('SLA Expiration', ''), anchor)
-    if out is None or due is None:
-        return '', 'Out Time or SLA Expiration is missing or ambiguous'
-    if text(row.get('SLA Expiration')).startswith('-'):
-        return 'Missing', None
-    return ('On Time' if out <= due else 'Missing'), None
+    from production_timing import sla_result
+    return sla_result(row, anchor)
 
 
 def merge_trackers(trackers, incoming, previous, anchor):
@@ -191,6 +188,7 @@ def merge_trackers(trackers, incoming, previous, anchor):
               'not_in_latest': [r.get('Order Number') for k, r in old.items() if k not in counts],
               'changes': [], 'ambiguous': []}
     for raw in incoming:
+        from production_timing import precise_timestamp
         identity = key(raw)
         if not identity or counts[identity] > 1 or identity in duplicates:
             report['ambiguous'].append({'Order Number': raw.get('Order Number', ''),
@@ -232,14 +230,16 @@ def merge_trackers(trackers, incoming, previous, anchor):
             if timestamp(raw.get('Out Time')):
                 row['Out Time'] = text(raw['Out Time'])
             # Only take a real completion timestamp for an explicitly completed tracker.
-            completed = raw.get('Completed Time', raw.get('Completed Time (hours)', ''))
-            if text(row.get('Status')).casefold() == 'completed and delivered' and timestamp(completed):
-                row['Out Time'] = text(completed)
+            completed_time = raw.get('Completed Time', '')
+            if text(row.get('Status')).casefold() == 'completed and delivered' and precise_timestamp(completed_time) and not text(row.get('Out Time')):
+                row['Out Time'] = text(completed_time)
+        if text(row.get('Status')).casefold() == 'completed and delivered' and not text(row.get('Out Time')) and precise_timestamp(raw.get('Completed Time')):
+            row['Out Time'] = text(raw['Completed Time'])
+        if text(row.get('Out Time')) and not precise_timestamp(row.get('Out Time')):
+            report['ambiguous'].append({'Order Number': row['Order Number'], 'Reason': 'Out Time lacks a valid completion date and time; retained for review'})
         for column in EMPTY_COLUMNS:
             if column in row:
                 row[column] = ''
-        if timestamp(row.get('Out Time')):
-            row['Status'] = 'Completed and Delivered'
         row['Status'] = STATUS_NAMES.get(text(row.get('Status')).casefold(), row.get('Status', ''))
         raw_sla = row.get('SLA Expiration', '')
         due = deadline(raw_sla, anchor)
@@ -248,8 +248,6 @@ def merge_trackers(trackers, incoming, previous, anchor):
         elif text(raw_sla):
             report['ambiguous'].append({'Order Number': row['Order Number'], 'Reason': f'Ambiguous SLA: {raw_sla}'})
         row['Free Site'], reason = free_site(row, anchor)
-        if text(raw_sla).startswith('-') and timestamp(row.get('Out Time')) and due:
-            row['Free Site'] = 'Missing'
         if reason:
             report['ambiguous'].append({'Order Number': row['Order Number'], 'Reason': reason})
         action = 'added' if new else 'updated' if row != before else 'unchanged'
@@ -263,8 +261,6 @@ def merge_trackers(trackers, incoming, previous, anchor):
             for column in EMPTY_COLUMNS:
                 if column in row:
                     row[column] = ''
-            if timestamp(row.get('Out Time')):
-                row['Status'] = 'Completed and Delivered'
             row['Status'] = STATUS_NAMES.get(text(row.get('Status')).casefold(), row.get('Status', ''))
             if key(row) in counts and counts[key(row)] == 1 and key(row) not in duplicates:
                 continue
@@ -413,6 +409,7 @@ def sheet_reports(trackers, audit=None):
     """All totals originate in tracker rows returned by Google Sheets."""
     from sla_comments import sla_entry, sla_status
     from monthly_production import arrival_sort, tab_identity, local_datetime
+    from production_timing import sla_eligible
     rows = [dict(row, _sheet=row.get('_sheet', title), _tracker=(tab_identity(title) or (title, ''))[0],
                  _month=row.get('_month') or (tab_identity(title) or ('', ''))[1])
             for title, items in trackers.items() for row in items if key(row)]
@@ -426,7 +423,7 @@ def sheet_reports(trackers, audit=None):
         for kind, bucket in (('daily', day), ('monthly', row['_month'] or (day[:7] if date else 'Undated'))):
             groups[kind].setdefault(bucket, []).append(row)
         completed_at = timestamp(row.get('Out Time'))
-        if completed_at and sla_status(row.get('Free Site')):
+        if completed_at and sla_eligible(row) and sla_status(row.get('Free Site')):
             month = row['_month'] or completed_at.strftime('%Y-%m')
             completed_months.setdefault(month, []).append(row)
             groups['monthly'].setdefault(month, [])
@@ -444,7 +441,7 @@ def sheet_reports(trackers, audit=None):
             unchanged = [r['Order Number'] for r in items if key(r) not in added | updated | missing]
             sla_items = completed_months.get(period, []) if kind == 'monthly' else items
             sla = [sla_entry(r, sla_status(r.get('Free Site'))) for r in sla_items
-                   if timestamp(r.get('Out Time')) and sla_status(r.get('Free Site'))]
+                   if sla_eligible(r) and sla_status(r.get('Free Site'))]
             reports[kind].append({'Date': period, 'Month': period, 'MonthLabel': period,
                 'Previews': [(audit or {}).get('preview_name', '')], 'Days': [],
                 'Today Orders': len(items), 'Month Orders': len(items), 'Completed Orders': len(completed),
@@ -464,6 +461,7 @@ def sync_trackers(frame=None, on_progress=None, book=None):
     """
     from datatrace_sync import target_worksheet, sheet_cell, sheet_color, status_color, write_sheet_batch
     from tracker_formatting import ensure_tracker_formatting
+    from monthly_views import monthly_view_values, refresh_monthly_views
     from preview_store import PreviewStore
     if frame is not None:
         capture = frame.attrs.get('original_capture') or {'columns': list(frame.columns)}
@@ -505,6 +503,7 @@ def sync_trackers(frame=None, on_progress=None, book=None):
         preview_id = frame.attrs.get('preview_id') if frame is not None else 0
         receipt = store.get_sync_report(preview_id, include_staged=True)
         if frame is None and receipt and receipt['committed']:
+            refresh_monthly_views(book)
             ensure_tracker_formatting(book)
             import_default_details(book)
             return list(TRACKERS)
@@ -522,6 +521,7 @@ def sync_trackers(frame=None, on_progress=None, book=None):
             if receipt and not receipt['committed']:
                 verify_tracker_cells(book, receipt['report'].get('_expected_tracker_cells', {}))
                 store.commit_sync_report(preview_id, digest)
+            refresh_monthly_views(book)
             ensure_tracker_formatting(book)
             frame.attrs['pass_report'] = {k: v for k, v in receipt['report'].items() if not k.startswith('_')} if receipt else {}
             return list(TRACKERS) + ['All Products', 'Sheet1']
@@ -632,6 +632,22 @@ def sync_trackers(frame=None, on_progress=None, book=None):
             prior_headers = saved_values[title][0] if saved_values[title] else HEADERS
             headers = list(dict.fromkeys(prior_headers + HEADERS + [c for r in merged[title] for c in r]))
             write(title, matrix(merged[title], headers), tracker=True)
+        for title, values in monthly_view_values(merged, history + incoming).items():
+            from monthly_views import keep_view_headers
+            if title in worksheets:
+                prior_view = worksheets[title].get_all_values()
+                values = keep_view_headers(values, prior_view)
+                if prior_view:
+                    import secrets
+                    used_ids = {s.id for s in worksheets.values()}
+                    backup_id = secrets.randbelow(2**30)
+                    while backup_id in used_ids:
+                        backup_id = secrets.randbelow(2**30)
+                    backup_title = f'__DataTrace_Backup_{title}_{preview}'[:99]
+                    if backup_title not in worksheets:
+                        requests.append({'duplicateSheet': {'sourceSheetId': worksheets[title].id, 'newSheetId': backup_id, 'newSheetName': backup_title}})
+                        requests.append({'updateSheetProperties': {'properties': {'sheetId': backup_id, 'hidden': True}, 'fields': 'hidden'}})
+            write(title, values)
         if frame is not None:
             raw_headers = list(original['columns']) if original else list(frame.columns)
             raw_history = [dict(r, Preview=preview, **{'Preview Timestamp': anchor.isoformat()}) for r in incoming]

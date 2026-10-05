@@ -360,6 +360,8 @@ def apply_plan(book, plan, check=True):
     """
     from tracker_sync import text
     from datatrace_sync import write_sheet_batch
+    from tracker_formatting import format_requests
+    from monthly_views import view_identity, keep_view_headers
     if receipt(book, plan['id']):
         return {'applied': True, 'recovered': True}
     before = snapshot(book)
@@ -372,6 +374,11 @@ def apply_plan(book, plan, check=True):
         values = sheets[title].get_all_values(value_render_option='UNFORMATTED_VALUE') if title in sheets else []
         if fingerprint(values) != expected:
             raise ValueError('Capture history changed during sync. Retry after reviewing its latest contents.')
+    if plan['kind'] != 'monthly_views':
+        from monthly_views import monthly_view_values
+        after = {plan['renames'].get(title, title): decode(sheet['values']) for title, sheet in before.items()}
+        after.update({title: decode(values) for title, values in plan['writes'].items() if tab_identity(title) or title in BASES})
+        plan['writes'].update(monthly_view_values(after, plan.get('view_raw_rows', [])))
     used = {s.id for s in sheets.values()}
     def new_id():
         number = secrets.randbelow(2**30)
@@ -382,6 +389,7 @@ def apply_plan(book, plan, check=True):
     requests, ids, backups = [], {name: s.id for name, s in sheets.items()}, []
     affected = set(plan['renames']) | (set(plan['writes']) & set(before))
     affected.update(title for title in ('All Products', 'Sheet1') if title in plan['writes'] and title in sheets and title not in plan.get('append_from', {}))
+    affected.update(title for title in plan['writes'] if view_identity(title) and title in sheets)
     for index, title in enumerate(sorted(affected)):
         backup = f'__DataTrace_Backup_{plan["id"][:12]}_{index}'
         backups.append(backup)
@@ -399,12 +407,17 @@ def apply_plan(book, plan, check=True):
         append_from[LEDGER] = len(old_ledger)
     metadata = book.fetch_sheet_metadata(params={'fields': 'sheets(properties,conditionalFormats)'})
     for title, values in writes.items():
+        if view_identity(title) and title in sheets:
+            values = keep_view_headers(values, sheets[title].get_all_values())
         if title not in ids:
             ids[title] = new_id()
             requests.append({'addSheet': {'properties': {'sheetId': ids[title], 'title': title,
                 'hidden': title == LEDGER, 'gridProperties': {'rowCount': max(2, len(values)), 'columnCount': max(1, len(values[0]))}}}})
-        cols = max(len(values[0]), max((len(r) for r in before.get(title, {}).get('values', [[]])), default=0))
-        height = max(len(values), len(before.get(title, {}).get('values', [])), 2)
+        prior_values = before.get(title, {}).get('values', [])
+        if view_identity(title) and title in sheets:
+            prior_values = sheets[title].get_all_values()
+        cols = max(len(values[0]), max((len(r) for r in prior_values), default=0))
+        height = max(len(values), len(prior_values), 2)
         requests.append({'updateSheetProperties': {'properties': {'sheetId': ids[title], 'gridProperties': {
             'rowCount': max(height, getattr(sheets.get(title), 'row_count', 0)), 'columnCount': max(cols, getattr(sheets.get(title), 'col_count', 0)), 'frozenRowCount': 1}}, 'fields': 'gridProperties'}})
         # All imported text is literal; existing formulas are explicitly preserved.
@@ -423,29 +436,20 @@ def apply_plan(book, plan, check=True):
         location = {'start': {'sheetId': ids[title], 'rowIndex': start_row, 'columnIndex': 0}} if start_row else {
             'range': {'sheetId': ids[title], 'startRowIndex': 0, 'endRowIndex': height, 'startColumnIndex': 0, 'endColumnIndex': cols}}
         requests.append({'updateCells': {**location, 'rows': cell_rows, 'fields': 'userEnteredValue'}})
-        if tab_identity(title):
-            for item in metadata['sheets']:
-                if item['properties']['sheetId'] == ids[title]:
-                    for index in reversed(range(len(item.get('conditionalFormats', [])))):
-                        requests.append({'deleteConditionalFormatRule': {'sheetId': ids[title], 'index': index}})
-            requests.extend(plain_format(ids[title], len(values), len(values[0])))
-    # Renamed archive values stay untouched, but receive the requested plain style.
+        if title != LEDGER:
+            rules = next((item.get('conditionalFormats', []) for item in metadata['sheets'] if item['properties']['sheetId'] == ids[title]), [])
+            requests.extend(format_requests(ids[title], values, rules))
+    # Renamed archive values stay untouched while status colors follow the palette.
     for old, new in plan['renames'].items():
-        for item in metadata['sheets']:
-            if item['properties']['sheetId'] == ids[new]:
-                for index in reversed(range(len(item.get('conditionalFormats', [])))):
-                    requests.append({'deleteConditionalFormatRule': {'sheetId': ids[new], 'index': index}})
         values = before[old]['values']
-        requests.extend(plain_format(ids[new], len(values), len(values[0]) if values else 1))
+        rules = next((item.get('conditionalFormats', []) for item in metadata['sheets'] if item['properties']['sheetId'] == ids[new]), [])
+        requests.extend(format_requests(ids[new], values, rules))
     for title in plan.get('format_titles', []):
         if title in writes or title in plan['renames'].values() or title not in before:
             continue
-        for item in metadata['sheets']:
-            if item['properties']['sheetId'] == ids[title]:
-                for index in reversed(range(len(item.get('conditionalFormats', [])))):
-                    requests.append({'deleteConditionalFormatRule': {'sheetId': ids[title], 'index': index}})
         values = before[title]['values']
-        requests.extend(plain_format(ids[title], len(values), len(values[0]) if values else 1))
+        rules = next((item.get('conditionalFormats', []) for item in metadata['sheets'] if item['properties']['sheetId'] == ids[title]), [])
+        requests.extend(format_requests(ids[title], values, rules))
     target = next(iter(sheets.values()), type('Target', (), {'title': 'monthly production'})())
     write_sheet_batch(book, target, requests, verify_commit=lambda: receipt(book, plan['id']))
     if not receipt(book, plan['id']):
@@ -529,6 +533,8 @@ def monthly_workbook(report, sources):
             sheet.column_dimensions[column[0].column_letter].width = width
         if sheet.title != 'Summary':
             sheet.auto_filter.ref = sheet.dimensions
+            from server import color_export_sheet
+            color_export_sheet(sheet, list(sheet.values))
     stream = BytesIO()
     book.save(stream)
     stream.seek(0)

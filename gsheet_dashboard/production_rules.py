@@ -75,12 +75,8 @@ def expiration(value, anchor):
 
 
 def free_site(row):
-    if not text(row.get('Out Time')):
-        return '', None
-    out, sla = timestamp(row.get('Out Time')), timestamp(row.get('SLA Expiration'))
-    if out is None or sla is None:
-        return '', 'Out Time or SLA Expiration is missing or is not a date and time.'
-    return ('On Time' if out <= sla else 'Missing'), None
+    from production_timing import sla_result
+    return sla_result(row)
 
 
 def suspended(row):
@@ -171,7 +167,8 @@ def merge_trackers(preview, previous, tracker_rows):
                 if value is not None:
                     row[name] = value
             if text(row.get('Status')).casefold() == 'completed and delivered':
-                completed = timestamp(raw.get('Completed Time'))
+                from production_timing import precise_timestamp
+                completed = precise_timestamp(raw.get('Completed Time'))
                 if completed:
                     row['Out Time'] = completed.strftime('%m/%d/%Y %I:%M:%S %p')
                 elif text(raw.get('Completed Time')):
@@ -184,8 +181,6 @@ def merge_trackers(preview, previous, tracker_rows):
         elif sla_text:
             report['ambiguous'].append({'order': identity, 'reason': f'Ambiguous SLA: {sla_text}'})
         row['Free Site'], reason = free_site(row)
-        if negative_sla and row['Free Site']:
-            row['Free Site'] = 'Missing'
         if reason:
             report['ambiguous'].append({'order': identity, 'reason': reason})
         report['processed_orders'].append(identity)

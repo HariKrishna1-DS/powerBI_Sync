@@ -63,6 +63,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Packaged lifecycle tests failed' }
           node desktop/recovery-smoke.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Packaged connection recovery tests failed' }
+          node desktop/shutdown-smoke.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged unresponsive-engine shutdown tests failed' }
       - name: Verify source archive and update integrity
         shell: pwsh
         run: |

@@ -125,13 +125,13 @@ class ProductionRulesTests(unittest.TestCase):
         self.assertEqual(expiration('-1d 4h 0m', anchor), datetime(2026, 10, 1, 8))
         self.assertEqual(expiration('10/02 12:14 PM', anchor), datetime(2026, 10, 2, 12, 14))
         self.assertIsNone(expiration('PAUSED', anchor))
-        self.assertEqual(free_site({'Out Time': '10/02/2026 12:14 PM', 'SLA Expiration': '10/02/2026 12:14 PM'})[0], 'On Time')
+        self.assertEqual(free_site({'Status':'Completed and Delivered', 'Out Time': '10/02/2026 12:14 PM', 'SLA Expiration': '10/02/2026 12:14 PM'})[0], 'On Time')
         self.assertEqual(free_site({'Out Time': '', 'SLA Expiration': '-1h'})[0], '')
         self.assertEqual(free_site({'Out Time': '10/02/2026 12:14 PM', 'SLA Expiration': 'PAUSED'})[0], '')
 
     def test_sheet_reports_count_all_retained_orders_and_actual_completions(self):
         rows, _ = merge_trackers(preview(1, [raw('A'), raw('B')]), None, [[], []])
-        rows[0][0].update(Status='Completed and Delivered', **{'Out Time': '10/02/2026 11:00 AM', 'Free Site': 'On Time'})
+        rows[0][0].update(Status='Completed and Delivered', **{'Out Time': '10/02/2026 11:00 AM', 'SLA Expiration':'10/02/2026 12:00 PM', 'Free Site': 'On Time'})
         daily = daily_orders(sheet_rows=rows[0])
         monthly = monthly_orders(sheet_rows=rows[0])
         self.assertEqual(sum(r['Today Orders'] for r in daily), 2)
@@ -231,8 +231,8 @@ class AtomicSyncTests(unittest.TestCase):
         wb = load_workbook(BytesIO(response.data))
         self.assertNotIn(TRACKER_TITLES[0], wb.sheetnames)
         self.assertEqual(wb['Full Title']['J2'].value, 'Completed and Delivered')
-        self.assertEqual(wb['Full Title']['J2'].fill.fgColor.rgb, '00FFFFFF')
-        self.assertEqual(wb['Full Title']['W2'].fill.fgColor.rgb, '00FFFFFF')
+        self.assertEqual(wb['Full Title']['J2'].fill.fgColor.rgb, '00FFFF99')
+        self.assertEqual(wb['Full Title']['W2'].fill.fgColor.rgb, '00FFFF99')
         self.assertEqual(wb['Full Title']['U2'].value, '10/02/2026 11:00 AM')
 
     def test_sync_failure_retains_saved_preview_for_retry(self):

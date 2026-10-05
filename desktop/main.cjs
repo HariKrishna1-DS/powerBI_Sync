@@ -47,8 +47,8 @@ function configureStartup(preserveDisabled = false) {
     app.setLoginItemSettings({openAtLogin: settings.startAtLogin, name: 'com.datatrace.studio', enabled: existing?.enabled ?? true});
   }
 }
-async function engineRequest(route, options = {}) {
-  const response = await fetch(`${backendUrl}${route}`, {...options, signal: AbortSignal.timeout(30000), headers: {...options.headers, 'X-DataTrace-Token': token}});
+async function engineRequest(route, options = {}, timeoutMs = 30000) {
+  const response = await fetch(`${backendUrl}${route}`, {...options, signal: AbortSignal.timeout(timeoutMs), headers: {...options.headers, 'X-DataTrace-Token': token}});
   if (!response.ok) {
     const result = await response.json().catch(() => ({}));
     throw Error(result.error || `The local engine returned ${response.status}.`);
@@ -108,7 +108,7 @@ async function stopBackend(force = false) {
   const child = backend;
   if (!child || child.exitCode !== null) return;
   const exited = new Promise(resolve => child.once('exit', resolve));
-  try { await engineRequest('/api/desktop/shutdown', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({force})}); } catch { /* process may already have exited */ }
+  try { await engineRequest('/api/desktop/shutdown', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({force})}, 3000); } catch { /* process may already have exited */ }
   await Promise.race([exited, new Promise(resolve => setTimeout(resolve, 3000))]);
   if (child.exitCode === null) {
     await new Promise(resolve => execFile('taskkill.exe', ['/PID', String(child.pid), '/T', '/F'], {windowsHide: true}, () => resolve()));

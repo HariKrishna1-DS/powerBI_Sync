@@ -77,7 +77,7 @@ class DesktopAlignmentTests(unittest.TestCase):
         sync_trackers(frame, book=self.book)
         batches = len(self.book.batches)
         sync_trackers(frame, book=self.book)
-        self.assertEqual(len(self.book.batches), batches+1)
+        self.assertEqual(len(self.book.batches), batches)
         self.assertFalse(any('updateCells' in r for r in self.book.batches[-1]['requests']))
         recovered = read_preview_history(self.book)
         self.assertEqual(recovered[0]['rows'], [])

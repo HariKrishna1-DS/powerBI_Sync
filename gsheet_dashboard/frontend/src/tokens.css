@@ -4,14 +4,14 @@
   font-family: 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
   font-synthesis: none;
   font-size: 14px;
-  --canvas: #f6f7f5;
+  --canvas: #f2f5f6;
   --surface: #ffffff;
-  --sidebar: #eff2ef;
+  --sidebar: #eaf0f1;
   --toolbar: #f9faf8ed;
   --ink: #1b302e;
   --text: #344b48;
-  --muted: #667a76;
-  --line: #dfe7e2;
+  --muted: #5b6e6a;
+  --line: #d7e2e3;
   --hover: #eaf0ec;
   --accent: #14776b;
   --accent-hover: #0e6259;
@@ -36,21 +36,28 @@
   --chart-grid: #e2e9e4;
   --chart-blue: #6385ad;
   --chart-purple: #9081ad;
+  --summary-gold: #806216;
+  --summary-red: #a63d49;
+  --summary-purple: #77509c;
+  --summary-slate: #5a6d77;
+  --summary-sage: #537349;
+  --summary-emerald: #20774d;
+  --summary-blue: #486e9d;
 }
 :root[data-theme='dark'] {
   color-scheme: dark;
-  --canvas: #151d1c;
-  --surface: #1d2826;
-  --sidebar: #192320;
-  --toolbar: #18221ff0;
+  --canvas: #121c22;
+  --surface: #1c2a30;
+  --sidebar: #17242a;
+  --toolbar: #152229f0;
   --ink: #edf4ee;
   --text: #d1dfd7;
-  --muted: #9cafaa;
-  --line: #33443e;
-  --hover: #2a3832;
+  --muted: #a4b8b2;
+  --line: #3b5159;
+  --hover: #2a3d43;
   --accent: #87ceba;
   --accent-hover: #a3dfcd;
-  --accent-soft: #2b473c;
+  --accent-soft: #294c4a;
   --accent-on: #12392f;
   --positive: #9bd2ae;
   --warning: #e5c182;
@@ -62,4 +69,11 @@
   --chart-grid: #34473e;
   --chart-blue: #9ebcdf;
   --chart-purple: #bcaed4;
+  --summary-gold: #e6cb82;
+  --summary-red: #ed9ca7;
+  --summary-purple: #c4a5e3;
+  --summary-slate: #b2c2ca;
+  --summary-sage: #b5cca4;
+  --summary-emerald: #8dcfa8;
+  --summary-blue: #a6c1e3;
 }

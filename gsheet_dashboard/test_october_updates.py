@@ -23,14 +23,14 @@ class OctoberTrackerTests(unittest.TestCase):
         self.assertEqual(incoming[0]['Comment'], 'raw comment')
 
     def test_free_site_all_retained_rows_and_boundary(self):
-        rows = [order('A', **{'Out Time': '10/01/2026 10:00 AM', 'SLA Expiration': '10/01/2026 10:00 AM'}),
-                order('B', **{'Out Time': '10/01/2026 10:01 AM', 'SLA Expiration': '10/01/2026 10:00 AM'}),
+        rows = [order('A', 'Completed and Delivered', **{'Out Time': '10/01/2026 10:00 AM', 'SLA Expiration': '10/01/2026 10:00 AM'}),
+                order('B', 'Completed and Delivered', **{'Out Time': '10/01/2026 10:01 AM', 'SLA Expiration': '10/01/2026 10:00 AM'}),
                 order('C', **{'Out Time': '', 'Free Site': 'Missing', 'SLA Expiration': '10/01/2026 10:00 AM'})]
         result, _ = merge_trackers({FULL: rows, REMAINING: []}, [], [], datetime(2026, 10, 2))
         self.assertEqual([r['Free Site'] for r in result[FULL]], ['On Time', 'Missing', ''])
         self.assertEqual(free_site({'Out Time': '10/01/2026 10:00 AM', 'SLA Expiration': 'PAUSED'}, datetime(2026, 10, 2))[0], '')
 
-    def test_valid_out_time_completes_current_absent_and_new_orders(self):
+    def test_out_time_does_not_complete_open_cancelled_or_new_orders(self):
         existing = [order('A', 'Awaiting for Clarification', **{'Out Time': '10/01/2026',
                     'SLA Expiration': '10/02/2026 01:00 PM'}),
                     order('B', 'Cancelled', **{'Out Time': '46279',
@@ -39,8 +39,8 @@ class OctoberTrackerTests(unittest.TestCase):
                     {'Order Number': 'C', 'Product': 'Full Title', 'Out Time': '10/01/2026',
                      'SLA Expiration': '10/02/2026 01:00 PM'}]
         result, _ = merge_trackers({FULL: existing, REMAINING: []}, incoming, [], datetime(2026, 10, 2))
-        self.assertEqual([r['Status'] for r in result[FULL]], ['Completed and Delivered'] * 3)
-        self.assertEqual([r['Free Site'] for r in result[FULL]], ['On Time'] * 3)
+        self.assertEqual([r['Status'] for r in result[FULL]], ['Awaiting for Clarification', 'Cancelled', 'Search In Progress'])
+        self.assertEqual([r['Free Site'] for r in result[FULL]], [''] * 3)
 
     def test_exact_sample_colors_cover_free_site(self):
         self.assertEqual(PALETTE['cancelled'], '#c00000')
@@ -57,17 +57,17 @@ class OctoberTrackerTests(unittest.TestCase):
         from datatrace_sync import parse_report_datetime
         self.assertEqual(parse_report_datetime('46277'), datetime(2026, 9, 12))
         self.assertEqual(parse_report_datetime('46277.5'), datetime(2026, 9, 12, 12))
-        self.assertEqual(free_site({'Out Time': '46277', 'SLA Expiration': '09/14/2026 03:00 PM'}, datetime(2026, 10, 2))[0], 'On Time')
-        self.assertEqual(free_site({'Out Time': '46279', 'SLA Expiration': '09/11/2026 03:00 PM'}, datetime(2026, 10, 2))[0], 'Missing')
+        self.assertEqual(free_site({'Status':'Completed and Delivered', 'Out Time': '46277.5', 'SLA Expiration': '09/14/2026 03:00 PM'}, datetime(2026, 10, 2))[0], 'On Time')
+        self.assertEqual(free_site({'Status':'Completed and Delivered', 'Out Time': '46279.5', 'SLA Expiration': '09/11/2026 03:00 PM'}, datetime(2026, 10, 2))[0], 'Missing')
+        self.assertEqual(free_site({'Status':'Completed and Delivered', 'Out Time': '46279', 'SLA Expiration': '09/11/2026 03:00 PM'}, datetime(2026, 10, 2))[0], '')
 
     def test_formatting_reconciliation_is_idempotent(self):
         book = Book()
         sheet = book.add_worksheet(FULL, 10, len(HEADERS))
         sheet.values = [HEADERS]
         self.assertGreater(ensure_tracker_formatting(book), 0)
-        self.assertEqual(ensure_tracker_formatting(book), 3)
-        self.assertEqual(book.batches[-1], book.batches[-2])
-        self.assertFalse(sheet.conditional_formats)
+        self.assertEqual(ensure_tracker_formatting(book), 0)
+        self.assertEqual(len(sheet.conditional_formats), len(PALETTE))
 
     def test_google_normalized_rules_and_growing_row_ranges(self):
         wanted = rules_for(15, HEADERS)[0]
@@ -79,7 +79,7 @@ class OctoberTrackerTests(unittest.TestCase):
         self.assertEqual(comparable_rule(remote, 150), comparable_rule(wanted, 150))
         self.assertNotEqual(comparable_rule(remote, 200), comparable_rule(wanted, 200))
 
-    def test_excel_export_uses_plain_production_style(self):
+    def test_excel_export_uses_status_palette_and_borders(self):
         from io import BytesIO
         from openpyxl import load_workbook
         from server import create_app
@@ -92,8 +92,8 @@ class OctoberTrackerTests(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             ws = load_workbook(BytesIO(response.data))['Full Title']
             for cell in ws[2]:
-                self.assertEqual(cell.fill.fgColor.rgb[-6:], 'FFFFFF')
-                self.assertEqual(cell.font.color.rgb[-6:], '000000')
+                self.assertEqual(cell.fill.fgColor.rgb[-6:], 'C00000')
+                self.assertEqual(cell.font.color.rgb[-6:], 'FFFFFF')
                 self.assertEqual(cell.border.bottom.style, 'thin')
 
 

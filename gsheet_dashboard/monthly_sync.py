@@ -12,7 +12,9 @@ def sync_monthly(book, frame, store, on_progress=None):
     from tracker_sync import (HEADERS, IST, key, records, matrix, text, merge_trackers,
                               sheet_reports, archive_value_matches)
     from tracker_formatting import ensure_tracker_formatting
+    from monthly_views import refresh_monthly_views
     if frame is None:
+        refresh_monthly_views(book)
         ensure_tracker_formatting(book)
         return [s.title for s in book.worksheets() if tab_identity(s.title)]
     original = frame.attrs.get('original_capture')
@@ -35,6 +37,7 @@ def sync_monthly(book, frame, store, on_progress=None):
             # Raw archive and production changes shared a single atomic batch.
             store.commit_sync_report(number, digest)
         frame.attrs['pass_report'] = {k: v for k, v in (saved or {}).get('report', {}).items() if not k.startswith('_')}
+        refresh_monthly_views(book)
         ensure_tracker_formatting(book)
         return list(sheets)
     history_ids = [int(r['Preview'][7:]) for r in history if str(r.get('Preview', '')).startswith('preview') and str(r['Preview'][7:]).isdigit()]
@@ -70,6 +73,7 @@ def sync_monthly(book, frame, store, on_progress=None):
     report['unprocessed'] += len(reviews)
     report['ambiguous'].extend(reviews)
     plan = new_plan(before, 'sync')
+    plan['view_raw_rows'] = history + incoming
     plan['format_titles'] = list(before)
     grouped = {title: [] for title in before if tab_identity(title) and tab_identity(title)[1] > ARCHIVE}
     for base in BASES:
@@ -120,6 +124,7 @@ def sync_monthly(book, frame, store, on_progress=None):
     if on_progress:
         on_progress('Saving monthly production, backups and capture receipt')
     apply_plan(book, preserve_formulas(ensure_pairs(plan, before), before))
+    ensure_tracker_formatting(book)
     store.commit_sync_report(number, digest)
     frame.attrs['pass_report'] = report
     return list(plan['writes'])

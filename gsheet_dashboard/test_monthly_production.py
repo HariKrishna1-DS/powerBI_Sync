@@ -67,6 +67,9 @@ class AtomicBook:
             elif 'deleteConditionalFormatRule' in request:
                 info = request['deleteConditionalFormatRule']
                 find(info['sheetId']).conditional_formats.pop(info['index'])
+            elif 'addConditionalFormatRule' in request:
+                info = request['addConditionalFormatRule']
+                find(info['rule']['ranges'][0]['sheetId']).conditional_formats.insert(info['index'], info['rule'])
             elif 'updateCells' in request:
                 info = request['updateCells']
                 region = info.get('range',info.get('start'))
@@ -233,7 +236,8 @@ class MonthlyProductionTests(unittest.TestCase):
         self.assertEqual(sheet['B2'].value,'A');self.assertEqual(sheet['A3'].value,2)
         self.assertEqual(book['Summary']['B3'].value,2)
         self.assertEqual(book['Summary']['C6'].value,.5)
-        self.assertTrue(sheet['B2'].font.color.rgb.endswith('000000'))
+        self.assertTrue(sheet['B2'].font.color.rgb.endswith('FFFFFF'))
+        self.assertTrue(sheet['B2'].fill.fgColor.rgb.endswith('A66BD3'))
         self.assertEqual(sheet['B2'].border.bottom.style,'thin')
 
     def test_capture_uses_month_route_and_does_not_reseed_september(self):
@@ -279,7 +283,7 @@ class MonthlyProductionTests(unittest.TestCase):
     def test_later_capture_updates_carried_order_without_moving_it_back(self):
         self.book.add(tab_name(BASES[0],'2026-11'),[order('A',Searcher='Human',**{'Carried From':'Oct_2026'})])
         with tempfile.TemporaryDirectory() as root:
-            rows=[{'Order Number':'A','Product':'Full Title','Arrival Time':'10/2/2026 12:50:45 AM','Out Time':'11/2/2026 9:00 AM','SLA Expiration':'11/2/2026 10:00 AM'}]
+            rows=[{'Order Number':'A','Status':'Completed and Delivered','Product':'Full Title','Arrival Time':'10/2/2026 12:50:45 AM','Out Time':'11/2/2026 9:00 AM','SLA Expiration':'11/2/2026 10:00 AM'}]
             preview={'id':1,'name':'preview1','created':'2026-11-02T04:30:00+00:00','columns':list(rows[0]),'rows':rows}
             frame=automatic_sync_frame(preview)[0];frame.attrs['store_root']=root
             sync_trackers(frame,book=self.book)

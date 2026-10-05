@@ -150,7 +150,7 @@ def _product_match_mask(series, selected_set):
 
 
 def parse_report_datetime(value):
-    text = str(value if pd.notna(value) else '').strip()
+    text = re.sub(r'\s+', ' ', str(value if pd.notna(value) else '')).strip()
     if not text:
         return None
     # Excel/Google Sheets date serials can be returned as displayed numbers
@@ -161,13 +161,13 @@ def parse_report_datetime(value):
             return dt.datetime(1899, 12, 30) + dt.timedelta(days=serial)
     try:
         parsed = dt.datetime.fromisoformat(text.replace('Z', '+00:00'))
-        return parsed.astimezone(dt.timezone(dt.timedelta(hours=5, minutes=30))).replace(tzinfo=None) if parsed.tzinfo else parsed
+        return parsed.replace(tzinfo=None)
     except ValueError:
         pass
     for pattern in ('%m/%d/%Y %I:%M:%S %p', '%m/%d/%Y %I:%M %p',
-                    '%m/%d/%Y %H:%M:%S', '%m/%d/%Y', '%m/%d/%y'):
+                    '%m/%d/%Y %H:%M:%S', '%m/%d/%Y %H:%M', '%m/%d/%Y', '%m/%d/%y'):
         try:
-            return dt.datetime.strptime(text, pattern)
+            return dt.datetime.strptime(text.upper(), pattern)
         except ValueError:
             pass
     return None
@@ -175,7 +175,7 @@ def parse_report_datetime(value):
 
 def sla_result(row):
     from tracker_sync import free_site
-    anchor = parse_report_datetime(row.get('Sync Timestamp', ''))
+    anchor = capture_anchor(row.get('Sync Timestamp', ''))
     data = dict(row)
     data['SLA Expiration'] = row.get('SLA Expiration*', row.get('SLA Expiration', ''))
     return free_site(data, anchor)[0]
@@ -183,8 +183,17 @@ def sla_result(row):
 
 def sla_expiration(row):
     from tracker_sync import deadline
-    anchor = parse_report_datetime(row.get('Sync Timestamp', ''))
+    anchor = capture_anchor(row.get('Sync Timestamp', ''))
     return deadline(row.get('SLA Expiration*', row.get('SLA Expiration', '')), anchor)
+
+
+def capture_anchor(value):
+    """Capture instants use IST; imported order timestamps remain wall clocks."""
+    try:
+        parsed = dt.datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+        return parsed.astimezone(dt.timezone(dt.timedelta(hours=5, minutes=30))).replace(tzinfo=None) if parsed.tzinfo else parsed
+    except ValueError:
+        return parse_report_datetime(value)
 
 
 def report_frame(df, fields, product=None, selected_products=None):

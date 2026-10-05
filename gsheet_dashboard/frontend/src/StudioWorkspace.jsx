@@ -1,19 +1,49 @@
-import React, {useEffect, useMemo, useState} from 'react';
-import {ArrowDownToLine, ArrowUpDown, ArrowRight, Bookmark, Check, ChevronLeft, ChevronRight, Clock3, FileSearch, Filter, History, Inbox, LayoutDashboard, Search, X} from 'lucide-react';
+import React, {useEffect, useId, useMemo, useRef, useState} from 'react';
+import {createPortal} from 'react-dom';
+import {ArrowDownToLine, ArrowUpDown, ArrowRight, Bookmark, Check, ChevronLeft, ChevronRight, Clock3, FileSearch, Filter, History, Inbox, LayoutDashboard, Monitor, Moon, Search, Sun, X} from 'lucide-react';
 import {useWorkspacePreference} from './useWorkspacePreference';
-import {api, csvDownload, str, normalized, IconButton} from './workspaceUtils';
+import {api, csvDownload, str, normalized, badgeClass, IconButton} from './workspaceUtils';
 
 export const VIEW_TITLES={overview:'Overview',sheets:'Data Sheets',captures:'Capture library',changes:'Changes',daily:'Daily Orders',monthly:'Monthly report',audit:'Activity'};
 const orderCollator=new Intl.Collator(undefined,{numeric:true,sensitivity:'base'});
 const relativeTime=value=>value?new Date(value).toLocaleString(): 'Not available';
 const attention=row=>/clarification|hold|suspend|review|missing|rejected/i.test(str(row.Status));
 function tone(value){const v=normalized(value);return /complete|delivered/.test(v)?'complete':/hold|suspend|clarification|missing|reject/.test(v)?'attention':/progress|available|review/.test(v)?'active':'neutral';}
-export function StatusPill({value}){return <span className={`order-status ${tone(value)}`}><i/>{str(value)||'Not set'}</span>;}
+export function StatusPill({value}){return <span className={`order-status ${tone(value)}`} data-status={badgeClass(value)}><i/>{str(value)||'Not set'}</span>;}
 
 export function ThemeControl(){
   const [theme,setTheme,ready,error]=useWorkspacePreference('theme','tv-tracker-theme','system',value=>['light','dark','system'].includes(value));
+  const [menuPosition,setMenuPosition]=useState(null);
+  const trigger=useRef(null),menu=useRef(null),menuId=useId();
+  const choices=[['system','System',Monitor],['light','Light',Sun],['dark','Dark',Moon]];
+  const [,currentLabel,CurrentIcon]=choices.find(([value])=>value===theme);
+  const closeMenu=()=>{setMenuPosition(null);if(trigger.current?.getClientRects().length)trigger.current.focus();};
   useEffect(()=>{const media=matchMedia('(prefers-color-scheme: dark)');const apply=()=>{document.documentElement.dataset.theme=theme==='system'?(media.matches?'dark':'light'):theme;};apply();media.addEventListener('change',apply);return()=>media.removeEventListener('change',apply);},[theme]);
-  return <div><label className="theme-control">Appearance<select aria-label="Appearance" disabled={!ready} value={theme} onChange={e=>{setTheme(e.target.value).catch(()=>{});}}><option value="system">System</option><option value="light">Light</option><option value="dark">Dark</option></select></label>{error&&<p className="field-help" role="alert">{error}</p>}</div>;
+  useEffect(()=>{
+    if(!menuPosition)return;
+    menu.current?.querySelector('[aria-checked="true"]')?.focus();
+    const dismiss=event=>{if(!menu.current?.contains(event.target)&&!trigger.current?.contains(event.target))setMenuPosition(null);};
+    const reposition=()=>setMenuPosition(null);
+    document.addEventListener('pointerdown',dismiss);
+    window.addEventListener('resize',reposition);
+    window.addEventListener('scroll',reposition,true);
+    return()=>{document.removeEventListener('pointerdown',dismiss);window.removeEventListener('resize',reposition);window.removeEventListener('scroll',reposition,true);};
+  },[menuPosition]);
+  function toggleMenu(){
+    if(menuPosition){closeMenu();return;}
+    const rect=trigger.current.getBoundingClientRect();
+    setMenuPosition({left:Math.max(12,Math.min(rect.right+10,innerWidth-196)),bottom:Math.max(12,innerHeight-rect.bottom)});
+  }
+  function menuKeys(event){
+    if(event.key==='Escape'){event.preventDefault();closeMenu();return;}
+    if(event.key==='Tab'){closeMenu();return;}
+    if(!['ArrowDown','ArrowUp','Home','End'].includes(event.key))return;
+    event.preventDefault();
+    const items=[...menu.current.querySelectorAll('[role="menuitemradio"]')];
+    const index=items.indexOf(document.activeElement);
+    items[event.key==='Home'?0:event.key==='End'?items.length-1:(index+(event.key==='ArrowDown'?1:-1)+items.length)%items.length].focus();
+  }
+  return <div className="appearance-control"><label className="theme-control">Appearance<select aria-label="Appearance" disabled={!ready} value={theme} onChange={e=>{setTheme(e.target.value).catch(()=>{});}}>{choices.map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label><button ref={trigger} className="theme-icon-button" aria-label={`Theme: ${currentLabel}`} title={`Appearance: ${currentLabel}`} aria-haspopup="menu" aria-expanded={!!menuPosition} aria-controls={menuPosition?menuId:undefined} disabled={!ready} onClick={toggleMenu}><CurrentIcon size={19} aria-hidden="true"/></button>{menuPosition&&createPortal(<div ref={menu} id={menuId} className="appearance-menu" role="menu" aria-label="Appearance options" style={menuPosition} onKeyDown={menuKeys}><span className="appearance-menu-heading">Appearance</span>{choices.map(([value,label,Icon])=><button key={value} type="button" role="menuitemradio" aria-checked={theme===value} tabIndex={-1} onClick={()=>{setTheme(value).then(closeMenu).catch(()=>{});}}><Icon size={17} aria-hidden="true"/><span>{label}</span>{theme===value&&<Check size={15} aria-hidden="true"/>}</button>)}{error&&<p className="field-help" role="alert">{error}</p>}</div>,document.body)}{error&&!menuPosition&&<p className="field-help" role="alert">{error}</p>}</div>;
 }
 
 export function ProductionOverview({snapshot,state,onNavigate}){
@@ -21,8 +51,8 @@ export function ProductionOverview({snapshot,state,onNavigate}){
   const statuses=useMemo(()=>{const counts=new Map();for(const row of rows){const key=str(row.Status)||'Not set';counts.set(key,(counts.get(key)||0)+1);}return [...counts].sort((a,b)=>b[1]-a[1]);},[rows]);
   return <div className="production-overview">
     <section className="overview-welcome"><span className="eyebrow">YOUR PRODUCTION WORKSPACE</span><h2>A clear view of the work ahead.</h2><p>Review your production, resolve exceptions and keep every capture accounted for.</p><button className="text-button" onClick={()=>onNavigate('sheets')}>Explore orders <ArrowRight size={16}/></button></section>
-    <div className="summary-strip"><div className="metric"><span>Production orders</span><strong>{snapshot?rows.length.toLocaleString():'—'}</strong></div><div className="metric"><span>Need attention</span><strong>{snapshot?rows.filter(attention).length.toLocaleString():'—'}</strong></div><div className="metric"><span>Saved captures</span><strong>{state.previews.length}</strong></div><div className="metric"><span>Pending sync</span><strong>{state.pending_sync||0}</strong></div></div>
-    <div className="overview-columns"><section className="studio-section"><h2>Status summary</h2><p className="muted">All retained production orders</p>{statuses.length?statuses.map(([status,count])=><div className="status-summary-row" key={status}><StatusPill value={status}/><span>{count.toLocaleString()}</span></div>):<p className="empty-copy">Connect Google Sheets to see production status.</p>}</section><section className="studio-section"><h2>Continue your work</h2>{[['captures','Capture history',`${state.previews.length} saved captures`],['daily','Daily report','Orders, completions and SLA'],['audit','Sync and activity',state.pending_sync?`${state.pending_sync} captures awaiting sync`:'Review recent operations']].map(([view,title,detail])=><button className="continue-row" key={view} onClick={()=>onNavigate(view)}><span><strong>{title}</strong><small>{detail}</small></span><ArrowRight size={17}/></button>)}<div className="freshness-note"><Clock3 size={16}/><span>Last production refresh<br/><strong>{relativeTime(snapshot?.updated_at)}</strong></span></div></section></div>
+    <div className="summary-strip"><div className="metric green"><span>Production orders</span><strong>{snapshot?rows.length.toLocaleString():'—'}</strong></div><div className="metric red"><span>Need attention</span><strong>{snapshot?rows.filter(attention).length.toLocaleString():'—'}</strong></div><div className="metric blue"><span>Saved captures</span><strong>{state.previews.length}</strong></div><div className="metric amber"><span>Pending sync</span><strong>{state.pending_sync||0}</strong></div></div>
+    <div className="overview-columns"><section className="studio-section"><h2>Status summary</h2><p className="muted">All retained production orders</p>{statuses.length?statuses.map(([status,count])=><div className="status-summary-row" data-status={badgeClass(status)} key={status}><StatusPill value={status}/><span>{count.toLocaleString()}</span></div>):<p className="empty-copy">Connect Google Sheets to see production status.</p>}</section><section className="studio-section"><h2>Continue your work</h2>{[['captures','Capture history',`${state.previews.length} saved captures`],['daily','Daily report','Orders, completions and SLA'],['audit','Sync and activity',state.pending_sync?`${state.pending_sync} captures awaiting sync`:'Review recent operations']].map(([view,title,detail])=><button className="continue-row" key={view} onClick={()=>onNavigate(view)}><span><strong>{title}</strong><small>{detail}</small></span><ArrowRight size={17}/></button>)}<div className="freshness-note"><Clock3 size={16}/><span>Last production refresh<br/><strong>{relativeTime(snapshot?.updated_at)}</strong></span></div></section></div>
   </div>;
 }
 
@@ -42,7 +72,7 @@ export function OrdersWorkspace({snapshot,rows,columns,search,setSearch,filters,
   function applyView(name){const value=saved.find(v=>v.name===name);if(value){setSearch(value.search);setGroup(value.group==='attention'?'attention':'all');setProduct(typeof value.product==='string'?value.product:'all');setFilters(value.filters&&typeof value.filters==='object'?value.filters:{});}}
   return <div className={`orders-workspace ${current?'has-inspector':''}`}><section className="orders-main" aria-label="Production orders">
     <div className="orders-search"><Search size={19}/><input aria-label="Search rows" placeholder="Search orders, clients, products…" value={search} onChange={e=>setSearch(e.target.value)}/><kbd>Search</kbd></div>
-    <div className="summary-strip"><div className="metric"><span>Visible orders</span><strong>{visible.length.toLocaleString()}</strong></div><div className="metric"><span>Need attention</span><strong>{all.filter(attention).length.toLocaleString()}</strong></div><div className="metric"><span>Latest capture rows</span><strong>{previews[0]?.row_count?.toLocaleString()??'—'}</strong></div></div>
+    <div className="summary-strip"><div className="metric green"><span>Visible orders</span><strong>{visible.length.toLocaleString()}</strong></div><div className="metric red"><span>Need attention</span><strong>{all.filter(attention).length.toLocaleString()}</strong></div><div className="metric blue"><span>Latest capture rows</span><strong>{previews[0]?.row_count?.toLocaleString()??'—'}</strong></div></div>
     <div className="order-filters"><div className="segmented" aria-label="Order view"><button aria-pressed={group==='all'} onClick={()=>setGroup('all')}>All orders</button><button aria-pressed={group==='attention'} onClick={()=>setGroup('attention')}>Needs attention</button></div><select aria-label="Product" value={product} onChange={e=>setProduct(e.target.value)}><option value="all">All products</option>{products.map(v=><option key={v}>{v}</option>)}</select><select aria-label="Choose column filter" value="" onChange={e=>{if(e.target.value)openFilter(e.target.value);}}><option value="">Filter a column…</option>{columns.map(c=><option key={c}>{c}</option>)}</select></div>
     <div className="order-tools"><button className="text-button" aria-pressed={allColumns} onClick={()=>setAllColumns(value=>!value)}>{allColumns?'Compact columns':'All columns'}</button><select aria-label="Saved views" disabled={!viewsReady} value="" onChange={e=>applyView(e.target.value)}><option value="">Saved views</option>{saved.map(v=><option key={v.name}>{v.name}</option>)}</select><button className="text-button" disabled={!viewsReady} onClick={()=>setSaving(v=>!v)}><Bookmark size={14}/>Save view</button><button className="text-button" onClick={()=>csvDownload(visible,columns,'Tv-Tracker-orders.csv')}><ArrowDownToLine size={15}/>CSV</button>{Object.keys(filters).map(c=><button className="filter-chip" key={c} onClick={()=>openFilter(c)}><Filter size={12}/>{c}</button>)}{Object.keys(filters).length>0&&<button className="text-button" onClick={()=>setFilters({})}>Clear filters</button>}</div>
     {saving&&<form className="save-view" onSubmit={e=>{e.preventDefault();saveView();}}><input aria-label="View name" placeholder="Name this view" maxLength={50} value={viewName} onChange={e=>setViewName(e.target.value)} autoFocus/><button className="secondary" disabled={!viewName.trim()}>Save</button><button type="button" className="text-button" onClick={()=>setSaving(false)}>Cancel</button></form>}{message&&<p className="field-help" role="status">{message}</p>}{preferenceError&&<p className="field-help" role="alert">{preferenceError}</p>}
