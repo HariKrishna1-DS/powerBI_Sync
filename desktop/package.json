@@ -1,6 +1,6 @@
 {
   "name": "tv-tracker",
-  "version": "2.5.0",
+  "version": "2.5.1",
   "description": "Private desktop workspace for title production and Google Sheets synchronization",
   "author": "Tv Tracker",
   "private": true,
@@ -62,6 +62,7 @@
       "signAndEditExecutable": true
     },
     "nsis": {
+      "include": "installer.nsh",
       "oneClick": false,
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
