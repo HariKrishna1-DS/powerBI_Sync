@@ -2,8 +2,9 @@ import {test,expect} from '@playwright/test';
 import {workspaceFixture} from './workspace-fixture';
 import path from 'node:path';
 
-async function setup(page){
+async function setup(page, captureCount=3){
   const fixture=workspaceFixture();
+  if(captureCount>3)fixture.previews.push(...Array.from({length:captureCount-3},(_,i)=>({id:29-i,name:`preview${29-i}`,created:'2026-09-29T12:00:00Z',row_count:240})));
   await page.route('**/api/**',route=>{const req=route.request();return route.fulfill({json:fixture.response(new URL(req.url()).pathname,req.postData()?req.postDataJSON():{})});});
   await page.goto('/');
   await expect(page.locator('.orders-table tbody tr')).toHaveCount(50);
@@ -48,9 +49,8 @@ test('sheet segments use the correct sources and keep search and sorting availab
 
 test('settings and appearance remain reachable in short desktop windows',async({page})=>{
   await page.setViewportSize({width:1280,height:620});
-  await setup(page);
+  await setup(page,35);
   const appearance=page.getByLabel('Appearance');
-  await appearance.scrollIntoViewIfNeeded();
   await expect(appearance).toBeInViewport();
   await appearance.selectOption('dark');
   await expect(appearance).toHaveValue('dark');
@@ -58,6 +58,32 @@ test('settings and appearance remain reachable in short desktop windows',async({
   await expect(settings).toHaveCount(1);
   await settings.click();
   await expect(page.getByRole('heading',{name:'Connections & settings',exact:true})).toBeVisible();
+});
+
+for(const height of [900,720,620,500])test(`only saved captures scroll and remain usable at ${height}px height`,async({page})=>{
+  await page.setViewportSize({width:1280,height});
+  await setup(page,35);
+  const sidebar=page.getByRole('complementary',{name:'Workspace sidebar'});
+  const captures=page.getByRole('region',{name:'Saved captures',exact:true});
+  const dimensions=await sidebar.evaluate(el=>({height:el.clientHeight,scroll:el.scrollHeight,overflow:getComputedStyle(el).overflowY}));
+  expect(dimensions.scroll).toBeLessThanOrEqual(dimensions.height+1);
+  expect(dimensions.overflow).toBe('hidden');
+  const list=await captures.boundingBox();
+  expect(list.height).toBeGreaterThanOrEqual(118);
+  await expect(page.getByLabel('Appearance')).toBeInViewport();
+  await expect(page.getByRole('button',{name:'Settings',exact:true})).toBeInViewport();
+  const footer=await page.locator('.sidebar-footer').boundingBox();
+  await captures.hover();
+  await page.mouse.wheel(0,3000);
+  await expect.poll(()=>captures.evaluate(el=>el.scrollTop)).toBeGreaterThan(100);
+  expect((await page.locator('.sidebar-footer').boundingBox()).y).toBe(footer.y);
+  await page.getByLabel('Search saved captures').fill('preview1');
+  const target=page.locator('.preview-select').filter({has:page.locator('strong',{hasText:/^preview1$/})});
+  await target.click();
+  await expect(page.getByLabel('Selected capture',{exact:true})).toHaveValue('1');
+  await expect(target).toHaveAttribute('aria-pressed','true');
+  await expect(page.locator('.loading')).toHaveCount(0);
+  if(process.env.TV_TRACKER_SCREENSHOTS)await page.screenshot({path:path.join(process.env.TV_TRACKER_SCREENSHOTS,`sidebar-${height}.png`)});
 });
 
 test('chart drilldowns reflect active filters and native dialogs restore keyboard focus',async({page})=>{

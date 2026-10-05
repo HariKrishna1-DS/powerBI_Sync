@@ -31,7 +31,7 @@ The rename preserves the previous DataTrace Studio profile and installer identit
 - **Changes:** compare saved captures by trimmed, case-insensitive Order Number and export the comparison for Power BI.
 - **Export:** `Production_data.xlsx` with consistent status colors; confirms shortened Excel tab names before downloading.
 
-Stable tracker names replace the shipped September-only defaults; custom names remain supported. The upstream baseline workbooks are bundled and missing baseline orders are added during sync. Valid Out Time is completion evidence; disappearance alone never completes an order. Manual tracker columns are preserved except Comments, Assignee and iAssignee, which the upstream rules intentionally clear. Raw captures preserve original values.
+Stable tracker names replace the shipped September-only defaults; custom names remain supported. The upstream baseline workbooks are bundled and missing baseline orders are added during sync. Since 2.5.3, disappearance between valid saved queues marks completion at the first missing preview timestamp, with cancelled/suspended exceptions and manual timestamp preservation. See the [completion, SLA and monthly schema rules](docs/TV_TRACKER_2_5_3_RELEASE.md). Manual tracker columns are preserved except Comments, Assignee and iAssignee, which the upstream rules intentionally clear. Raw captures preserve original values.
 
 Imports/extractions sync automatically when configured. A failed write gets bounded retries and remains saved with a retry action. Newer captures wait behind unresolved older failures. After configuration, unsynced local captures are picked up by the running app. Google Sheets is authoritative; SQLite holds local captures, receipts and failures only.
 
@@ -43,7 +43,7 @@ Imports/extractions sync automatically when configured. A failed write gets boun
 - [Upstream production rules](docs/TV_Search_Sync_Prompt.md)
 - [Optional legacy browser/Streamlit development](docs/LEGACY_WEB_README.md)
 
-Build with `desktop/build.ps1`. Installer and portable output go to `release/2.2.1/`. Run `python make_bundle.py` to create the matching source ZIP with a SHA-256 source manifest. Dependencies are recorded in lockfiles; 2.2.0 added electron-updater for Windows releases.
+Build with `desktop/build.ps1`. Installer and portable output go to `release/<version>/`. Run `python make_bundle.py` to create the matching source ZIP with a SHA-256 source manifest. Dependencies are recorded in lockfiles; 2.2.0 added electron-updater for Windows releases.
 
 For a contribution, branch from `tv-tracker`, make a focused change, run the relevant Python, desktop-settings and Playwright suites, and open a pull request targeting `tv-tracker`. Keep credentials, captures, runtime data, and generated release files out of commits. The baseline XLSX files already supplied by upstream are required application inputs and are included in packages/source bundles.
 

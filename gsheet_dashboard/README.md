@@ -34,11 +34,11 @@ explicit human action in the sidebar; raw Google Sheet history stays available.
 Orders match by trimmed, case-insensitive Order Number. A new order starts as Search
 In Progress, except workflow-suspended orders, which become Awaiting for Clarification.
 For existing orders, changed status-driving fields can apply those same two explicit
-rules. Other statuses remain as entered in the tracker. An order disappearing from a
-preview retains its tracker row and status and appears under Not in latest preview.
-A valid Out Time date marks an order Completed and Delivered, even when its old
-status differs or the order is absent from the latest preview. Task names and
-disappearance alone do not imply delivery.
+rules. Since 2.5.3, an order disappearing between valid saved previews retains its
+tracker row and becomes Completed and Delivered at the first missing preview's
+timestamp. Cancelled/suspended rows and precise manual completion times are
+preserved. Empty or malformed previews cannot infer completion. See
+[current completion and SLA rules](../docs/TV_TRACKER_2_5_3_RELEASE.md).
 
 Status, ETA, Out Time and SLA Expiration update on existing orders. Comments and
 Assignee are always blank in both production trackers, including new and absent orders.

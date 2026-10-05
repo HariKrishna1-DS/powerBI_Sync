@@ -60,7 +60,7 @@ class ReportRefinementTests(unittest.TestCase):
         report = sheet_reports({FULL:rows})['monthly'][0]
         self.assertEqual((report['Month Orders'],report['SLA On Time'],report['SLA Missed']), (3,1,0))
 
-    def test_remaining_view_includes_every_non_full_product_and_raw_fields(self):
+    def test_remaining_view_includes_every_non_full_product_with_exact_production_schema(self):
         rows = [order('B', Product='Update'), order('A', Product='  Full   Search  '),
                 order('C', Product='Unlisted product'), order('D', Product='Current Owner')]
         views = monthly_view_values({tab_name(BASES[0],'2026-10'):rows}, [{'Order Number':'C','Vendor':'Retained vendor'}])
@@ -68,7 +68,8 @@ class ReportRefinementTests(unittest.TestCase):
         remaining = decode(views['Remaining_OCT_2026'])
         self.assertEqual([r['Order Number'] for r in remaining], ['B','C','D'])
         self.assertEqual([r['No'] for r in remaining], [1,2,3])
-        self.assertEqual(remaining[1]['Vendor'], 'Retained vendor')
+        self.assertNotIn('Vendor', remaining[1])
+        self.assertEqual(views['Remaining_OCT_2026'][0], views['Full_search_OCT_2026'][0])
 
     def test_repeat_view_refresh_does_not_create_duplicate_tabs_or_change_trackers(self):
         book = AtomicBook()

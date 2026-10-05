@@ -22,7 +22,7 @@ The report's normal default is the current Indian-calendar month if it contains 
 - A blank value in an older workbook cannot erase valid completion evidence already held in production.
 - Invalid nonblank Out Time is a review item, not proof that an order is incomplete or complete. Such an order is retained during rollover.
 - September 2026 is an archive. It is not reseeded or reimported in monthly mode and cannot be rolled over or edited through the SLA endpoint. Its historical orders remain in September reports; current Orders excludes the archive. Historical archive rows may also have a current record in a later month. Uniqueness is enforced across **active months**.
-- The established status mapping, manual-field ownership, blank Comments/Assignee rules, SLA calculations, capture identity checks and raw history receipts remain in place. A disappearance from the queue is still not completion evidence.
+- Manual-field ownership, blank Comments/Assignee rules, capture identity checks and raw history receipts remain in place. Version 2.5.3 adds preview-based completion and exact monthly view schemas; see [the current rules](TV_TRACKER_2_5_3_RELEASE.md).
 
 ## Automatic rollover and confirmation
 

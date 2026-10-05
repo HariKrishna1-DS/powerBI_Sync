@@ -19,8 +19,8 @@ export function WorkspaceSidebar({state,selected,view,onNavigate,onSelect,onDele
     <section className="capture-library" aria-label="Saved capture library">
       <div className="preview-heading"><span className="nav-label">SAVED CAPTURES</span><span>{state.previews.length}</span></div>
       <label className="library-search"><Search size={14}/><input aria-label="Search saved captures" placeholder="Find a capture…" value={query} onChange={e=>setQuery(e.target.value)}/>{query&&<IconButton title="Clear capture search" onClick={()=>setQuery('')}><X size={13}/></IconButton>}</label>
-      <div className="preview-list">{captures.map(p=><div key={p.id} className={`preview-item ${selected===p.id?'selected':''}`}>
-        <button className="preview-select" aria-pressed={selected===p.id} onClick={()=>onSelect(p.id)}><FileSpreadsheet size={17}/><div><strong>{p.name}</strong><small>{p.row_count.toLocaleString()} rows · {dateLabel(p.created)}</small></div>{p.id===state.previews[0]?.id&&<i>Latest</i>}</button>
+      <div className="preview-list" role="region" aria-label="Saved captures" tabIndex={0}>{captures.map(p=><div key={p.id} className={`preview-item ${selected===p.id?'selected':''}`}>
+        <button className="preview-select" title={`${p.name} · ${p.row_count.toLocaleString()} rows · ${dateLabel(p.created)}`} aria-pressed={selected===p.id} onClick={()=>onSelect(p.id)}><FileSpreadsheet size={17}/><div><strong>{p.name}</strong><small>{p.row_count.toLocaleString()} rows · {dateLabel(p.created)}</small></div>{p.id===state.previews[0]?.id&&<i>Latest</i>}</button>
         <IconButton title={`Delete ${p.name}`} disabled={busy} onClick={event=>onDelete(event,p.id)}><Trash2 size={13}/></IconButton>
       </div>)}{!captures.length&&<p className="no-previews">{query?'No captures match your search.':'Your captures will appear here after an extraction or import.'}</p>}</div>
     </section>

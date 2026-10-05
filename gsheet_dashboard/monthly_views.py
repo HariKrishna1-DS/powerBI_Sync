@@ -18,15 +18,18 @@ def view_identity(title):
     return None
 
 
-def monthly_view_values(trackers, raw_rows=()):
+def monthly_view_values(trackers, raw_rows=(), headers=None):
     """Keep every non-full product, including those outside UI selections.
 
-    Long production tabs retain ownership. Short tabs are reporting views,
-    enriched with the latest raw fields without duplicating production totals.
+    Both short views use the Full Search production schema, never raw queue fields.
     """
-    from tracker_sync import HEADERS, key
+    from tracker_sync import HEADERS, FULL, key
     from monthly_production import ARCHIVE, tab_identity, local_datetime, arrival_sort, encode, extend_headers
-    latest = {key(row): row for row in raw_rows if key(row)}
+    if headers is None:
+        full_rows = next((rows for title, rows in trackers.items()
+            if title == FULL or (tab_identity(title) and tab_identity(title)[0] == FULL)), [])
+        headers = extend_headers(HEADERS, full_rows)
+    headers = [column for column in headers if not column.startswith('_')]
     buckets, months = defaultdict(list), set()
     for title, rows in trackers.items():
         identity = tab_identity(title)
@@ -37,34 +40,62 @@ def monthly_view_values(trackers, raw_rows=()):
                 continue
             months.add(month)
             full = ' '.join(str(row.get('Product', '')).casefold().split()) in ('full title', 'full search')
-            merged = {k: v for k, v in latest.get(key(row), {}).items() if k not in ('Preview', 'Preview Timestamp', 'Captured At')}
-            merged.update({k: v for k, v in row.items() if not k.startswith('_')})
-            buckets[view_name(full, month)].append(merged)
+            buckets[view_name(full, month)].append(row)
         if identity and identity[1] > ARCHIVE:
             months.add(identity[1])
     return {view_name(full, month): encode(arrival_sort(buckets[view_name(full, month)]),
-                extend_headers(HEADERS, buckets[view_name(full, month)]))
+                headers)
             for month in sorted(months) for full in (True, False)}
 
 
 def keep_view_headers(values, prior):
-    """Keep the established Full_search column order while appending new fields."""
-    from monthly_production import decode, encode, extend_headers
-    if not prior:
-        return values
-    rows = decode(values)
-    return encode(rows, extend_headers(prior[0], rows))
+    """Legacy callers must not restore obsolete raw/extra view columns."""
+    return values
 
 
 def refresh_monthly_views(book):
     """Safe repair on repeat syncs, including captures committed before this feature."""
-    from tracker_sync import tracker_sources, records
-    from monthly_production import snapshot, decode, new_plan, fingerprint, apply_plan
+    from tracker_sync import tracker_sources, records, FULL, sheet_reports
+    from monthly_production import snapshot, decode, encode, new_plan, fingerprint, apply_plan, preserve_formulas
+    from preview_completion import reconcile_completions
     sheets = {sheet.title: sheet for sheet in book.worksheets()}
-    trackers = {sheet.title: decode(values) for _, sheet, values in tracker_sources(book)}
-    raw = records(sheets['Sheet1'].get_all_values()) if 'Sheet1' in sheets else []
-    writes = monthly_view_values(trackers, raw)
-    plan = new_plan(snapshot(book), 'monthly_views')
+    before = snapshot(book)
+    sources = tracker_sources(book)
+    trackers = {sheet.title: decode(values) for _, sheet, values in sources}
+    raw_values = sheets['Sheet1'].get_all_values(value_render_option='UNFORMATTED_VALUE') if 'Sheet1' in sheets else []
+    raw = records(raw_values)
+    plan = new_plan(before, 'monthly_views')
+    repaired, changes = reconcile_completions(trackers, raw)
+    for title, rows in repaired.items():
+        if rows != trackers[title]:
+            original = decode(before[title]['values'])
+            for wanted, saved in zip(rows, original):
+                for column in ('Status', 'Out Time', 'SLA Expiration', 'Free Site'):
+                    saved[column] = wanted.get(column, '')
+            plan['writes'][title] = encode(original, before[title]['values'][0])
+    schema = next((values[0] for base, _, values in sources if base == FULL and values), None)
+    writes = monthly_view_values(repaired, headers=schema)
+    if changes:
+        from collections import Counter
+        statuses = Counter(row.get('Status', '') for rows in repaired.values() for row in rows)
+        total = sum(statuses.values())
+        prior_status = sheets['Status Report'].get_all_values() if 'Status Report' in sheets else []
+        status_headers = prior_status[0] if prior_status else ['Status', 'Orders', 'Share']
+        metadata = records(prior_status)[0] if len(prior_status) > 1 else {}
+        plan['writes']['Status Report'] = encode([dict(metadata, Status=s, Orders=n, Share=n/total if total else 0)
+            for s, n in statuses.items()], status_headers)
+        reports = sheet_reports(repaired)
+        for title, kind, period in (('Daily Orders', 'daily', 'Date'), ('Monthly report', 'monthly', 'Month')):
+            if title in sheets:
+                prior = sheets[title].get_all_values()
+                by_period = {r[period]: r for r in reports[kind]}
+                report_rows = records(prior)
+                for row in report_rows:
+                    result = by_period.get(row.get(period), {})
+                    for column in ('Completed Orders', 'SLA On Time', 'SLA Missed'):
+                        if column in result:
+                            row[column] = result[column]
+                plan['writes'][title] = encode(report_rows, prior[0])
     def normalized(values):
         result = []
         for row in values:
@@ -80,5 +111,7 @@ def refresh_monthly_views(book):
             plan['writes'][title] = values
             plan.setdefault('archive_fingerprints', {})[title] = fingerprint(prior)
     if plan['writes']:
-        apply_plan(book, plan)
+        if 'Sheet1' in sheets:
+            plan.setdefault('archive_fingerprints', {})['Sheet1'] = fingerprint(raw_values)
+        apply_plan(book, preserve_formulas(plan, before))
     return list(writes)

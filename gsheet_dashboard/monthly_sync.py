@@ -68,7 +68,9 @@ def sync_monthly(book, frame, store, on_progress=None):
             reviews.append({'Order Number': row.get('Order Number', ''), 'Reason': 'Archived month; capture retained without re-importing September'})
         else:
             accepted.append(row)
-    merged, report = merge_trackers(current, accepted, previous, anchor)
+    completion_history = history + ([dict(r, Preview=preview, **{'Preview Timestamp': anchor.isoformat()}) for r in incoming]
+        or [{'Preview': preview, 'Preview Timestamp': anchor.isoformat()}]) if created else None
+    merged, report = merge_trackers(current, accepted, previous, anchor, completion_history)
     report['scanned'] = len(incoming)
     report['unprocessed'] += len(reviews)
     report['ambiguous'].extend(reviews)

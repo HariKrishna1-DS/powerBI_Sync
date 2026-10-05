@@ -1,7 +1,7 @@
 """Append-only production trackers with local preview receipts and raw Sheet history.
 
-The status table in the supplied v2 specification is deliberately conservative:
-disappearance, typing tasks and completion-looking task names are not completion evidence.
+Archived queue disappearance uses the first missing preview as completion evidence.
+Typing tasks and completion-looking task names alone are not completion evidence.
 """
 from collections import Counter
 from contextlib import contextmanager
@@ -171,7 +171,7 @@ def free_site(row, anchor):
     return sla_result(row, anchor)
 
 
-def merge_trackers(trackers, incoming, previous, anchor):
+def merge_trackers(trackers, incoming, previous, anchor, completion_history=None):
     """Pure merge: preserve position/manual values, append new identities, report ambiguity."""
     result = {title: [dict(r) for r in trackers.get(title, [])] for title in TRACKERS}
     locations, duplicates = {}, set()
@@ -255,6 +255,11 @@ def merge_trackers(trackers, incoming, previous, anchor):
         if action != 'unchanged':
             report['changes'].append({'Order Number': row['Order Number'], 'Action': action,
                 'Old Status': before.get('Status', '') if before else '', 'New Status': row['Status']})
+    if completion_history is not None:
+        from preview_completion import reconcile_completions
+        result, completion_changes = reconcile_completions(result, completion_history)
+        report['changes'].extend(completion_changes)
+        report['updated'] += len(completion_changes)
     # These computed/empty columns also apply to orders absent from this preview.
     for rows in result.values():
         for row in rows:
@@ -574,7 +579,12 @@ def sync_trackers(frame=None, on_progress=None, book=None):
                 previous = store.get(int(last_name[7:]))['rows']
             except KeyError:
                 previous = committed[last_name]
-        merged, report = merge_trackers(current, incoming, previous, anchor)
+        completion_history = None
+        if frame is not None and created:
+            completion_history = history + [dict(r, Preview=preview, **{'Preview Timestamp': anchor.isoformat()}) for r in incoming]
+            if not incoming:
+                completion_history.append({'Preview': preview, 'Preview Timestamp': anchor.isoformat()})
+        merged, report = merge_trackers(current, incoming, previous, anchor, completion_history)
         from monthly_production import arrival_sort
         merged = {title: arrival_sort(rows, report['ambiguous']) for title, rows in merged.items()}
         new_seed_ids = {key(r) for rows in additions.values() for r in rows}
@@ -626,13 +636,14 @@ def sync_trackers(frame=None, on_progress=None, book=None):
                     'rows': [{'values': [sheet_cell(v) for v in r]} for r in values[len(prior):]], 'fields': 'userEnteredValue'}})
             else:
                 requests.append({'updateCells': {'range': {'sheetId': target.id, 'startRowIndex': 0,
-                    'endRowIndex': max(len(values), len(prior)), 'startColumnIndex': 0, 'endColumnIndex': len(headers)},
+                    'endRowIndex': max(len(values), len(prior)), 'startColumnIndex': 0, 'endColumnIndex': max(len(headers), max((len(r) for r in prior), default=0))},
                     'rows': [{'values': [sheet_cell(v) for v in row]} for row in values], 'fields': 'userEnteredValue'}})
         for title in TRACKERS:
             prior_headers = saved_values[title][0] if saved_values[title] else HEADERS
             headers = list(dict.fromkeys(prior_headers + HEADERS + [c for r in merged[title] for c in r]))
             write(title, matrix(merged[title], headers), tracker=True)
-        for title, values in monthly_view_values(merged, history + incoming).items():
+        full_headers = list(dict.fromkeys((saved_values[FULL][0] if saved_values[FULL] else HEADERS) + HEADERS + [c for r in merged[FULL] for c in r]))
+        for title, values in monthly_view_values(merged, headers=full_headers).items():
             from monthly_views import keep_view_headers
             if title in worksheets:
                 prior_view = worksheets[title].get_all_values()

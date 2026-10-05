@@ -2997,12 +2997,13 @@ input[type=checkbox],input[type=range] {
   padding: 0;
   color: var(--text);
   overflow-x: hidden;
-  overflow-y: auto;
+  overflow-y: hidden;
 }
 .brand {
   display: flex;
   align-items: center;
-  padding: 28px 24px 26px;
+  padding: 18px 20px;
+  flex: none;
   gap: 12px;
   font-size: 21px;
   font-weight: 650;
@@ -3026,6 +3027,7 @@ input[type=checkbox],input[type=range] {
   font-weight: 450;
 }
 .sidebar-section-label {
+  flex: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -3037,7 +3039,7 @@ input[type=checkbox],input[type=range] {
 }
 .sidebar nav {
   display: block;
-  padding: 0 12px 16px;
+  padding: 0 12px 10px;
   border: 0;
   flex: none;
 }
@@ -3075,19 +3077,20 @@ input[type=checkbox],input[type=range] {
 }
 .nav-subsection {
   border-top: 1px solid var(--line);
-  margin-top: 14px;
-  padding-top: 12px;
+  margin-top: 8px;
+  padding-top: 6px;
 }
 .capture-library {
-  min-height: 100px;
-  flex: 1;
+  min-height: 0;
+  flex: 1 1 240px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   border-top: 1px solid var(--line);
 }
 .preview-heading {
-  padding: 17px 24px 12px;
+  padding: 12px 20px 10px;
+  flex: none;
   display: flex;
   justify-content: space-between;
   border: 0;
@@ -3102,6 +3105,7 @@ input[type=checkbox],input[type=range] {
   color: var(--muted);
 }
 .library-search {
+  flex: none;
   margin: 0 16px 10px;
   padding: 0 8px;
   display: flex;
@@ -3133,6 +3137,8 @@ input[type=checkbox],input[type=range] {
   display: block;
   padding: 0 10px 12px;
   scrollbar-width: thin;
+  scrollbar-gutter: stable;
+  overscroll-behavior: contain;
 }
 .preview-item {
   display: flex;
@@ -3152,7 +3158,8 @@ input[type=checkbox],input[type=range] {
 }
 .preview-select {
   gap: 9px;
-  padding: 7px 2px;
+  padding: 9px 2px;
+  min-height: 52px;
   min-width: 0;
 }
 .preview-select>svg {
@@ -3211,7 +3218,7 @@ input[type=checkbox],input[type=range] {
 }
 .sidebar-footer {
   display: block;
-  padding: 10px 12px 16px;
+  padding: 8px 12px 10px;
   border-top: 1px solid var(--line);
   color: var(--muted);
   flex: none;
@@ -4896,4 +4903,32 @@ tr:hover td {
   padding-block:8px;
   font-size:12px;
   line-height:18px;
+}
+/* Reserve useful history space before the navigation can crowd it out. */
+@media (max-height: 850px) {
+  .sidebar .brand { padding:12px 18px; }
+  .sidebar .sidebar-section-label { padding-bottom:4px; }
+  .sidebar nav { padding-bottom:6px; }
+  .sidebar .nav-item { min-height:34px; padding-block:7px; margin-block:1px; }
+  .sidebar .nav-subsection { margin-top:5px; padding-top:4px; }
+  .sidebar .sidebar-footer { padding-block:6px; }
+  .sidebar .theme-control { padding-block:3px; }
+  .sidebar .preview-heading { padding-block:9px; }
+}
+@media (max-height: 700px) {
+  .sidebar .brand { padding-block:10px; }
+  .sidebar .brand span { display:none; }
+  .sidebar .brand-mark { width:32px; height:32px; }
+  .sidebar .sidebar-section-label { padding-bottom:2px; }
+  .sidebar .nav-item { min-height:30px; padding-block:5px; }
+  .sidebar .sidebar-preferences .connection-status,
+  .sidebar .sidebar-preferences>a { display:none; }
+  .sidebar .preview-heading { padding-block:7px; }
+  .sidebar .library-search { margin-bottom:6px; }
+}
+@media (max-height: 540px) and (min-width:761px) {
+  .workspace:not(.sidebar-collapsed) .sidebar .brand { display:none; }
+  .workspace:not(.sidebar-collapsed) .sidebar nav { display:grid; grid-template-columns:1fr 1fr; gap:2px; }
+  .workspace:not(.sidebar-collapsed) .sidebar .nav-subsection { display:contents; }
+  .workspace:not(.sidebar-collapsed) .sidebar .nav-item { font-size:11px; gap:6px; padding-inline:6px; }
 }

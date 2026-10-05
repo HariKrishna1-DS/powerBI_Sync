@@ -378,7 +378,9 @@ def apply_plan(book, plan, check=True):
         from monthly_views import monthly_view_values
         after = {plan['renames'].get(title, title): decode(sheet['values']) for title, sheet in before.items()}
         after.update({title: decode(values) for title, values in plan['writes'].items() if tab_identity(title) or title in BASES})
-        plan['writes'].update(monthly_view_values(after, plan.get('view_raw_rows', [])))
+        schema = next((plan['writes'].get(title, sheet['values'])[0] for title, sheet in before.items()
+            if title == BASES[0] or (tab_identity(title) and tab_identity(title)[0] == BASES[0])), None)
+        plan['writes'].update(monthly_view_values(after, headers=schema))
     used = {s.id for s in sheets.values()}
     def new_id():
         number = secrets.randbelow(2**30)
