@@ -6,4 +6,6 @@ During the real 2.4.1 → 2.5.0 update, release detection, downloading, hash ver
 
 No application data, API contracts, dependencies or credential handling changed. The encrypted settings and product preferences were unchanged across the observed upgrade. Use Settings → Updates to install this patch.
 
+The sidebar can also scroll in short desktop windows, keeping Settings and Appearance reachable below the navigation and capture library. A 1280×620 viewport regression covers these controls.
+
 Validation includes the Windows build and regression suites, packaged lifecycle/recovery checks and a real installed-app update. Live TitleVision extraction requires the user's connection details. This release remains unsigned until a Windows signing certificate is configured.

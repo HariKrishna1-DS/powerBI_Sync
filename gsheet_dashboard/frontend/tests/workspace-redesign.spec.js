@@ -46,6 +46,20 @@ test('sheet segments use the correct sources and keep search and sorting availab
   await expect(page.locator('.orders-table')).not.toContainText('Full Title');
 });
 
+test('settings and appearance remain reachable in short desktop windows',async({page})=>{
+  await page.setViewportSize({width:1280,height:620});
+  await setup(page);
+  const appearance=page.getByLabel('Appearance');
+  await appearance.scrollIntoViewIfNeeded();
+  await expect(appearance).toBeInViewport();
+  await appearance.selectOption('dark');
+  await expect(appearance).toHaveValue('dark');
+  const settings=page.getByRole('button',{name:'Settings',exact:true});
+  await expect(settings).toHaveCount(1);
+  await settings.click();
+  await expect(page.getByRole('heading',{name:'Connections & settings',exact:true})).toBeVisible();
+});
+
 test('chart drilldowns reflect active filters and native dialogs restore keyboard focus',async({page})=>{
   await setup(page);
   await page.getByRole('button',{name:'Overview',exact:true}).click();

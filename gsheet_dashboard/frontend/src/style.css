@@ -3015,7 +3015,8 @@ input[type=checkbox],input[type=range] {
   border-right: 1px solid var(--line);
   padding: 0;
   color: var(--text);
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 .brand {
   display: flex;
