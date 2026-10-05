@@ -133,12 +133,13 @@ def register_monthly_routes(app, store, gate, maintenance, production_cache, loa
         finally:
             gate.release()
 
-    checked = [0]
+    checked = [None]
     def auto_preview():
         """At the boundary (or next launch), prepare counts; never bypass consent."""
-        if time.monotonic()-checked[0] < 3600 or not acquire():
+        now = time.monotonic()
+        if (checked[0] is not None and now-checked[0] < 3600) or not acquire():
             return
-        checked[0] = time.monotonic()
+        checked[0] = now
         try:
             from tracker_sync import IST
             month = datetime.now(IST).strftime('%Y-%m')

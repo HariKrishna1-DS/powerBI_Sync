@@ -349,7 +349,15 @@ class MonthlyApiTests(unittest.TestCase):
         class November(datetime):
             @classmethod
             def now(cls,tz=None):return cls(2026,11,1,0,1,tzinfo=tz)
-        with patch('monthly_api.datetime',November):self.app.extensions['monthly_tick']()
+        with patch('monthly_api.datetime',November), patch('monthly_api.time.monotonic',return_value=30) as clock, patch('monthly_api.snapshot',wraps=snapshot) as read_snapshot:
+            self.app.extensions['monthly_tick']()
+            self.assertGreater(read_snapshot.call_count,0,'The first check must run even immediately after Windows starts.')
+            reads=read_snapshot.call_count
+            self.app.extensions['monthly_tick']()
+            self.assertEqual(read_snapshot.call_count,reads,'Repeated checks must remain throttled.')
+            clock.return_value=3631
+            self.app.extensions['monthly_tick']()
+            self.assertGreater(read_snapshot.call_count,reads,'Checking must resume after the hourly interval.')
         after=snapshot(self.book)
         for title in before:self.assertEqual(after[title],before[title])
         for base in BASES:self.assertEqual(decode(after[tab_name(base,'2026-11')]['values']),[])
