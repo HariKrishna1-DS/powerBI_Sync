@@ -34,9 +34,9 @@ test('each notification dismisses independently and returns after the next sync'
   await expect(page.getByRole('button',{name:'Dismiss notification',exact:true})).toHaveCount(3);
   await expect(page.getByText('1 scanned',{exact:false})).toBeVisible();
   await page.getByRole('button',{name:'Monthly report',exact:true}).click();
-  await page.getByRole('button',{name:'Orders',exact:true}).click();
+  await page.getByRole('button',{name:'Data Sheets',exact:true}).click();
   await expect(connected).toHaveCount(0);
-  await page.getByRole('button',{name:'Retry preview1 sync'}).click();
+  await page.getByRole('button',{name:'Sync to Sheets'}).click();
   await expect(page.getByRole('button',{name:'Dismiss notification',exact:true})).toHaveCount(4);
 });
 

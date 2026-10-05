@@ -26,7 +26,7 @@ test('slow state polling stays serial and sync posts without a state preflight',
     }else await route.fulfill({json:{}});
   });
   await page.goto(process.env.DASHBOARD_TEST_URL || '/');
-  const sync=page.getByRole('button',{name:'Retry preview28 sync',exact:true});
+  const sync=page.getByRole('button',{name:'Sync to Sheets',exact:true});
   await expect(sync).toBeEnabled({timeout:15000});
   await page.waitForTimeout(6500);
   expect(maxActive).toBe(1);

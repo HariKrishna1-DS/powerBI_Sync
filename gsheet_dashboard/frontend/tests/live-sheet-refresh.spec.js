@@ -22,7 +22,7 @@ test('connected Google Sheet edits refresh visible data without replacing previe
     return route.fulfill({json:{rows:[]}});
   });
   await page.goto('/');
-  await page.getByRole('button',{name:'Orders',exact:true}).click();
+  await page.getByRole('button',{name:'Data Sheets',exact:true}).click();
   await expect(page.getByRole('status').filter({hasText:'Google Sheets connected'})).toBeVisible();
   await page.getByRole('button',{name:'Open order A1',exact:true}).click();
   await expect(page.getByText('Original',{exact:true}).first()).toBeVisible();

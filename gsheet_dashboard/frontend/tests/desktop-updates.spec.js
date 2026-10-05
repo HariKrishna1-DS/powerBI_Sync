@@ -18,7 +18,7 @@ async function setup(page, running=false) {
   });
   await page.route('**/api/**',route=>route.fulfill({status:route.request().url().endsWith('/api/state')?200:502,json:route.request().url().endsWith('/api/state')?{previews:[],job:{running,stage:running?'Syncing':'Ready'},schedule:{enabled:false,times:['09:00']},capabilities:{desktop:true,google_configured:false}}:{error:'Offline'}}));
   await page.goto('/');
-  await page.getByRole('button',{name:'Connections & settings',exact:true}).click();
+  await page.getByRole('button',{name:'Settings',exact:true}).click();
   await page.getByRole('tab',{name:'Updates',exact:true}).click();
 }
 test('check, download, and installation are three explicit user choices',async({page})=>{
@@ -52,7 +52,7 @@ test('locked connections keep settings and updates accessible',async({page})=>{
     const get=window.desktop.getSettings;
     window.desktop.getSettings=async()=>({...await get(),connectionRecovery:{status:'locked',message:'Saved connections could not be unlocked. Your captures and original settings are preserved.'}});
   });
-  await page.getByRole('button',{name:'Connections & settings',exact:true}).click();
+  await page.getByRole('button',{name:'Settings',exact:true}).click();
   await expect(page.getByRole('alert')).toContainText('original settings are preserved');
   await page.getByRole('tab',{name:'Updates',exact:true}).click();
   await expect(page.getByRole('button',{name:'Check for updates',exact:true})).toBeEnabled();

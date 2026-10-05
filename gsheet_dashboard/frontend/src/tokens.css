@@ -1,0 +1,65 @@
+/* Shared appearance contract for every workspace surface. */
+:root {
+  color-scheme: light;
+  font-family: 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+  font-synthesis: none;
+  font-size: 14px;
+  --canvas: #f6f7f5;
+  --surface: #ffffff;
+  --sidebar: #eff2ef;
+  --toolbar: #f9faf8ed;
+  --ink: #1b302e;
+  --text: #344b48;
+  --muted: #667a76;
+  --line: #dfe7e2;
+  --hover: #eaf0ec;
+  --accent: #14776b;
+  --accent-hover: #0e6259;
+  --accent-soft: #e0f0e9;
+  --accent-on: #ffffff;
+  --positive: #28724b;
+  --warning: #946315;
+  --danger: #af404b;
+  --danger-soft: #fceef0;
+  --warning-soft: #fff5e1;
+  --shadow: 0 12px 40px #183d3014;
+  --focus: #168b7a;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --radius-control: 8px;
+  --radius-card: 14px;
+  --radius-dialog: 18px;
+  --chart-grid: #e2e9e4;
+  --chart-blue: #6385ad;
+  --chart-purple: #9081ad;
+}
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --canvas: #151d1c;
+  --surface: #1d2826;
+  --sidebar: #192320;
+  --toolbar: #18221ff0;
+  --ink: #edf4ee;
+  --text: #d1dfd7;
+  --muted: #9cafaa;
+  --line: #33443e;
+  --hover: #2a3832;
+  --accent: #87ceba;
+  --accent-hover: #a3dfcd;
+  --accent-soft: #2b473c;
+  --accent-on: #12392f;
+  --positive: #9bd2ae;
+  --warning: #e5c182;
+  --danger: #f2a1aa;
+  --danger-soft: #482d33;
+  --warning-soft: #393326;
+  --shadow: 0 18px 54px #0005;
+  --focus: #a1e4cf;
+  --chart-grid: #34473e;
+  --chart-blue: #9ebcdf;
+  --chart-purple: #bcaed4;
+}

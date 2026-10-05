@@ -30,7 +30,7 @@ test('production views use retained Sheet orders and Sync activity reads local r
   await expect(page.getByRole('status').filter({hasText: 'Google Sheets connected'})).toBeVisible();
   const metric = page.locator('.metric').filter({hasText: 'Visible orders'});
   await expect(metric.locator('strong')).toHaveText('2');
-  await page.getByRole('button', {name: 'Orders', exact: true}).click();
+  await page.getByRole('button', {name: 'Data Sheets', exact: true}).click();
   await expect(page.getByText('RETAINED', {exact: true}).first()).toBeVisible();
   await expect(page.getByText('Typing in Progress', {exact: true}).first()).toBeVisible();
   await expect(page.getByText('RAW-ONLY', {exact: true})).toHaveCount(0);
@@ -40,7 +40,7 @@ test('production views use retained Sheet orders and Sync activity reads local r
   await expect(page.getByText('Local sync activity · preview1')).toBeVisible();
   await expect(page.getByText('Not in latest preview', {exact: true})).toBeVisible();
   await page.getByRole('button', {name: 'Changes', exact: true}).click();
-  await expect(page.getByRole('heading', {name: 'Compare captures'})).toBeVisible();
+  await expect(page.getByRole('heading', {name: 'Changes',exact:true})).toBeVisible();
   await expect(page.getByText('Capture or import a second preview to compare changes.')).toBeVisible();
 });
 
@@ -49,6 +49,6 @@ test('a failed Sheet connection does not show raw previews as production data', 
   await page.goto('/');
   await expect(page.getByRole('status').filter({hasText: 'Connect Google Sheets to load production reports'})).toBeVisible();
   await expect(page.locator('.metric').filter({hasText: 'Visible orders'}).locator('strong')).toHaveText('0');
-  await page.getByRole('button', {name: 'Orders', exact: true}).click();
+  await page.getByRole('button', {name: 'Data Sheets', exact: true}).click();
   await expect(page.getByText('RAW-ONLY', {exact: true})).toHaveCount(0);
 });

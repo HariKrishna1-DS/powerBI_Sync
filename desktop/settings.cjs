@@ -61,8 +61,12 @@ function validateUiPreferences(input, previous = {theme:'system', orderViews:[]}
   const object = value => value && typeof value === 'object' && !Array.isArray(value);
   const text = (value, max) => typeof value === 'string' && value.length <= max;
   if (!object(input) || Buffer.byteLength(JSON.stringify(input)) > 131072 ||
-      Object.keys(input).some(key => !['theme','orderViews'].includes(key))) throw Error('Invalid workspace preferences.');
+      Object.keys(input).some(key => !['theme','orderViews','sidebarCollapsed'].includes(key))) throw Error('Invalid workspace preferences.');
   const next = {...previous};
+  if ('sidebarCollapsed' in input) {
+    if (typeof input.sidebarCollapsed !== 'boolean') throw Error('Invalid sidebar preference.');
+    next.sidebarCollapsed = input.sidebarCollapsed;
+  }
   if ('theme' in input) {
     if (!['light','dark','system'].includes(input.theme)) throw Error('Invalid appearance.');
     next.theme = input.theme;

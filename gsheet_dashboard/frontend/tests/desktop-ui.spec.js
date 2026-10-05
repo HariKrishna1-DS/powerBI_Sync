@@ -24,7 +24,7 @@ test('cached production is explicitly marked offline',async({page})=>{
   await page.goto('/');
   await expect(page.getByText('Viewing a saved Google Sheets copy')).toBeVisible();
   await expect(page.getByText('Google Sheets connected',{exact:false})).toHaveCount(0);
-  await page.getByRole('button',{name:'Orders',exact:true}).click();
+  await page.getByRole('button',{name:'Data Sheets',exact:true}).click();
   await expect(page.getByRole('button',{name:'Open order CACHED-ONLY',exact:true})).toBeVisible();
 });
 

@@ -22,6 +22,8 @@ const {once} = require('node:events');
   try {
     app=await electron.launch({executablePath:executable,args,env,timeout:60000});
     const page=await app.firstWindow();
+    page.setDefaultTimeout(30000);
+    page.setDefaultNavigationTimeout(30000);
     page.on('pageerror',e=>errors.push(e.message));
     await page.getByRole('heading',{name:'Clear work. Confident decisions.'}).waitFor({timeout:30000});
     assert.equal(await page.title(), 'Tv Tracker');
@@ -40,7 +42,7 @@ const {once} = require('node:events');
     const updateState=await page.evaluate(()=>window.desktop.getUpdateState());
     assert.equal(updateState.status,process.env.DESKTOP_EXE?'idle':'unsupported');
     assert.equal(updateState.currentVersion,require('./package.json').version);
-    await page.getByRole('button',{name:'Connections & settings',exact:true}).click();
+    await page.getByRole('button',{name:'Settings',exact:true}).click();
     await page.getByRole('tab',{name:'Updates',exact:true}).click();
     await page.getByRole('heading',{name:'Tv Tracker updates'}).waitFor();
     if(process.env.DESKTOP_EXE)assert.equal(await page.getByRole('button',{name:'Check for updates',exact:true}).isEnabled(),true);
@@ -85,9 +87,10 @@ const {once} = require('node:events');
     await page.locator('input[type=file]').setInputFiles(file);
     await page.getByText('preview2',{exact:true}).first().waitFor();
     await app.evaluate(({dialog},file)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[file]});dialog.showMessageBox=async()=>({response:1});},backupFile);
+    const restoredPage=page.waitForEvent('load',{timeout:30000});
     const restored=await page.evaluate(()=>window.desktop.restoreBackup());
     assert.equal(restored.restored,true);
-    await page.waitForEvent('load');
+    await restoredPage;
     await page.getByRole('button',{name:'Captures',exact:true}).click();
     await page.getByRole('cell',{name:'DESKTOP-001',exact:true}).waitFor();
     assert.equal((await page.evaluate(()=>fetch('/api/state').then(r=>r.json()))).previews.length,1);
@@ -103,6 +106,7 @@ const {once} = require('node:events');
     // Reopen the same user profile to verify persisted settings and capture data.
     app=await electron.launch({executablePath:executable,args,env,timeout:60000});
     const reopened=await app.firstWindow();
+    reopened.setDefaultTimeout(30000);
     await reopened.getByRole('button',{name:'Captures',exact:true}).click();
     await reopened.getByRole('cell',{name:'DESKTOP-001',exact:true}).waitFor({timeout:15000});
     assert.equal(await reopened.getByLabel('Appearance').inputValue(),'dark');
@@ -123,7 +127,13 @@ const {once} = require('node:events');
     }
     throw error;
   } finally {
-    if(app)await app.close().catch(()=>{});
+    if(app){
+      try{
+        const closed=app.waitForEvent('close',{timeout:20000});
+        await app.evaluate(({Menu})=>Menu.getApplicationMenu().items[0].submenu.items.find(item=>item.label==='Quit Tv Tracker').click());
+        await closed;
+      }catch{app?.process().kill();}
+    }
     // Test profiles are kept for failure diagnostics; they contain synthetic data only.
   }
 })().catch(error=>{console.error(error);process.exitCode=1;});

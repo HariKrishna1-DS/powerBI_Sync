@@ -10,7 +10,8 @@ test('workspace preferences use narrow bounded contracts and preserve other pref
   const views=[{name:'My orders',search:'Full Title',group:'attention',product:'all',filters:{Status:{values:['Available'],operator:'contains',query:'avail'}}}];
   const initial=validateUiPreferences({orderViews:views});
   assert.deepEqual(validateUiPreferences({theme:'dark'},initial),{theme:'dark',orderViews:views});
-  for(const input of [{theme:'invalid'},{password:'bad'},{orderViews:Array(13).fill(views[0])},
+  assert.deepEqual(validateUiPreferences({sidebarCollapsed:true},initial),{sidebarCollapsed:true,theme:'system',orderViews:views});
+  for(const input of [{sidebarCollapsed:'yes'},{sidebarCollapsed:1},{theme:'invalid'},{password:'bad'},{orderViews:Array(13).fill(views[0])},
     {orderViews:[{...views[0],filters:{Status:{values:'not-an-array'}}}]},{orderViews:[{...views[0],search:'x'.repeat(131073)}]}]) {
     assert.throws(()=>validateUiPreferences(input));
   }

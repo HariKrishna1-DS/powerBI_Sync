@@ -2,50 +2,18 @@ import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'r
 import { createRoot } from 'react-dom/client';
 import { Activity, ArrowDown, ArrowUp, ArrowDownToLine, ArrowLeftRight, BarChart3, CalendarDays, Check, ChevronLeft, ChevronRight, Clock3, CloudUpload, Database, FileSpreadsheet, Filter, HardDrive, LoaderCircle, Maximize2, Minimize2, Play, Plus, Printer, Search, SlidersHorizontal, Table2, Trash2, Upload, X } from 'lucide-react';
 import { ResponsiveContainer, LabelList, BarChart, Bar, LineChart, Line, AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Brush } from 'recharts';
-import {OfflineNotice} from './DesktopExperience';
+import {Dialog, OfflineNotice} from './DesktopExperience';
 import {MonthlyDownload, MonthlyMaintenance} from './MonthlyMaintenance';
 import remainingProducts from '../../remaining_products.json';
 
 import {EMPTY, DEFAULT_IGNORE, colors, str, label, normalized, badgeClass, STATUS_COLORS, statusColor, textColorForBg, api, saveBlob, csvDownload, matches, IconButton} from './workspaceUtils';
-function SideDrawer({ title, rows, columns, onClose }) {
-  if (!title) return null;
-  return (
-    <div className="drawer-backdrop" onClick={onClose}>
-      <div className="side-drawer" onClick={e => e.stopPropagation()}>
-        <div className="drawer-header">
-          <div>
-            <h3>{title}</h3>
-            <p>{rows.length.toLocaleString()} matching records</p>
-          </div>
-          <IconButton title="Close drawer" onClick={onClose}><X size={19}/></IconButton>
-        </div>
-        <div className="drawer-body">
-          <DataTable rows={rows} columns={columns} filters={{}} openFilter={() => {}} filterable={false} name={title} onClose={onClose} />
-        </div>
-      </div>
-    </div>
-  );
+function SideDrawer({title,rows,columns,onClose}) {
+  if(!title)return null;
+  return <Dialog title={title} onClose={onClose} className="detail-dialog"><div className="dialog-content"><p className="muted">{rows.length.toLocaleString()} matching records</p><DataTable rows={rows} columns={columns} filters={{}} openFilter={()=>{}} filterable={false} name={title}/></div></Dialog>;
 }
-
-function MaximizedModal({ title, subtitle, children, onClose }) {
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="maximized-modal" onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
-          <div>
-            <h3>{title}</h3>
-            {subtitle && <p style={{ fontSize: 11, color: '#64748b', marginTop: 2 }}>{subtitle}</p>}
-          </div>
-          <IconButton title="Close modal" onClick={onClose}><X size={20}/></IconButton>
-        </div>
-        <div className="modal-body">
-          {children}
-        </div>
-      </div>
-    </div>
-  );
+function MaximizedModal({title,subtitle,children,onClose}) {
+  return <Dialog title={title} onClose={onClose} className="chart-dialog"><div className="dialog-content">{subtitle&&<p className="muted">{subtitle}</p>}{children}</div></Dialog>;
 }
-
 
 function FilterPanel({column, rows, filters, setFilters, close}) {
   const [search, setSearch] = useState('');
@@ -71,7 +39,7 @@ function FilterPanel({column, rows, filters, setFilters, close}) {
     <div className="unique-values">{visible.map(([v,count])=><label key={v} className="check-row"><input type="checkbox" checked={!current.values || current.values.includes(v)} onChange={()=>toggle(v)}/><span>{label(v)}</span><small>{count.toLocaleString()}</small></label>)}{!visible.length && <p className="muted">No matching values.</p>}</div>
     <div className="print-values"><h2>{column} — Unique values</h2>{visible.map(([v,count])=><p key={v}>{label(v)}: {count}</p>)}</div>
   </aside>;
-}function OverviewDashboard({rows, columns, onSelect, selectedProducts, setSelectedProducts}) {
+}function OverviewDashboard({rows, columns, onSelect, selectedProducts, setSelectedProducts, savingProducts=false}) {
   const ogCol = columns.includes('Online/ Ground') ? 'Online/ Ground' : columns.includes('Online/Ground') ? 'Online/Ground' : null;
   const clientCol = columns.includes('Client') ? 'Client' : null;
   const prodCol = columns.includes('Product') ? 'Product' : null;
@@ -83,7 +51,7 @@ function FilterPanel({column, rows, filters, setFilters, close}) {
   const [localProducts, setLocalProducts] = useState([]);
   const activeSelectedProducts = selectedProducts !== undefined ? selectedProducts : localProducts;
   const updateSelectedProducts = setSelectedProducts !== undefined ? setSelectedProducts : setLocalProducts;
-  const [showSlicers, setShowSlicers] = useState(true);
+  const [showSlicers, setShowSlicers] = useState(false);
 
   // Maximize Modal State
   const [maximized, setMaximized] = useState(null);
@@ -164,7 +132,7 @@ function FilterPanel({column, rows, filters, setFilters, close}) {
       .map(([name, count]) => ({name, count, percent: filteredRows.length ? ((count / filteredRows.length) * 100).toFixed(1) : '0.0'}));
   }, [filteredRows, statusCol]);
 
-  const fullTitleCount = useMemo(() => prodCol ? filteredRows.filter(r => normalized(r[prodCol]) === 'full title').length : 0, [filteredRows, prodCol]);
+  const fullTitleCount = useMemo(() => prodCol ? filteredRows.filter(r => ['full title','full search'].includes(normalized(r[prodCol]))).length : 0, [filteredRows, prodCol]);
   const fullTitlePct = filteredRows.length ? ((fullTitleCount / filteredRows.length) * 100).toFixed(1) : 0;
 
   const ogPieData = [
@@ -194,11 +162,16 @@ function FilterPanel({column, rows, filters, setFilters, close}) {
   const clearAllSlicers = () => {
     setSelectedClients([]);
     setSelectedOg([]);
-    setSelectedProducts([]);
+    updateSelectedProducts([]);
   };
 
-  const activeSlicerCount = selectedClients.length + selectedOg.length + selectedProducts.length;
+  const activeSlicerCount = selectedClients.length + selectedOg.length + activeSelectedProducts.length;
 
+  const selectRecords = selection => {
+    const selectedRows=filteredRows.filter(row=>selection.column===ogCol?str(row[ogCol]).toLowerCase().includes(selection.value.toLowerCase()):label(row[selection.column])===selection.value);
+    setMaximized(null);
+    onSelect({...selection,rows:selectedRows});
+  };
   const renderChartContent = (chartId, isModal = false) => {
     const height = isModal ? 460 : chartId === 'pie' ? 250 : 280;
     switch (chartId) {
@@ -208,7 +181,7 @@ function FilterPanel({column, rows, filters, setFilters, close}) {
             <div style={{ height }}>
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
-                  <Pie className="clickable-series" isAnimationActive={false} data={ogPieData} dataKey="count" nameKey="name" cx="50%" cy="50%" outerRadius={isModal ? 140 : 85} innerRadius={isModal ? 80 : 50} onClick={entry => ogCol && onSelect({ column: ogCol, value: entry.name })}>
+                  <Pie className="clickable-series" isAnimationActive={false} data={ogPieData} dataKey="count" nameKey="name" cx="50%" cy="50%" outerRadius={isModal ? 140 : 85} innerRadius={isModal ? 80 : 50} onClick={entry => ogCol && selectRecords({ column: ogCol, value: entry.name })}>
                     {ogPieData.map(d => <Cell key={d.name} fill={d.color} />)}
                   </Pie>
                   <Tooltip />
@@ -217,9 +190,9 @@ function FilterPanel({column, rows, filters, setFilters, close}) {
             </div>
             <div className="legend-pills">
               {ogPieData.map(d => (
-                <span key={d.name} className="pill" onClick={() => ogCol && onSelect({ column: ogCol, value: d.name })}>
+                <button key={d.name} className="pill" onClick={() => ogCol && selectRecords({ column: ogCol, value: d.name })}>
                   <i style={{ background: d.color }} /> {d.name}: <b>{d.count.toLocaleString()}</b> ({filteredRows.length ? ((d.count/filteredRows.length)*100).toFixed(1) : 0}%)
-                </span>
+                </button>
               ))}
             </div>
           </>
@@ -229,11 +202,11 @@ function FilterPanel({column, rows, filters, setFilters, close}) {
           <div style={{ height }}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={topClientsData} layout="vertical" margin={{ top: 10, right: 25, left: 5, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e9edee" />
+                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="var(--chart-grid)" />
                 <XAxis type="number" tick={{ fontSize: 11 }} />
                 <YAxis type="category" dataKey="name" width={isModal ? 150 : 110} tick={{ fontSize: 11 }} />
-                <Tooltip cursor={{ fill: '#f0f5f3' }} />
-                <Bar className="clickable-series" isAnimationActive={false} dataKey="count" fill="#2563eb" radius={[0, 4, 4, 0]} onClick={entry => clientCol && onSelect({ column: clientCol, value: entry.name || entry.payload?.name })} />
+                <Tooltip cursor={{ fill: 'var(--hover)' }} />
+                <Bar className="clickable-series" isAnimationActive={false} dataKey="count" fill="var(--chart-blue)" radius={[0, 4, 4, 0]} onClick={entry => clientCol && selectRecords({ column: clientCol, value: entry.name || entry.payload?.name })} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -243,11 +216,11 @@ function FilterPanel({column, rows, filters, setFilters, close}) {
           <div style={{ height }}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={topProductsData} margin={{ top: 10, right: 15, left: 0, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e9edee" />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--chart-grid)" />
                 <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} />
                 <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-                <Tooltip cursor={{ fill: '#f0f5f3' }} />
-                <Bar className="clickable-series" isAnimationActive={false} dataKey="count" fill="#7c3aed" radius={[4, 4, 0, 0]} onClick={entry => prodCol && onSelect({ column: prodCol, value: entry.name || entry.payload?.name })} />
+                <Tooltip cursor={{ fill: 'var(--hover)' }} />
+                <Bar className="clickable-series" isAnimationActive={false} dataKey="count" fill="var(--chart-purple)" radius={[4, 4, 0, 0]} onClick={entry => prodCol && selectRecords({ column: prodCol, value: entry.name || entry.payload?.name })} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -257,12 +230,12 @@ function FilterPanel({column, rows, filters, setFilters, close}) {
           <div style={{ height }}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={clientOgData} margin={{ top: 10, right: 15, left: 0, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e9edee" />
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--chart-grid)" />
                 <XAxis dataKey="name" tick={{ fontSize: 11 }} />
                 <YAxis tick={{ fontSize: 11 }} allowDecimals={false} />
-                <Tooltip cursor={{ fill: '#f0f5f3' }} />
-                <Bar className="clickable-series" isAnimationActive={false} dataKey="Online" fill="#147d72" radius={[3, 3, 0, 0]} onClick={entry => clientCol && onSelect({ column: clientCol, value: entry.name || entry.payload?.name })} />
-                <Bar className="clickable-series" isAnimationActive={false} dataKey="Ground" fill="#d79a32" radius={[3, 3, 0, 0]} onClick={entry => clientCol && onSelect({ column: clientCol, value: entry.name || entry.payload?.name })} />
+                <Tooltip cursor={{ fill: 'var(--hover)' }} />
+                <Bar className="clickable-series" isAnimationActive={false} dataKey="Online" fill="#147d72" radius={[3, 3, 0, 0]} onClick={entry => clientCol && selectRecords({ column: clientCol, value: entry.name || entry.payload?.name })} />
+                <Bar className="clickable-series" isAnimationActive={false} dataKey="Ground" fill="#d79a32" radius={[3, 3, 0, 0]} onClick={entry => clientCol && selectRecords({ column: clientCol, value: entry.name || entry.payload?.name })} />
               </BarChart>
             </ResponsiveContainer>
           </div>
@@ -276,16 +249,16 @@ function FilterPanel({column, rows, filters, setFilters, close}) {
     <section className="overview-dashboard">
       <div className="section-heading">
         <div>
-          <span className="eyebrow">COLUMN ANALYTICS DASHBOARD</span>
-          <h2>Online/Ground, Client & Product Breakdown</h2>
+          <span className="eyebrow">PRODUCTION INSIGHTS</span>
+          <h2>Understand your workload</h2>
         </div>
         <div className="inline">
           <button className="secondary" onClick={() => setShowSlicers(!showSlicers)}>
-            <SlidersHorizontal size={15} /> Filter Slicers {activeSlicerCount > 0 ? `(${activeSlicerCount})` : ''}
+            <SlidersHorizontal size={15} /> Chart filters {activeSlicerCount > 0 ? `(${activeSlicerCount})` : ''}
           </button>
           {activeSlicerCount > 0 && (
-            <button className="text-button" onClick={clearAllSlicers}>
-              Clear Slicers
+            <button className="text-button" disabled={savingProducts} onClick={clearAllSlicers}>
+              Clear chart filters
             </button>
           )}
         </div>
@@ -294,7 +267,7 @@ function FilterPanel({column, rows, filters, setFilters, close}) {
       {showSlicers && (
         <div className="slicer-panel">
           <div className="slicer-panel-head">
-            <h4><Filter size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} /> Power BI Slicers</h4>
+            <h4><Filter size={14} style={{ display: 'inline', verticalAlign: 'middle', marginRight: 4 }} /> Filter insights</h4>
             {activeSlicerCount > 0 && <small style={{ color: '#147d72', fontWeight: 600 }}>{filteredRows.length.toLocaleString()} matching rows</small>}
           </div>
           <div className="slicer-grid">
@@ -325,39 +298,39 @@ function FilterPanel({column, rows, filters, setFilters, close}) {
             </details>
 
             <details className="dropdown-slicer">
-              <summary>Remaining Products <span>{selectedProducts.length ? `${selectedProducts.length} selected` : 'All'}</span></summary>
-              <div className="dropdown-slicer-options">
+              <summary>Remaining Products <span>{activeSelectedProducts.length ? `${activeSelectedProducts.length} selected` : 'All'}</span></summary>
+              <fieldset disabled={savingProducts} className="dropdown-slicer-options">
                 <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
-                  <button className="text-button" onClick={()=>setSelectedProducts(allProducts.map(x=>x[0]))}>All products</button>
-                  <button className="text-button" onClick={()=>setSelectedProducts([])}>Clear</button>
+                  <button className="text-button" onClick={()=>updateSelectedProducts(allProducts.map(x=>x[0]))}>All products</button>
+                  <button className="text-button" onClick={()=>updateSelectedProducts([])}>Clear</button>
                 </div>
                 <label className="slicer-item" style={{ fontWeight: 600, borderBottom: '1px solid #e2e8f0', paddingBottom: 6, marginBottom: 6 }}>
                   <input
                     type="checkbox"
-                    checked={allProducts.length > 0 && selectedProducts.length === allProducts.length}
-                    onChange={e => setSelectedProducts(e.target.checked ? allProducts.map(x=>x[0]) : [])}
+                    checked={allProducts.length > 0 && activeSelectedProducts.length === allProducts.length}
+                    onChange={e => updateSelectedProducts(e.target.checked ? allProducts.map(x=>x[0]) : [])}
                   />
                   <span style={{ flex: 1 }}>All products</span>
                   <small style={{ color: '#94a3b8' }}>{allProducts.reduce((sum, p) => sum + p[1], 0)}</small>
                 </label>
                 {allProducts.map(([name, count]) => (
                   <label key={name} className="slicer-item">
-                    <input type="checkbox" checked={selectedProducts.includes(name)} onChange={() => toggleSlicerItem(selectedProducts, setSelectedProducts, name)} />
+                    <input type="checkbox" checked={activeSelectedProducts.includes(name)} onChange={() => toggleSlicerItem(activeSelectedProducts, updateSelectedProducts, name)} />
                     <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{name}</span>
                     <small style={{ color: '#94a3b8' }}>{count}</small>
                   </label>
                 ))}
-              </div>
+              </fieldset>
             </details>
           </div>
         </div>
       )}
 
       {statusCol && (
-        <section className="status-report">
+        <details className="status-report analytics-status"><summary>Status breakdown</summary>
           <div className="section-heading">
             <div>
-              <span className="eyebrow">AI - STATUS REPORT</span>
+              <span className="eyebrow">CURRENT SELECTION</span>
               <h2>Status Report</h2>
             </div>
             <span className="row-tally">{statusCounts.length.toLocaleString()} statuses</span>
@@ -372,7 +345,7 @@ function FilterPanel({column, rows, filters, setFilters, close}) {
             </table>
             {!statusCounts.length && <div className="table-empty">No status values match the current filters.</div>}
           </div>
-        </section>
+        </details>
       )}
 
       <div className="dashboard-grid">
@@ -403,7 +376,7 @@ function FilterPanel({column, rows, filters, setFilters, close}) {
               </button>
             </div>
           </div>
-          {renderChartContent('clients')}
+          {renderChartContent('clients')}<details className="chart-records"><summary>Explore records by client</summary><div>{topClientsData.map(item=><button key={item.name} onClick={()=>selectRecords({column:clientCol,value:item.name})}><span>{item.name}</span><strong>{item.count.toLocaleString()}</strong></button>)}</div></details>
         </div>
 
         <div className="dashboard-card">
@@ -418,7 +391,7 @@ function FilterPanel({column, rows, filters, setFilters, close}) {
               </button>
             </div>
           </div>
-          {renderChartContent('products')}
+          {renderChartContent('products')}<details className="chart-records"><summary>Explore records by product</summary><div>{topProductsData.map(item=><button key={item.name} onClick={()=>selectRecords({column:prodCol,value:item.name})}><span>{item.name}</span><strong>{item.count.toLocaleString()}</strong></button>)}</div></details>
         </div>
 
         <div className="dashboard-card">
@@ -456,7 +429,7 @@ function Chart({rows, columns, onSelect}) {
   return <section className="chart-section">
     <div className="section-heading"><div><span className="eyebrow">QUEUE DISTRIBUTION</span><h2>Orders by {field || 'column'}</h2></div><div className="chart-controls"><label>Group by<select value={field || ''} onChange={e=>{setGroup(e.target.value);onSelect(null);}}>{columns.map(c=><option key={c}>{c}</option>)}</select></label><label>Chart<select aria-label="Chart type" value={type} onChange={e=>setType(e.target.value)}><option value="bar">Bar</option><option value="line">Line</option><option value="area">Area</option><option value="horizontal">Horizontal bar</option><option value="pie">Pie</option><option value="donut">Donut</option></select></label><label className="zoom">Spacing<input aria-label="Chart spacing" type="range" min="32" max="120" value={width} onChange={e=>setWidth(Number(e.target.value))}/></label></div></div>
     {!rows.length ? <div className="chart-empty">No rows match the current filters.</div> : <div className="chart-scroll" tabIndex={0} aria-label="Scrollable chart"><div style={{minWidth:pie ? 560 : type==='horizontal' ? 680 : Math.max(680,data.length*width),height:type==='horizontal'?Math.max(340,data.length*32):350}}>
-      <ResponsiveContainer width="100%" height="100%">{pie ? <PieChart><Pie className="clickable-series" isAnimationActive={false} data={data} dataKey="count" nameKey="name" cx="50%" cy="50%" outerRadius={125} innerRadius={type==='donut'?78:0} onClick={entry=>onSelect({column:field,value:entry.name})}>{data.map((d,i)=><Cell key={d.name} fill={colors[i%colors.length]}/>)}</Pie><Tooltip/></PieChart> : <Component data={data} layout={type==='horizontal'?'vertical':'horizontal'} margin={{top:15,right:24,left:6,bottom:12}}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e9edee"/><XAxis type={type==='horizontal'?'number':'category'} dataKey={type==='horizontal'?undefined:'name'} tick={{fontSize:11,fill:'#647078'}} tickMargin={10}/><YAxis type={type==='horizontal'?'category':'number'} dataKey={type==='horizontal'?'name':undefined} width={type==='horizontal'?155:42} tick={{fontSize:11}} allowDecimals={false}/><Tooltip cursor={{fill:'#f0f5f3'}}/>{type==='line'?<Line isAnimationActive={false} type="monotone" dataKey="count" stroke="#147d72" strokeWidth={2} dot={false}/>:type==='area'?<Area isAnimationActive={false} dataKey="count" stroke="#147d72" fill="#d5ece7"/>:<Bar className="clickable-series" isAnimationActive={false} dataKey="count" fill="#147d72" maxBarSize={42} radius={[3,3,0,0]} onClick={entry=>onSelect({column:field,value:entry.name||entry.payload?.name})}/>}{type!=='horizontal' && data.length>8 && <Brush dataKey="name" height={22} stroke="#9bbfb7" travellerWidth={8}/>}</Component>}</ResponsiveContainer>
+      <ResponsiveContainer width="100%" height="100%">{pie ? <PieChart><Pie className="clickable-series" isAnimationActive={false} data={data} dataKey="count" nameKey="name" cx="50%" cy="50%" outerRadius={125} innerRadius={type==='donut'?78:0} onClick={entry=>onSelect({column:field,value:entry.name})}>{data.map((d,i)=><Cell key={d.name} fill={colors[i%colors.length]}/>)}</Pie><Tooltip/></PieChart> : <Component data={data} layout={type==='horizontal'?'vertical':'horizontal'} margin={{top:15,right:24,left:6,bottom:12}}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--chart-grid)"/><XAxis type={type==='horizontal'?'number':'category'} dataKey={type==='horizontal'?undefined:'name'} tick={{fontSize:11,fill:'#647078'}} tickMargin={10}/><YAxis type={type==='horizontal'?'category':'number'} dataKey={type==='horizontal'?'name':undefined} width={type==='horizontal'?155:42} tick={{fontSize:11}} allowDecimals={false}/><Tooltip cursor={{fill:'#f0f5f3'}}/>{type==='line'?<Line isAnimationActive={false} type="monotone" dataKey="count" stroke="#147d72" strokeWidth={2} dot={false}/>:type==='area'?<Area isAnimationActive={false} dataKey="count" stroke="#147d72" fill="#d5ece7"/>:<Bar className="clickable-series" isAnimationActive={false} dataKey="count" fill="#147d72" maxBarSize={42} radius={[3,3,0,0]} onClick={entry=>onSelect({column:field,value:entry.name||entry.payload?.name})}/>}{type!=='horizontal' && data.length>8 && <Brush dataKey="name" height={22} stroke="#9bbfb7" travellerWidth={8}/>}</Component>}</ResponsiveContainer>
     </div></div>}
     {pie && <div className="legend-scroll">{data.map((d,i)=><span key={d.name}><i style={{background:colors[i%colors.length]}}/>{d.name} <b>{d.count}</b></span>)}</div>}
   </section>;
@@ -503,7 +476,7 @@ function PeriodOrdersChart({history, selected, onSelect, period, series, title, 
     <div className="daily-chart-scroll"><div style={{height:large?460:340,minWidth:Math.max(620,data.length*series.length*48)}}>
       <ResponsiveContainer width="100%" height="100%">
         <BarChart data={data} margin={{top:32,right:24,bottom:12,left:4}} barGap={5} barCategoryGap="12%">
-          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e9edee"/>
+          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="var(--chart-grid)"/>
           <XAxis dataKey={period} tick={{fontSize:12}} tickFormatter={formatPeriod} interval={0}/>
           <YAxis allowDecimals={false} tick={{fontSize:12}} width={52} domain={[0,max=>Math.max(5,Math.ceil(max*1.15))]}/>
           <Tooltip cursor={{fill:'#f0f5f3'}} formatter={(value,name,item)=>period==='Month'?`${Number(value).toLocaleString()} (${monthlyPercentage(item.payload,name)})`:Number(value).toLocaleString()}/>
@@ -529,7 +502,7 @@ function DailyOrdersChart({history, selectedDate, onSelect}) {
 function DailyOrders({preview, running}) {
   const [history,setHistory]=useState([]), [error,setError]=useState(''), [date,setDate]=useState(''), [search,setSearch]=useState('');
   const [loading,setLoading]=useState(true), [snapshot,setSnapshot]=useState(null);
-  useEffect(()=>{let active=true;setLoading(true);api(`/api/daily-orders${preview.id?`?preview_id=${preview.id}`:''}`).then(data=>{if(active){setHistory(data.rows);setSnapshot(data);setDate(data.selected_date||'');setSearch('');setError('');}}).catch(e=>{if(active){setHistory([]);setError(e.message);}}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[preview.id,running]);
+  useEffect(()=>{let active=true;setLoading(true);api(`/api/daily-orders${preview.id?`?preview_id=${preview.id}`:''}`).then(data=>{if(active){setHistory(data.rows);setSnapshot(data);setDate(current=>data.rows.some(row=>row.Date===current)?current:data.selected_date||'');setError('');}}).catch(e=>{if(active){setHistory([]);setError(e.message);}}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[preview.id,running]);
   const selectedDay=history.find(day=>day.Date===date)||history[0];
   const columns=selectedDay?.columns||[];
   const rows=(selectedDay?.rows||[]).filter(row=>!search||columns.some(column=>str(row[column]).toLowerCase().includes(search.toLowerCase())));
@@ -541,12 +514,12 @@ function DailyOrders({preview, running}) {
     ['Awaiting for Clarification',rows.filter(row=>normalized(row['Task Status'] ?? row.Status)==='awaiting for clarification')]
   ];
   const names=['Today Orders','Not in latest preview','Newly Orders','Unchanged','Awaiting for Clarification'];
-  return <section className="daily-orders"><OfflineNotice snapshot={snapshot}/>
+  return <section className="daily-orders"><OfflineNotice snapshot={snapshot}/>{snapshot&&!snapshot.offline&&<p className="report-context">Google Sheets production · {snapshot.updated_at?`Refreshed ${new Date(snapshot.updated_at).toLocaleString()}`:'Refresh time unavailable'}</p>}
     {error&&<div className="notice error">{error}</div>}
     {loading?<div className="loading"><LoaderCircle className="spin"/>Loading daily orders...</div>:<>
       <div className="section-heading"><h2>Daily production orders</h2><label>Date<select aria-label="Daily orders date" value={selectedDay?.Date||''} onChange={e=>{setDate(e.target.value);setSearch('');}}>{history.map(day=><option key={day.Date}>{day.Date}</option>)}</select></label></div>
       <div className="metrics">{names.map((name,index)=><div className={`metric ${['green','red','amber','gray','purple'][index]}`} key={name}><span>{name}</span><strong>{selectedDay?.[name]??0}</strong></div>)}</div>
-      <DailyOrdersChart history={history} selectedDate={selectedDay?.Date} onSelect={value=>{if(value){setDate(value);setSearch('');}}}/>
+      <p className="report-context">{selectedDay?.Previews?.length?`Captures: ${selectedDay.Previews.join(' → ')}. `:''}New and missing counts compare the reported captures; unchanged orders occur in both.</p><DailyOrdersChart history={history} selectedDate={selectedDay?.Date} onSelect={value=>{if(value){setDate(value);setSearch('');}}}/>
       <div className="table-scroll"><table><thead><tr>{['Date','Previews',...names].map(name=><th key={name}>{name}</th>)}</tr></thead><tbody>{history.map(day=><tr key={day.Date}><td><button className="text-button" onClick={()=>{setDate(day.Date);setSearch('');}}>{day.Date}</button></td><td>{day.Previews.join(', ')}</td>{names.map(name=><td key={name}>{day[name]}</td>)}</tr>)}</tbody></table></div>
       <div className="filter-toolbar"><div className="search-input"><Search size={16}/><input aria-label="Search daily orders" placeholder="Search all columns" value={search} onChange={e=>setSearch(e.target.value)}/></div></div>
       {selectedDay?groups.map(([name,items])=><DataTable key={name} rows={items} columns={columns} filters={{}} openFilter={()=>{}} filterable={false} name={`${name} · ${items.length}`}/>):<div className="table-empty">No daily orders</div>}
@@ -684,14 +657,14 @@ function MonthlyOrders({preview,running}) {
   },[selectedMonth,deferredSearch]);
   const names=MONTHLY_SERIES.map(series=>series.name);
 
-  return <section className="daily-orders"><OfflineNotice snapshot={snapshot}/>
+  return <section className="daily-orders"><OfflineNotice snapshot={snapshot}/>{snapshot&&!snapshot.offline&&<p className="report-context">Google Sheets production · {snapshot.updated_at?`Refreshed ${new Date(snapshot.updated_at).toLocaleString()}`:'Refresh time unavailable'}</p>}
     {error&&<div className="notice error">{error}</div>}
     <MonthlyMaintenance month={selectedMonth?.Month} running={running||saving||snapshot?.offline} onChanged={()=>setRefreshId(value=>value+1)}/>
     {loading?<div className="loading"><LoaderCircle className="spin"/>Loading monthly orders...</div>:<>
       <div className="section-heading"><h2>Monthly production orders</h2><div className="monthly-actions"><label>Month<select aria-label="Monthly orders date" disabled={saving} value={selectedMonth?.Month||''} onChange={e=>{setMonth(e.target.value);setSearch('');}}>{history.map(m=><option key={m.Month} value={m.Month}>{m.MonthLabel || m.Month}</option>)}</select></label><MonthlyDownload month={selectedMonth?.Month} disabled={running||saving||snapshot?.offline}/></div></div>
-      <div className="metrics">{names.slice(0,3).map((name,index)=><div className={`metric ${['green','red','purple'][index]}`} key={name}><span>{name}</span><strong>{selectedMonth?.[name]??(error?'—':0)}</strong><small>{monthlyPercentage(selectedMonth,name)}</small></div>)}</div>
-      <div className="section-heading"><h2>SLA COMMENTS</h2><button className="secondary" disabled={saving} onClick={()=>setRefreshId(value=>value+1)}>Refresh SLA</button></div>
-      <div className="metrics sla-metrics">{names.slice(3).map(name=>{const value=name==='SLA On Time'?'On Time':'Missing';return <button className={`metric sla-metric ${value==='On Time'?'green':'amber'}`} key={name} disabled={saving} aria-pressed={slaFilter===value} onClick={()=>setSlaFilter(slaFilter===value?'':value)}><span>{name}</span><strong>{selectedMonth?.[name]??(error?'—':0)}</strong><small>{monthlyPercentage(selectedMonth,name)}</small></button>;})}</div>
+      <div className="metrics">{names.slice(0,4).map((name,index)=><div className={`metric ${['green','red','purple','amber'][index]}`} key={name}><span>{name}</span><strong>{selectedMonth?.[name]??(error?'—':0)}</strong><small>{monthlyPercentage(selectedMonth,name)} of {selectedMonth?.['Month Orders']??0} month orders</small></div>)}</div>
+      <p className="report-context">SLA percentages use completed orders with an On Time or Missed result. Orders without an SLA result are excluded.</p><div className="section-heading"><h2>SLA results</h2><button className="secondary" disabled={saving} onClick={()=>setRefreshId(value=>value+1)}>Refresh SLA</button></div>
+      <div className="metrics sla-metrics">{names.slice(4).map(name=>{const value=name==='SLA On Time'?'On Time':'Missing';return <button className={`metric sla-metric ${value==='On Time'?'green':'amber'}`} key={name} disabled={saving} aria-pressed={slaFilter===value} onClick={()=>setSlaFilter(slaFilter===value?'':value)}><span>{name}</span><strong>{selectedMonth?.[name]??(error?'—':0)}</strong><small>{monthlyPercentage(selectedMonth,name)} of {(selectedMonth?.['SLA On Time']||0)+(selectedMonth?.['SLA Missed']||0)} SLA results</small></button>;})}</div>
       <SlaOrdersTable key={selectedMonth?.Month||'empty'} rows={selectedMonth?.sla_rows||[]} statusFilter={slaFilter} onStatusFilter={setSlaFilter} onSave={saveSla} running={running||snapshot?.offline}/>
       <MonthlyOrdersChart history={history} selectedMonth={selectedMonth?.Month} onSelect={value=>{if(value){setMonth(value);setSearch('');}}}/>
       <div className="table-scroll"><table><thead><tr>{['Month','Previews',...names].map(name=><th key={name}>{name}</th>)}</tr></thead><tbody>{history.map(m=><tr key={m.Month}><td><button className="text-button" onClick={()=>{setMonth(m.Month);setSearch('');}}>{m.MonthLabel || m.Month}</button></td><td>{m.Previews.join(', ')}</td>{names.map(name=><td key={name}>{`${m[name]??0} (${monthlyPercentage(m,name)})`}</td>)}</tr>)}</tbody></table></div>
@@ -702,4 +675,6 @@ function MonthlyOrders({preview,running}) {
 }
 
 
-export {DataTable, FilterPanel, DailyOrders, MonthlyOrders};
+export function AdvancedChart(props){const [open,setOpen]=useState(false);return <details className="analytics-status advanced-chart" onToggle={e=>setOpen(e.currentTarget.open)}><summary>Custom chart · group, format and spacing</summary>{open&&<Chart {...props}/>}</details>;}
+
+export {DataTable, FilterPanel, DailyOrders, MonthlyOrders, OverviewDashboard, SideDrawer};

@@ -53,12 +53,20 @@ jobs:
           $env:PYTHONPATH = "$pwd/.desktop-build/deps;$pwd/gsheet_dashboard"
           python -m unittest discover -s gsheet_dashboard -p 'test_*.py'
           if ($LASTEXITCODE -ne 0) { throw 'Engine tests failed' }
+      - name: Verify packaged lifecycle and connection recovery
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
           $version = (Get-Content desktop/package.json | ConvertFrom-Json).version
           $env:DESKTOP_EXE = "$pwd/release/$version/win-unpacked/Tv Tracker.exe"
           node desktop/smoke.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Packaged lifecycle tests failed' }
           node desktop/recovery-smoke.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Packaged connection recovery tests failed' }
+      - name: Verify source archive and update integrity
+        shell: pwsh
+        run: |
+          $version = (Get-Content desktop/package.json | ConvertFrom-Json).version
           python make_bundle.py
           if ($LASTEXITCODE -ne 0) { throw 'Source archive verification failed' }
           node desktop/verify-release.cjs

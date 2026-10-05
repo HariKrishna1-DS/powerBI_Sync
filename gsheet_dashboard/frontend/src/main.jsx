@@ -2,15 +2,18 @@ import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'r
 import { createRoot } from 'react-dom/client';
 import { Activity, Camera, Home, ListFilter, Settings2, ArrowDown, ArrowUp, ArrowDownToLine, ArrowLeftRight, BarChart3, CalendarDays, Check, ChevronLeft, ChevronRight, Clock3, CloudUpload, Database, FileSpreadsheet, Filter, HardDrive, LoaderCircle, Maximize2, Minimize2, Play, Plus, Printer, Search, SlidersHorizontal, Table2, Trash2, Upload, X } from 'lucide-react';
 import './style.css';
-import './desktop.css';
-import './studio.css';
+import './tokens.css';
 import {OrdersWorkspace, ProductionOverview, OperationActivity, ThemeControl, VIEW_TITLES} from './StudioWorkspace';
 import DismissibleNotice from './DismissibleNotice';
+import {WorkspaceSidebar, WorkspaceContext, SheetSegments, CapturePicker, useSidebarState} from './WorkspaceShell';
 import {MonthlyActivity} from './MonthlyMaintenance';
 import {DesktopTools, LocalWelcome, OfflineNotice, WorkspaceBoundary} from './DesktopExperience';
 import remainingProducts from '../../remaining_products.json';
 
 import {EMPTY, DEFAULT_IGNORE, colors, str, label, normalized, badgeClass, STATUS_COLORS, statusColor, textColorForBg, api, saveBlob, csvDownload, matches, IconButton} from './workspaceUtils';
+const OverviewDashboard = React.lazy(() => import('./WorkspaceViews').then(module => ({default: module.OverviewDashboard})));
+const AdvancedChart = React.lazy(() => import('./WorkspaceViews').then(module => ({default: module.AdvancedChart})));
+const SideDrawer = React.lazy(() => import('./WorkspaceViews').then(module => ({default: module.SideDrawer})));
 const DataTable = React.lazy(() => import('./WorkspaceViews').then(module => ({default: module.DataTable})));
 const FilterPanel = React.lazy(() => import('./WorkspaceViews').then(module => ({default: module.FilterPanel})));
 const DailyOrders = React.lazy(() => import('./WorkspaceViews').then(module => ({default: module.DailyOrders})));
@@ -67,9 +70,15 @@ function App() {
   const [filters,setFilters]=useState({}), [filterColumn,setFilterColumn]=useState(null), [search,setSearch]=useState(''), [error,setError]=useState(''), [pending,setPending]=useState(false), [loading,setLoading]=useState(false), [uploading,setUploading]=useState(false);
   const [chartSelection,setChartSelection]=useState(null), [scheduleDraft,setScheduleDraft]=useState({enabled:false,times:['09:00'],newTime:'10:00'}), [savingSchedule,setSavingSchedule]=useState(false);
   const [selectedRemainingProducts, setSelectedRemainingProducts] = useState([]);
+  const [savingProducts,setSavingProducts]=useState(false);
   const [liveSheets,setLiveSheets]=useState(null), [liveSheetError,setLiveSheetError]=useState('');
   const upload=useRef(), seen=useRef(null), scheduleLoaded=useRef(false), remainingLoaded=useRef(false), refreshRequest=useRef(null), jobRunning=useRef(false);
   const [compareAttempt,setCompareAttempt]=useState(0);
+  const [sheetGroup,setSheetGroup]=useState('all'), [scheduleMessage,setScheduleMessage]=useState('');
+  const [sidebarCollapsed,setSidebarCollapsed,sidebarReady,sidebarError]=useSidebarState();
+  const mainScroll=useRef(null), viewScroll=useRef({});
+  const navigate=next=>{if(next==='settings'){window.dispatchEvent(new Event('datatrace:settings'));return;} viewScroll.current[view]=mainScroll.current?.scrollTop||0;setView(next);};
+  useEffect(()=>{if(mainScroll.current)mainScroll.current.scrollTop=viewScroll.current[view]||0;},[view]);
   const deferredSearch=useDeferredValue(search);
   const productionView=['sheets','overview'].includes(view);
   const searchIndex=useMemo(()=>new WeakMap(),[]);
@@ -90,13 +99,16 @@ function App() {
     setScheduleDraft(prev => ({ ...prev, times: updated }));
   }
 
-  const handleProductSelectionChange = (newSelection) => {
-    setSelectedRemainingProducts(newSelection);
-    api('/api/remaining-products', {
+  const handleProductSelectionChange = async (newSelection) => {
+    if(savingProducts)return;
+    setSavingProducts(true);
+    try {await api('/api/remaining-products', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ remaining_products: newSelection })
-    }).catch(console.error);
+    });setSelectedRemainingProducts(newSelection);}
+    catch(e){setError(`Product selection was not saved. ${e.message}`);}
+    finally{setSavingProducts(false);}
   };
   async function refresh() {
     if(refreshRequest.current)return refreshRequest.current;
@@ -159,13 +171,18 @@ function App() {
   },[syncAudit]);
   const comparisonTable = diff?.record_columns ? {columns:diff.record_columns,rows:[...diff.matched_rows,...diff.unmatched_rows]} : EMPTY;
   const liveCurrent=!!liveSheets&&productionView;
-  const table = view==='captures' ? preview : view==='changes' ? comparisonTable : view==='audit' ? auditTable : (liveSheets?.sheets?.Overview||liveSheets?.sheets?.['All Products']||EMPTY);
+  const allProduction=liveSheets?.sheets?.Overview||liveSheets?.sheets?.['All Products']||EMPTY;
+  const sheetTables=useMemo(()=>({all:allProduction,
+    full:liveSheets?.sheets?.['Full Title']||{columns:allProduction.columns,rows:allProduction.rows.filter(row=>['full title','full search'].includes(normalized(row.Product)))},
+    remaining:liveSheets?.sheets?.['Remaining Products']||{columns:allProduction.columns,rows:allProduction.rows.filter(row=>!['full title','full search'].includes(normalized(row.Product))&&(!selectedRemainingProducts.length||selectedRemainingProducts.some(p=>normalized(p)===normalized(row.Product))))}
+  }),[liveSheets,allProduction,selectedRemainingProducts]);
+  const table = view==='captures' ? preview : view==='changes' ? comparisonTable : view==='audit' ? auditTable : view==='sheets'?sheetTables[sheetGroup]:allProduction;
   const liveFull=liveSheets?.sheets?.['Full Title'];
   const liveRemaining=liveSheets?.sheets?.['Remaining Products'];
   const filtered = useMemo(()=>{const query=deferredSearch.toLowerCase();return table.rows.filter(row=>{if(!matches(row,filters))return false;if(!query)return true;let indexed=searchIndex.get(row);if(!indexed){indexed=table.columns.map(c=>str(row[c]).toLowerCase()).join('\u0000');searchIndex.set(row,indexed);}return indexed.includes(query);});},[table,filters,deferredSearch,searchIndex]);
   const matchedComparison = view==='changes' ? filtered.filter(row=>['Unchanged','Matched - changed'].includes(row['Comparison Status'])) : [];
   const missingComparison = view==='changes' ? filtered.filter(row=>row['Comparison Status']==='Missing') : [];
-  const chartRows = useMemo(()=>chartSelection?filtered.filter(row=>label(row[chartSelection.column])===chartSelection.value):[],[chartSelection,filtered]);
+  const chartRows = useMemo(()=>chartSelection?(chartSelection.rows||filtered.filter(row=>label(row[chartSelection.column])===chartSelection.value)):[],[chartSelection,filtered]);
   const productSplit = useMemo(()=>{
     if(['captures','changes','audit','daily','monthly'].includes(view) || !table.columns.includes('Product')) return null;
     let remainingRows = filtered.filter(row=>!['full title', 'full search'].includes(normalized(row.Product)));
@@ -225,10 +242,12 @@ function App() {
   async function retryFailed(id){setPending(true);setError('');try{await api('/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({preview:id})});await refresh();}catch(e){setError(e.message);}finally{setPending(false);}}
   async function saveSchedule(enabled=true, times=scheduleDraft.times){
     setSavingSchedule(true);
+    setScheduleMessage('');
     setError('');
     try{
       const saved=await api('/api/sync-schedule',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled,times})});
       setScheduleDraft(prev=>({...prev,enabled:saved.enabled,times:saved.times||[saved.time]}));
+      setScheduleMessage(saved.enabled?'Schedule saved. Times are in IST.':'Schedule paused.');
       await refresh();
     }catch(e){
       setError(e.message);
@@ -242,15 +261,11 @@ function App() {
   async function deletePreview(event,id){event.stopPropagation();const target=state.previews.find(p=>p.id===id);if(!window.confirm(`Delete ${target?.name||`preview${id}`} and its saved CSV/Excel files?`))return;setError('');try{await api(`/api/previews/${id}`,{method:'DELETE'});const next=await api('/api/state');setState(next);seen.current=next.previews[0]?.id??null;const nextSelected=id===selected?(next.previews[0]?.id??null):selected;setSelected(nextSelected);const index=next.previews.findIndex(p=>p.id===nextSelected);setPrevious(String(next.previews[index+1]?.id||''));if(!nextSelected){setPreview(EMPTY);setDiff(null);}}catch(e){setError(e.message);}}
   async function downloadChanges(){try{const response=await fetch('/api/compare',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({previous:Number(previous),latest:selected,keys,ignore,download:true})});if(!response.ok)throw Error((await response.json()).error);saveBlob(await response.blob(),`${diff.previous}-to-${diff.latest}-changes.xlsx`);}catch(e){setError(e.message);}}
   const running=state.job.running||pending, result=state.job.result;
-  return <div className="workspace">
+  return <div className={`workspace ${sidebarCollapsed?'sidebar-collapsed':''}`} data-view={view}>
     <a className="skip-link" href="#workspace-content">Skip to workspace</a>
-    <aside className="sidebar"><div className="brand"><div className="brand-mark"><Activity size={25}/></div><div>Tv Tracker<span>Production workspace</span></div></div>
-      <nav aria-label="Workspace navigation">{[['overview','Overview',Home],['sheets','Orders',Table2],['captures','Captures',HardDrive],['daily','Reports',BarChart3],['audit','Activity',Activity]].map(([id,title,Icon])=><button aria-current={(view===id||(id==='daily'&&view==='monthly')||(id==='captures'&&view==='changes'))?'page':undefined} className={(view===id||(id==='daily'&&view==='monthly')||(id==='captures'&&view==='changes'))?'nav-item selected':'nav-item'} key={id} onClick={()=>setView(id)}><Icon size={18}/>{title}</button>)}
-      <div className="nav-subsection"><span className="nav-label">REPORTS & HISTORY</span>{[['daily','Daily Orders',FileSpreadsheet],['monthly','Monthly report',CalendarDays],['changes','Changes',ArrowLeftRight]].map(([id,title,Icon])=><button className={view===id?'nav-item subnav selected':'nav-item subnav'} key={id} onClick={()=>setView(id)}><Icon size={15}/>{title}</button>)}</div></nav>
-      <div className="preview-heading"><span className="nav-label">RECENT CAPTURES</span><span>{state.previews.length}</span></div><div className="preview-list">{state.previews.map(p=><div key={p.id} className={`preview-item ${selected===p.id?'selected':''}`}><button className="preview-select" onClick={()=>{setSelected(p.id);setView('captures');const index=state.previews.findIndex(x=>x.id===p.id);setPrevious(String(state.previews[index+1]?.id||''));}}><FileSpreadsheet size={16}/><div><strong>{p.name}</strong><small>{p.row_count.toLocaleString()} rows · {new Date(p.created).toLocaleDateString()}</small></div></button><IconButton title={`Delete ${p.name}`} disabled={state.job.running||pending} onClick={event=>deletePreview(event,p.id)}><Trash2 size={14}/></IconButton></div>)}{!state.previews.length&&<p className="no-previews">Your first capture will appear here.</p>}</div>
-      <div className="sidebar-footer"><button className="nav-item" onClick={()=>window.dispatchEvent(new Event('datatrace:settings'))}><Settings2 size={18}/>Settings</button><ThemeControl/><span className={`connection-status ${liveSheets?.offline?'offline':''}`}><i/>{liveSheets?.offline?'Saved offline copy':liveSheets?'Google Sheets connected':'Local workspace'}</span>{state.sheet_url&&<a href={state.sheet_url} target="_blank" rel="noreferrer">Open Google Sheet ↗</a>}</div></aside>
-    <main><header className="topbar"><div className="breadcrumb">Workspace <span>/</span> {VIEW_TITLES[view]}</div><div className="inline"><DesktopTools onNavigate={setView} onImport={()=>upload.current.click()} running={running}/><span className={`run-state ${running?'running':''}`}>{running&&<LoaderCircle size={14} className="spin"/>}{pending&&!state.job.running?'Starting…':state.job.stage}</span><button className="secondary" onClick={()=>upload.current.click()} disabled={uploading||(running&&state.job.action!=='sync')}><Upload size={16}/>{uploading?'Importing…':'Import file'}</button><button className="secondary" onClick={exportSheets} disabled={exporting||running} title="Download all Google Sheet tabs as Excel">{exporting?<LoaderCircle size={16} className="spin"/>:<ArrowDownToLine size={16}/>} {exporting?'Exporting...':'Export'}</button><input ref={upload} type="file" hidden accept=".csv,.xlsx" onChange={importFile}/></div></header>
-      <div className="content" id="workspace-content" tabIndex={-1}><div className="page-heading"><div><span className="eyebrow">TITLE PRODUCTION</span><h1>{VIEW_TITLES[view]}</h1><p className="muted">{productionView?(view==='sheets'?'Keep every order in view.':'Your production, clearly organized.'):(preview.name?`${preview.name} · ${new Date(preview.created).toLocaleString()}`:'Your local production workspace')}</p></div><div className="page-actions"><button className="secondary" onClick={syncSheets} disabled={running||!selected||loading||compareBusy||!!compareError}>{state.job.action==='sync'&&running?<LoaderCircle size={17} className="spin"/>:<CloudUpload size={17}/>}<span>{state.job.action==='sync'&&running?'Syncing…':`Retry ${preview.name||'preview'} sync`}</span></button><details className="sync-schedule"><summary><Clock3 size={16}/>AutoLogin Trigger</summary><div>
+    <WorkspaceSidebar state={state} selected={selected} view={view} onNavigate={navigate} collapsed={sidebarCollapsed} onToggle={()=>{if(sidebarReady)setSidebarCollapsed(!sidebarCollapsed).catch(()=>{});}} snapshot={liveSheets} busy={running} onDelete={deletePreview} onSelect={id=>{setSelected(id);navigate('captures');const index=state.previews.findIndex(p=>p.id===id);setPrevious(String(state.previews[index+1]?.id||''));}}/>
+    <main ref={mainScroll}><header className="topbar"><div className="breadcrumb"><span>Workspace</span><ChevronRight size={13}/><strong>{VIEW_TITLES[view]}</strong></div><div className="inline"><DesktopTools onNavigate={navigate} onImport={()=>upload.current.click()} running={running}/><span className={`run-state ${running?'running':''}`}>{running&&<LoaderCircle size={14} className="spin"/>}{pending&&!state.job.running?'Starting…':state.job.stage}</span><button className="secondary" onClick={()=>upload.current.click()} disabled={uploading||(running&&state.job.action!=='sync')}><Upload size={16}/>{uploading?'Importing…':'Import file'}</button><button className="secondary" onClick={exportSheets} disabled={exporting||running} title="Download all Google Sheet tabs as Excel">{exporting?<LoaderCircle size={16} className="spin"/>:<ArrowDownToLine size={16}/>} {exporting?'Exporting...':'Export'}</button><input ref={upload} type="file" hidden accept=".csv,.xlsx" onChange={importFile}/></div></header>
+      <div className="content" id="workspace-content" tabIndex={-1}><div className="page-heading"><div><span className="eyebrow">TITLE PRODUCTION</span><h1>{VIEW_TITLES[view]}</h1><p className="muted">{productionView?(view==='sheets'?'Keep every order in view.':'Your production, clearly organized.'):(preview.name?`${preview.name} · ${new Date(preview.created).toLocaleString()}`:'Your local production workspace')}</p></div><div className="page-actions"><button className="secondary" onClick={syncSheets} disabled={running||!selected||loading||compareBusy||!!compareError}>{state.job.action==='sync'&&running?<LoaderCircle size={17} className="spin"/>:<CloudUpload size={17}/>}<span>{state.job.action==='sync'&&running?'Syncing…':'Sync to Sheets'}</span></button><details className="sync-schedule"><summary><Clock3 size={16}/><span>AutoLogin Trigger</span><span className={`schedule-state ${state.schedule?.enabled?'enabled':''}`}>{state.schedule?.enabled?'On':'Paused'}</span></summary><div>
         <TriggerClock schedule={state.schedule} clock={state.clock}/>
         <button className="secondary" disabled={savingSchedule||!state.schedule} onClick={()=>saveSchedule(!state.schedule?.enabled,state.schedule?.times||[state.schedule?.time||'09:00'])}>{state.schedule?.enabled?'Pause schedule':'Resume schedule'}</button>
         <div className="schedule-times-label">Scheduled times (IST):</div>
@@ -269,8 +284,10 @@ function App() {
           <button type="button" className="add-time-btn" title="Add trigger time" onClick={addTriggerTime}><Plus size={15}/>Add</button>
         </div>
         <button className="primary" onClick={()=>saveSchedule()} disabled={savingSchedule||!scheduleDraft.times.length}>{savingSchedule?'Saving…':'Save AutoLogin Trigger'}</button>
-        {state.schedule?.last_triggered_date&&<small>Last triggered {state.schedule.last_triggered_date}</small>}
-      </div></details><button className="primary" onClick={extract} disabled={running}>{state.job.action==='extract'&&running?<LoaderCircle size={17} className="spin"/>:<Camera size={17}/>}<span>{state.job.action==='extract'&&running?'Capturing…':'Capture now'}</span></button></div></div>
+        {scheduleMessage&&<p className="schedule-feedback" role="status"><Check size={14}/>{scheduleMessage}</p>}{state.schedule?.last_triggered_date&&<small>Last triggered {state.schedule.last_triggered_date}</small>}
+      </div></details><button className="primary" onClick={extract} disabled={running}>{state.job.action==='extract'&&running?<LoaderCircle size={17} className="spin"/>:<Camera size={17}/>}<span>{state.job.action==='extract'&&running?'Extracting…':'Extract Queue'}</span></button></div></div>
+      <WorkspaceContext view={view} production={productionView} preview={preview} snapshot={liveSheets} running={running} stage={pending&&!state.job.running?'Starting…':state.job.stage} pending={state.pending_sync} selected={selected}/>
+      {sidebarError&&<div className="notice warning" role="alert">{sidebarError}</div>}
       {(state.failed_syncs||[]).map(failure=><div key={failure.preview_id} className="notice warning" role="alert"><strong>{failure.preview_name} retained locally.</strong> {failure.error}<button className="secondary" disabled={running} onClick={()=>retryFailed(failure.preview_id)}>Retry sync</button></div>)}
       {view==='audit'&&<div className="notice">Local sync activity · {syncAudit?.preview_name||'No sync report yet'}</div>}
       {view==='audit'&&auditError&&<div className="notice error">{auditError}</div>}
@@ -282,7 +299,8 @@ function App() {
       {result?.pass_report&&!running&&<DismissibleNotice key={`scan-${state.job.run_id}`} noticeId={`scan-${state.job.run_id}`} role="status">{result.pass_report.scanned} scanned · {result.pass_report.added} added · {result.pass_report.updated} updated · {result.pass_report.unchanged} unchanged · {result.pass_report.not_in_latest?.length||0} not in latest preview</DismissibleNotice>}
       {result?.pass_report&&!running&&((result.pass_report.ambiguous?.length||0)+(result.pass_report.unprocessed?.length||0)>0)&&<DismissibleNotice key={`review-${state.job.run_id}`} noticeId={`review-${state.job.run_id}`} className="notice warning" role="status">{(result.pass_report.ambiguous?.length||0)+(result.pass_report.unprocessed?.length||0)} review items · open Sync activity to review the saved local report.</DismissibleNotice>}
       {view==='audit'&&<><OperationActivity running={running}/><MonthlyActivity/></>}
-      {!state.previews.length && !liveSheets && !['monthly','audit'].includes(view) ? <LocalWelcome onImport={()=>upload.current.click()}/> : view==='overview'?<ProductionOverview snapshot={liveSheets} state={state} onNavigate={setView}/>:view==='sheets'?<div className={filterColumn?'data-layout with-filter':'data-layout'}><OrdersWorkspace snapshot={liveSheets} rows={filtered} columns={table.columns} search={search} setSearch={setSearch} filters={filters} setFilters={setFilters} openFilter={setFilterColumn} previews={state.previews}/>{filterColumn&&<FilterPanel key={filterColumn} column={filterColumn} rows={table.rows} filters={filters} setFilters={setFilters} close={()=>setFilterColumn(null)}/>}</div>:<>
+      <React.Suspense fallback={<div className="loading" role="status"><LoaderCircle className="spin"/>Loading view…</div>}>{!state.previews.length && !liveSheets && !['monthly','audit'].includes(view) ? <LocalWelcome onImport={()=>upload.current.click()}/> : view==='overview'?<><ProductionOverview snapshot={liveSheets} state={state} onNavigate={navigate}/><OverviewDashboard rows={filtered} columns={table.columns} onSelect={setChartSelection} selectedProducts={selectedRemainingProducts} setSelectedProducts={handleProductSelectionChange} savingProducts={savingProducts}/><AdvancedChart rows={filtered} columns={table.columns} onSelect={setChartSelection}/><React.Suspense fallback={null}>{chartSelection&&<SideDrawer title={`${chartSelection.column}: ${chartSelection.value}`} rows={chartRows} columns={table.columns} onClose={()=>setChartSelection(null)}/>}</React.Suspense></>:view==='sheets'?<><SheetSegments value={sheetGroup} onChange={value=>{setSheetGroup(value);setFilterColumn(null);}} counts={Object.fromEntries(Object.entries(sheetTables).map(([key,value])=>[key,value.rows.length]))}/><div className={filterColumn?'data-layout with-filter':'data-layout'}><OrdersWorkspace snapshot={liveSheets} rows={filtered} columns={table.columns} search={search} setSearch={setSearch} filters={filters} setFilters={setFilters} openFilter={setFilterColumn} previews={state.previews}/>{filterColumn&&<FilterPanel key={filterColumn} column={filterColumn} rows={table.rows} filters={filters} setFilters={setFilters} close={()=>setFilterColumn(null)}/>}</div></>:<>
+      {view==='captures'&&<CapturePicker previews={state.previews} selected={selected} onSelect={chooseLatest} onDelete={deletePreview} busy={running}/>}
       {view==='captures'&&preview.id&&<div className="notice" role="status">Raw saved capture · {preview.name}<a className="secondary" href={`/api/previews/${preview.id}/download/xlsx`}>Download Excel</a></div>}{view==='changes'&&<section className="compare-controls"><label>Previous preview<select aria-label="Previous preview" value={previous} onChange={e=>choosePrevious(e.target.value)}><option value="">Select a preview</option>{state.previews.filter(p=>p.id!==selected).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label><ArrowLeftRight size={18}/><label>Latest preview<select aria-label="Latest preview" value={selected||''} onChange={e=>chooseLatest(e.target.value)}>{state.previews.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label><span className="muted">Matched by Order Number (ignoring case and surrounding spaces)</span><details className="match-options"><summary>Ignored columns ({ignore.length})</summary><div>{preview.columns.map(c=><label className="check-row" key={c}><input type="checkbox" checked={ignore.includes(c)} onChange={()=>setIgnore(ignore.includes(c)?ignore.filter(k=>k!==c):[...ignore,c])}/>{c}</label>)}</div></details><button className="secondary" disabled={!diff||compareBusy} onClick={downloadChanges}><ArrowDownToLine size={16}/>Power BI changes.xlsx</button></section>}
       {view==='changes'&&compareError&&<div className="notice warning" role="alert">{compareError}<button className="secondary" onClick={()=>setCompareAttempt(value=>value+1)}>Retry comparison</button></div>}
       {view==='changes'&&!previous&&<div className="notice">Capture or import a second preview to compare changes.</div>}
@@ -299,7 +317,7 @@ function App() {
         </> : <>{view==='changes'&&diff?.order_append&&<section className="order-append"><div className="order-append-summary"><div><span>Previous last order</span><strong>{diff.order_append.anchor_order||'Not available'}</strong></div><div><span>First new order</span><strong>{diff.order_append.first_added_order||'—'}</strong></div><div><span>Latest new order</span><strong>{diff.order_append.latest_added_order||'—'}</strong></div><div><span>Orders added after it</span><strong>{diff.order_append.available?diff.order_append.count:'—'}</strong></div></div>{diff.order_append.available&&<DataTable rows={diff.order_append.rows} columns={diff.order_append.columns} filters={{}} openFilter={()=>{}} filterable={false} name={`Orders after ${diff.order_append.anchor_order}`}/>}</section>}{view==='changes'?<><DataTable rows={matchedComparison} columns={table.columns} filters={filters} openFilter={setFilterColumn} name={`Matched orders · ${diff?.previous||'Previous'} and ${diff?.latest||'Latest'}`}/><DataTable rows={missingComparison} columns={table.columns} filters={filters} openFilter={setFilterColumn} name="Missing Previews"/></>:<DataTable rows={filtered} columns={table.columns} filters={filters} openFilter={setFilterColumn} name={view==='audit'?'Local sync activity':view==='captures'?'Saved capture':'Production trackers'}/>}</>}
       </div>{filterColumn&&<FilterPanel key={filterColumn} column={filterColumn} rows={table.rows} filters={filters} setFilters={setFilters} close={()=>setFilterColumn(null)}/>}</div></>}
       </>}
-      <footer className="page-footer"><span>Tv Tracker · Your local production workspace</span><span>{state.pending_sync>0?`${state.pending_sync} pending sync · `:''}{state.previews.length} saved captures · Local storage</span></footer></div>
+      </React.Suspense><footer className="page-footer"><span>Tv Tracker · Your local production workspace</span><span>{state.pending_sync>0?`${state.pending_sync} pending sync · `:''}{state.previews.length} saved captures · Local storage</span></footer></div>
     </main>
   </div>;
 }

@@ -1,4 +1,4 @@
-import React, {useEffect, useRef, useState} from 'react';
+import React, {useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {saveBlob} from './workspaceUtils';
 import {ArrowRight, Check, Command, Database, Download, FolderOpen, HardDrive, KeyRound, LoaderCircle, Monitor, Plug, Settings2, ShieldCheck, Upload, WifiOff, X} from 'lucide-react';
 
@@ -15,9 +15,9 @@ export function OfflineNotice({snapshot}) {
   return snapshot?.offline ? <div className="offline-notice" role="status"><WifiOff size={17}/><div><strong>Viewing a saved Google Sheets copy</strong><span>Last refreshed {new Date(snapshot.updated_at).toLocaleString()}. Reconnect to sync changes.</span></div></div> : null;
 }
 
-function Dialog({title, children, onClose, className=''}) {
+export function Dialog({title, children, onClose, className=''}) {
   const ref=useRef();
-  useEffect(()=>{const dialog=ref.current;dialog.showModal();return()=>dialog.close();},[]);
+  useLayoutEffect(()=>{const dialog=ref.current;dialog.showModal();return()=>dialog.close();},[]);
   return <dialog ref={ref} aria-label={title} className={`studio-dialog ${className}`} onCancel={event=>{event.preventDefault();onClose();}} onClick={event=>{if(event.target===event.currentTarget)onClose();}}><div className="studio-dialog-heading"><div><span className="eyebrow">TV TRACKER</span><h2>{title}</h2></div><button className="icon-button" aria-label="Close dialog" onClick={onClose}><X size={20}/></button></div>{children}</dialog>;
 }
 
@@ -88,7 +88,7 @@ function Connections({onClose,running,initialTab='connections'}) {
   </Dialog>;
 }
 
-const PAGES=[['overview','Overview'],['sheets','Orders'],['captures','Saved captures'],['daily','Daily Orders'],['monthly','Monthly report'],['audit','Sync activity'],['changes','Changes between captures']];
+const PAGES=[['overview','Overview'],['sheets','Data Sheets'],['captures','Saved captures'],['daily','Daily Orders'],['monthly','Monthly report'],['audit','Sync activity'],['changes','Changes between captures']];
 export function DesktopTools({onNavigate,onImport,running}) {
   const [settings,setSettings]=useState(false),[commands,setCommands]=useState(false),[query,setQuery]=useState(''),[settingsTab,setSettingsTab]=useState('connections');
   const [updateState,setUpdateState]=useState(null),[connectionRecovery,setConnectionRecovery]=useState(null);
@@ -108,7 +108,7 @@ export function DesktopTools({onNavigate,onImport,running}) {
     return()=>{unsubscribe?.();window.removeEventListener('datatrace:settings',open);window.removeEventListener('keydown',keyboard);};
   },[]);
   const options=[...PAGES.map(([id,label])=>({label,action:()=>onNavigate(id)})),{label:'Import Excel or CSV',action:onImport},{label:'Connections & settings',action:()=>setSettings(true)}].filter(item=>item.label.toLowerCase().includes(query.toLowerCase()));
-  return <>{connectionRecovery&&<button className="secondary" onClick={()=>{setSettingsTab('connections');setSettings(true);}}>Review connections</button>}{['available','downloaded'].includes(updateState?.status)&&<button className="secondary" onClick={()=>{setSettingsTab('updates');setSettings(true);}}><Download size={15}/>{updateState.status==='downloaded'?'Update ready':'Update available'}</button>}<button className="quick-command" aria-label="Quick actions" onClick={()=>{setQuery('');setCommands(true);}}><Command size={15}/><span>Quick actions</span><kbd>Ctrl K</kbd></button><button className="settings-button" aria-label="Connections & settings" title="Connections & settings (Ctrl+,)" onClick={()=>{setSettingsTab('connections');setSettings(true);}}><Settings2 size={18}/></button>
+  return <>{connectionRecovery&&<button className="secondary" onClick={()=>{setSettingsTab('connections');setSettings(true);}}>Review connections</button>}{['available','downloaded'].includes(updateState?.status)&&<button className="secondary" onClick={()=>{setSettingsTab('updates');setSettings(true);}}><Download size={15}/>{updateState.status==='downloaded'?'Update ready':'Update available'}</button>}<button className="quick-command" aria-label="Quick actions" onClick={()=>{setQuery('');setCommands(true);}}><Command size={15}/><span>Quick actions</span><kbd>Ctrl K</kbd></button>
     {settings&&<Connections onClose={()=>setSettings(false)} running={running} initialTab={settingsTab}/>}
     {commands&&<Dialog title="Quick actions" onClose={()=>setCommands(false)} className="command-dialog"><div className="command-search"><Command size={19}/><input aria-label="Find an action" autoFocus placeholder="Where would you like to go?" value={query} onChange={e=>setQuery(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&options[0]){e.preventDefault();setCommands(false);options[0].action();}}}/></div><div className="command-results">{options.map(item=><button key={item.label} onClick={()=>{setCommands(false);item.action();}}>{item.label}<ArrowRight size={15}/></button>)}{!options.length&&<p className="muted">No matching actions</p>}</div><div className="command-hint">Tab to move · Enter to open · Esc to close</div></Dialog>}
   </>;
