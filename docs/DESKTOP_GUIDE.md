@@ -21,10 +21,10 @@ The password and service-account JSON are encrypted with Windows DPAPI through E
 
 ## Everyday work
 
-- **Data sheets / Daily Orders / Monthly report:** production reports from the configured Sheet. A dated offline banner identifies a previously cached copy. Live corrections require a connection.
-- **Saved captures:** inspect an imported or extracted raw queue locally and export it as Excel or filtered CSV. A raw capture is not substituted for production reporting.
+- **Orders / Daily Orders / Monthly report:** production reports from the configured Sheet. A dated offline banner identifies a previously cached copy. Live corrections require a connection.
+- **Captures:** inspect an imported or extracted raw queue locally and export it as Excel or filtered CSV. A raw capture is not substituted for production reporting.
 - **Changes:** compare two captures by Order Number without changing tracker statuses.
-- **Sync activity:** inspect the latest local sync report, missing orders, ambiguities, and baseline conflicts.
+- **Activity:** inspect the latest local sync report, missing orders, ambiguities, and baseline conflicts.
 - **Ctrl+K:** find a page, open settings, or import a file.
 - Export confirms any shortened Excel sheet names and applies the shared row palette, including Free Site cells.
 - Google Sheets reads are shared and cached for 30 seconds. Saving a sync or SLA correction invalidates the cache. The connection test forces a fresh read.
@@ -65,7 +65,7 @@ From the repository root in PowerShell:
 powershell -ExecutionPolicy Bypass -File desktop/build.ps1 -Python C:\Path\To\Python312\python.exe
 ```
 
-The script installs Python build dependencies into `.desktop-build/deps`, installs locked npm dependencies, builds the UI and standalone engine, and writes the installer/portable ZIP to `release/2.1.0`. Pass `-DirectoryOnly` for an unpacked test build. It does not publish or upload a release.
+The script installs Python build dependencies into `.desktop-build/deps`, installs locked npm dependencies, builds the UI and standalone engine, and writes the installer/portable ZIP to `release/2.3.0`. Pass `-DirectoryOnly` for an unpacked test build. It does not publish or upload a release.
 
 For desktop development after building dependencies and the UI:
 
@@ -81,7 +81,7 @@ Tests:
 npm.cmd --prefix desktop test
 node desktop/smoke.cjs
 # To smoke-test the packaged application:
-$env:DESKTOP_EXE = (Resolve-Path 'release/2.1.0/win-unpacked/Tv Tracker.exe').Path
+$env:DESKTOP_EXE = (Resolve-Path 'release/2.3.0/win-unpacked/Tv Tracker.exe').Path
 node desktop/smoke.cjs
 ```
 
@@ -96,3 +96,16 @@ References: [Electron security guidance](https://www.electronjs.org/docs/latest/
 ## Version 2.1 upgrade behavior
 
 Existing receipt tables and old workspace backups are upgraded without re-uploading confirmed captures. New backups include local audit receipts and failures. The shipped historical baseline workbooks are used during sync; opening an unconfigured app does not write them to Google Sheets. The sync rules intentionally clear tracker Comments, Assignee and iAssignee while preserving raw captures and other manual columns/formulas. Read the [integration report](DESKTOP_UPSTREAM_ALIGNMENT.md) before the first production sync.
+
+
+## Version 2.3 workspace and recovery
+
+Use Overview for production totals, Orders for focused search and filters, and Captures for raw queue history. The order inspector shows current fields and matches in the latest 100 local captures. Saved views retain the query, product, attention and column filters. The Windows app keeps appearance and saved views in its encrypted settings across engine/app restarts; browser development uses local storage. Workspace backups exclude this settings vault, so transfer connections and UI preferences separately when changing Windows accounts.
+
+Settings → Workspace → Export diagnostics saves operation times, coarse failure categories and counts, excluding source records, account names, paths and credentials. Activity retains up to 200 operation entries and marks unfinished operations interrupted after restart.
+
+Create a backup before upgrading from 2.2.1. Subsequent updates initiated in 2.3.0 create a `backups/before-update-*.zip` recovery copy before stopping the engine; a backup failure blocks installation. Restore newer backups only with a compatible app version. The extra operation-history table may be rejected by older releases.
+
+Schedule catch-up runs once for missed times from today. Previous days are not replayed. The app and computer must remain running/awake.
+
+Public releases require a valid Windows Authenticode signature. The workflow expects `TV_TRACKER_CSC_LINK` and `TV_TRACKER_CSC_KEY_PASSWORD` from the signing identity owner. Pull requests run validation without signing credentials. A source push becomes an in-app update only after a tested release is published. This local 2.3.0 candidate is not a signed public release; see `TV_TRACKER_2_3_0_REVIEW.md` for evidence and remaining gates.

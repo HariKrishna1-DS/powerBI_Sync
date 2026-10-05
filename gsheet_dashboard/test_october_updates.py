@@ -65,7 +65,9 @@ class OctoberTrackerTests(unittest.TestCase):
         sheet = book.add_worksheet(FULL, 10, len(HEADERS))
         sheet.values = [HEADERS]
         self.assertGreater(ensure_tracker_formatting(book), 0)
-        self.assertEqual(ensure_tracker_formatting(book), 0)
+        self.assertEqual(ensure_tracker_formatting(book), 3)
+        self.assertEqual(book.batches[-1], book.batches[-2])
+        self.assertFalse(sheet.conditional_formats)
 
     def test_google_normalized_rules_and_growing_row_ranges(self):
         wanted = rules_for(15, HEADERS)[0]
@@ -77,7 +79,7 @@ class OctoberTrackerTests(unittest.TestCase):
         self.assertEqual(comparable_rule(remote, 150), comparable_rule(wanted, 150))
         self.assertNotEqual(comparable_rule(remote, 200), comparable_rule(wanted, 200))
 
-    def test_excel_export_uses_row_palette_for_free_site(self):
+    def test_excel_export_uses_plain_production_style(self):
         from io import BytesIO
         from openpyxl import load_workbook
         from server import create_app
@@ -89,9 +91,10 @@ class OctoberTrackerTests(unittest.TestCase):
             response = client.get('/api/export/google-sheets?short_names=true')
             self.assertEqual(response.status_code, 200)
             ws = load_workbook(BytesIO(response.data))['Full Title']
-            self.assertEqual(ws['A2'].fill.fgColor.rgb[-6:], 'C00000')
-            self.assertEqual(ws['B2'].fill.fgColor.rgb[-6:], 'C00000')
-            self.assertEqual(ws['C2'].fill.fgColor.rgb[-6:], 'C00000')
+            for cell in ws[2]:
+                self.assertEqual(cell.fill.fgColor.rgb[-6:], 'FFFFFF')
+                self.assertEqual(cell.font.color.rgb[-6:], '000000')
+                self.assertEqual(cell.border.bottom.style, 'thin')
 
 
 class IndianClockTests(unittest.TestCase):
@@ -149,6 +152,13 @@ class IndianClockTests(unittest.TestCase):
             self.assertEqual(saved['triggered_today'], ['11:59', '12:00'])
             self.assertEqual(saved['last_triggered_date'], '2026-10-02')
             self.assertFalse(app.extensions['schedule_tick']())
+            # Wait for the durable receipt before deleting this isolated profile.
+            import time
+            for _ in range(200):
+                if not app.test_client().get('/api/health').json['running']:
+                    break
+                time.sleep(.01)
+            self.assertFalse(app.test_client().get('/api/health').json['running'])
 
 
 if __name__ == '__main__':

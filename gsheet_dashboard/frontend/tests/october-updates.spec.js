@@ -2,7 +2,7 @@ import {test, expect} from '@playwright/test';
 
 test.use({timezoneId:'America/Los_Angeles'});
 
-test('charts show values and selected periods, Overview is removed, and IST ignores the PC clock', async ({page}) => {
+test('charts show values and selected periods, production overview is available, and IST ignores the PC clock', async ({page}) => {
   const errors=[];
   page.on('pageerror', error=>errors.push(error.message));
   await page.addInitScript(()=>{Date.now=()=>Date.parse('2035-01-01T00:00:00Z');});
@@ -30,11 +30,11 @@ test('charts show values and selected periods, Overview is removed, and IST igno
     await route.fulfill({json:body});
   });
   await page.goto('/');
-  await expect(page.getByRole('button',{name:'Overview',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('button',{name:'Overview',exact:true})).toHaveCount(1);
   await expect(page.getByRole('heading',{name:'Queue overview',exact:true})).toHaveCount(0);
-  const cancelled=page.locator('.status-report tbody tr').filter({hasText:'Cancelled'});
-  await expect(cancelled).toHaveCSS('background-color','rgb(192, 0, 0)');
-  await expect(page.locator('.status-report tbody tr').filter({hasText:'Completed and Delivered'})).toHaveCSS('background-color','rgb(255, 255, 153)');
+  await page.getByRole('button',{name:'Overview',exact:true}).click();
+  await expect(page.locator('.status-summary-row').filter({hasText:'Cancelled'})).toContainText('1');
+  await expect(page.locator('.status-summary-row').filter({hasText:'Completed and Delivered'})).toContainText('1');
   await page.getByText('AutoLogin Trigger',{exact:true}).click();
   await expect(page.getByTestId('indian-clock')).toContainText('02 Oct 2026');
   await expect(page.getByTestId('indian-clock')).toContainText('12:00:');

@@ -1,4 +1,5 @@
 import React, {useEffect, useRef, useState} from 'react';
+import {saveBlob} from './workspaceUtils';
 import {ArrowRight, Check, Command, Database, Download, FolderOpen, HardDrive, KeyRound, LoaderCircle, Monitor, Plug, Settings2, ShieldCheck, Upload, WifiOff, X} from 'lucide-react';
 
 export class WorkspaceBoundary extends React.Component {
@@ -17,7 +18,7 @@ export function OfflineNotice({snapshot}) {
 function Dialog({title, children, onClose, className=''}) {
   const ref=useRef();
   useEffect(()=>{const dialog=ref.current;dialog.showModal();return()=>dialog.close();},[]);
-  return <dialog ref={ref} className={`studio-dialog ${className}`} onCancel={event=>{event.preventDefault();onClose();}} onClick={event=>{if(event.target===event.currentTarget)onClose();}}><div className="studio-dialog-heading"><div><span className="eyebrow">TV TRACKER</span><h2>{title}</h2></div><button className="icon-button" aria-label="Close dialog" onClick={onClose}><X size={20}/></button></div>{children}</dialog>;
+  return <dialog ref={ref} aria-label={title} className={`studio-dialog ${className}`} onCancel={event=>{event.preventDefault();onClose();}} onClick={event=>{if(event.target===event.currentTarget)onClose();}}><div className="studio-dialog-heading"><div><span className="eyebrow">TV TRACKER</span><h2>{title}</h2></div><button className="icon-button" aria-label="Close dialog" onClick={onClose}><X size={20}/></button></div>{children}</dialog>;
 }
 
 export function LocalWelcome({onImport}) {
@@ -45,7 +46,7 @@ function Updates({running}) {
       {!['downloaded','installing','unsupported'].includes(state.status)&&<button type="button" className="secondary" disabled={working} onClick={()=>act('checkForUpdates')}>{state.status==='checking'?<LoaderCircle size={16} className="spin"/>:<Download size={16}/>}Check for updates</button>}
       {state.status==='available'&&<button type="button" className="primary" onClick={()=>act('downloadUpdate')}>Download {state.version}</button>}
       {state.status==='downloaded'&&<button type="button" className="primary" disabled={running} onClick={()=>act('installUpdate')}>Restart & install {state.version}</button>}
-    </div><p className="field-help">Downloads and installation start only when you choose. Finish active captures and syncs before restarting. Your local workspace and saved connections are retained.</p>{error&&<p role="alert">{error}</p>}
+    </div><p className="field-help">Updates are checked automatically after startup and every six hours. Downloads and installation start only when you choose. Finish active captures and syncs before restarting. Your local workspace and saved connections are backed up before installation.</p>{state.lastChecked&&<p className="field-help">Last checked: {new Date(state.lastChecked).toLocaleString()}</p>}{error&&<p role="alert">{error}</p>}
   </section>;
 }
 
@@ -61,6 +62,7 @@ function Connections({onClose,running,initialTab='connections'}) {
     {!window.desktop?<div className="settings-body"><div className="settings-callout"><Monitor size={22}/><div><h3>Open Tv Tracker for desktop settings</h3><p>The installed application includes secure credential storage, local backups, and background scheduling. This browser window is the development interface.</p></div></div><p className="muted">For web development, use the project’s .env.example and sync_config.json. Saved passwords and keys are never displayed here.</p></div>:!form?<div className="settings-body">{error?<p role="alert">{error}</p>:<p className="loading"><LoaderCircle className="spin"/>Loading settings…</p>}</div>:<form onSubmit={save}>
       <div className="settings-tabs" role="tablist" aria-label="Settings sections"><button type="button" role="tab" aria-selected={tab==='connections'} onClick={()=>setTab('connections')}><Plug size={16}/>Connections</button><button type="button" role="tab" aria-selected={tab==='workspace'} onClick={()=>setTab('workspace')}><HardDrive size={16}/>Workspace</button><button type="button" role="tab" aria-selected={tab==='updates'} onClick={()=>setTab('updates')}><Download size={16}/>Updates</button></div>
       <div className="settings-body" role="tabpanel">
+      {form.connectionRecovery&&<div className="notice warning" role="alert">{form.connectionRecovery.message}</div>}
       {tab==='connections'?<>
         <div className="settings-section"><div className="settings-section-heading"><div className="settings-section-icon"><Database size={20}/></div><div><h3>Google Sheets</h3><p>Your production source of truth</p></div><span className={`connection-pill ${form.googleConfigured?'ready':''}`}>{form.googleConfigured?'Configured':'Setup needed'}</span></div>
           <label>Spreadsheet URL or ID<input autoFocus value={form.spreadsheetId} onChange={e=>update('spreadsheetId',e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/…" autoComplete="off"/></label>
@@ -76,7 +78,8 @@ function Connections({onClose,running,initialTab='connections'}) {
         </div>
       </>:tab==='updates'?<Updates running={running}/>:<>
         <div className="settings-section"><h3>Local data & recovery</h3><p className="field-help">Captures, pending syncs, and saved reports stay in your Windows profile. Backups exclude passwords and private keys.</p><code className="data-path">{form.dataPath}</code><div className="settings-actions"><button type="button" className="secondary" onClick={()=>action(()=>window.desktop.openDataFolder())}><FolderOpen size={16}/>Open data folder</button><button type="button" className="secondary" disabled={busy||running} onClick={()=>action(async()=>{const value=await window.desktop.backup();if(value.saved)setMessage(`Backup saved: ${value.path}`);})}><Download size={16}/>Create backup</button><button type="button" className="secondary" disabled={busy||running} onClick={()=>action(async()=>{const value=await window.desktop.restoreBackup();if(value.restored)setMessage('Workspace restored. Reopening…');})}><Upload size={16}/>Restore backup</button></div></div>
-        <div className="settings-section"><h3>App behavior</h3><label className="check-row"><input type="checkbox" checked={form.closeToTray} onChange={e=>update('closeToTray',e.target.checked)}/>Keep running in the system tray when the window closes</label><label className="check-row"><input type="checkbox" checked={form.startAtLogin} onChange={e=>update('startAtLogin',e.target.checked)}/>Start Tv Tracker when I sign in to Windows</label><p className="field-help">Scheduled extractions run while the app is open or in the tray and the computer is awake. Use Workspace → Quit to stop the app.</p></div>
+        <div className="settings-section"><h3>Support diagnostics</h3><p className="field-help">Export operation times, failure categories and workspace counts. The file excludes credentials, account names and order contents.</p><button type="button" className="secondary" disabled={busy} onClick={()=>action(async()=>{const response=await fetch('/api/desktop/diagnostics');if(!response.ok)throw Error('Diagnostics could not be exported.');const value=await response.json();saveBlob(new Blob([JSON.stringify(value,null,2)],{type:'application/json'}),'Tv-Tracker-diagnostics.json');setMessage('Diagnostics exported.');})}><Download size={16}/>Export diagnostics</button></div>
+        <div className="settings-section"><h3>App behavior</h3><label className="check-row"><input type="checkbox" checked={form.closeToTray} onChange={e=>update('closeToTray',e.target.checked)}/>Keep running in the system tray when the window closes</label><label className="check-row"><input type="checkbox" checked={form.startAtLogin} onChange={e=>update('startAtLogin',e.target.checked)}/>Start Tv Tracker when I sign in to Windows</label><p className="field-help">Scheduled extractions run while the app is open or in the tray and the computer is awake. After a missed time, one catch-up capture covers all missed times that day. Older days are skipped. Use Workspace → Quit to stop the app.</p></div>
         <div className="settings-section"><h3>Extraction browser</h3><p className="field-help">{form.browserDetected?'A supported browser was detected.':'Install Microsoft Edge or Google Chrome, or select its executable.'}</p><div className="browser-choice"><input aria-label="Browser executable" value={form.browserPath} readOnly placeholder="Automatically detect Edge or Chrome"/><button type="button" className="secondary" onClick={()=>action(async()=>{const value=await window.desktop.chooseBrowser();if(value)update('browserPath',value);})}>Choose browser</button><button type="button" className="text-button" onClick={()=>update('browserPath','')}>Use automatic</button></div></div>
       </>}
       {error&&<div className="notice error" role="alert">{error}</div>}{message&&<div className="notice success" role="status"><Check size={16}/>{message}</div>}
@@ -85,9 +88,18 @@ function Connections({onClose,running,initialTab='connections'}) {
   </Dialog>;
 }
 
-const PAGES=[['sheets','Production data sheets'],['captures','Saved captures'],['daily','Daily Orders'],['monthly','Monthly report'],['audit','Sync activity'],['changes','Changes between captures']];
+const PAGES=[['overview','Overview'],['sheets','Orders'],['captures','Saved captures'],['daily','Daily Orders'],['monthly','Monthly report'],['audit','Sync activity'],['changes','Changes between captures']];
 export function DesktopTools({onNavigate,onImport,running}) {
   const [settings,setSettings]=useState(false),[commands,setCommands]=useState(false),[query,setQuery]=useState(''),[settingsTab,setSettingsTab]=useState('connections');
+  const [updateState,setUpdateState]=useState(null),[connectionRecovery,setConnectionRecovery]=useState(null);
+  useEffect(()=>{
+    let active=true;
+    const receive=value=>{if(active)setUpdateState(value);};
+    const unsubscribe=window.desktop?.onUpdateState?.(receive);
+    window.desktop?.getUpdateState?.().then(receive).catch(()=>{});
+    window.desktop?.getSettings?.().then(value=>{if(active)setConnectionRecovery(value.connectionRecovery||null);}).catch(()=>{});
+    return()=>{active=false;unsubscribe?.();};
+  },[]);
   useEffect(()=>{
     const open=()=>{setSettingsTab('connections');setSettings(true);};
     const keyboard=e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='k'){e.preventDefault();setQuery('');setCommands(value=>!value);}if((e.ctrlKey||e.metaKey)&&e.key===','){e.preventDefault();setSettings(true);}};
@@ -96,7 +108,7 @@ export function DesktopTools({onNavigate,onImport,running}) {
     return()=>{unsubscribe?.();window.removeEventListener('datatrace:settings',open);window.removeEventListener('keydown',keyboard);};
   },[]);
   const options=[...PAGES.map(([id,label])=>({label,action:()=>onNavigate(id)})),{label:'Import Excel or CSV',action:onImport},{label:'Connections & settings',action:()=>setSettings(true)}].filter(item=>item.label.toLowerCase().includes(query.toLowerCase()));
-  return <><button className="quick-command" aria-label="Quick actions" onClick={()=>{setQuery('');setCommands(true);}}><Command size={15}/><span>Quick actions</span><kbd>Ctrl K</kbd></button><button className="settings-button" aria-label="Connections & settings" title="Connections & settings (Ctrl+,)" onClick={()=>setSettings(true)}><Settings2 size={18}/></button>
+  return <>{connectionRecovery&&<button className="secondary" onClick={()=>{setSettingsTab('connections');setSettings(true);}}>Review connections</button>}{['available','downloaded'].includes(updateState?.status)&&<button className="secondary" onClick={()=>{setSettingsTab('updates');setSettings(true);}}><Download size={15}/>{updateState.status==='downloaded'?'Update ready':'Update available'}</button>}<button className="quick-command" aria-label="Quick actions" onClick={()=>{setQuery('');setCommands(true);}}><Command size={15}/><span>Quick actions</span><kbd>Ctrl K</kbd></button><button className="settings-button" aria-label="Connections & settings" title="Connections & settings (Ctrl+,)" onClick={()=>{setSettingsTab('connections');setSettings(true);}}><Settings2 size={18}/></button>
     {settings&&<Connections onClose={()=>setSettings(false)} running={running} initialTab={settingsTab}/>}
     {commands&&<Dialog title="Quick actions" onClose={()=>setCommands(false)} className="command-dialog"><div className="command-search"><Command size={19}/><input aria-label="Find an action" autoFocus placeholder="Where would you like to go?" value={query} onChange={e=>setQuery(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&options[0]){e.preventDefault();setCommands(false);options[0].action();}}}/></div><div className="command-results">{options.map(item=><button key={item.label} onClick={()=>{setCommands(false);item.action();}}>{item.label}<ArrowRight size={15}/></button>)}{!options.length&&<p className="muted">No matching actions</p>}</div><div className="command-hint">Tab to move · Enter to open · Esc to close</div></Dialog>}
   </>;

@@ -1,6 +1,8 @@
 const {contextBridge, ipcRenderer} = require('electron');
 contextBridge.exposeInMainWorld('desktop', Object.freeze({
   getSettings: () => ipcRenderer.invoke('desktop:settings'),
+  getPreferences: () => ipcRenderer.invoke('desktop:preferences'),
+  savePreferences: value => ipcRenderer.invoke('desktop:save-preferences', value),
   getUpdateState: () => ipcRenderer.invoke('desktop:update-state'),
   checkForUpdates: () => ipcRenderer.invoke('desktop:update-check'),
   downloadUpdate: () => ipcRenderer.invoke('desktop:update-download'),

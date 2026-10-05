@@ -24,10 +24,11 @@ test('data sheets reads all tracker rows even when an older preview is selected'
   await page.goto('/');
   await expect(page.locator('.metric').filter({hasText:'Visible orders'}).locator('strong')).toHaveText('3');
   await page.locator('.preview-select').filter({hasText:'preview1'}).click();
+  await page.getByRole('button',{name:'Orders',exact:true}).click();
   await expect(page.locator('.metric').filter({hasText:'Visible orders'}).locator('strong')).toHaveText('3');
-  await expect(page.getByRole('button',{name:'Overview',exact:true})).toHaveCount(0);
-  await expect(page.getByRole('heading',{name:'Status Report',exact:true})).toBeVisible();
-  await page.getByRole('button',{name:'Data sheets',exact:true}).click();
+  await page.getByRole('button',{name:'Overview',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Status summary',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'Orders',exact:true}).click();
   await expect(page.getByText('Completed and Delivered').first()).toBeVisible();
   await page.getByRole('button',{name:'Daily Orders',exact:true}).click();
   await page.getByRole('button',{name:'Monthly report',exact:true}).click();

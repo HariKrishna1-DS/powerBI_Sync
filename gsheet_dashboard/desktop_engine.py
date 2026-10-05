@@ -49,7 +49,8 @@ def main():
     from waitress import create_server
     from server import create_app
     shutdown = threading.Event()
-    app = create_app(start_scheduler=True)
+    # A locked credential vault must not consume scheduled captures or retry cloud work.
+    app = create_app(start_scheduler=os.environ.get('DATATRACE_CONNECTION_RECOVERY') != '1')
     app.config['DESKTOP_SHUTDOWN'] = shutdown.set
     server = create_server(app, host='127.0.0.1', port=0, threads=6)
     threading.Thread(target=server.run, daemon=True).start()

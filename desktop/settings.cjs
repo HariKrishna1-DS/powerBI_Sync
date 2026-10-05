@@ -53,38 +53,119 @@ function validateServiceAccount(raw) {
 }
 
 function publicSettings(settings) {
-  const {password, serviceAccount, ...publicFields} = settings;
+  const {password, serviceAccount, uiPreferences, ...publicFields} = settings;
   return {...publicFields, passwordSet: !!password, serviceAccountEmail: serviceAccount ? JSON.parse(serviceAccount).client_email : '', googleConfigured: !!(serviceAccount && settings.spreadsheetId)};
 }
 
+function validateUiPreferences(input, previous = {theme:'system', orderViews:[]}) {
+  const object = value => value && typeof value === 'object' && !Array.isArray(value);
+  const text = (value, max) => typeof value === 'string' && value.length <= max;
+  if (!object(input) || Buffer.byteLength(JSON.stringify(input)) > 131072 ||
+      Object.keys(input).some(key => !['theme','orderViews'].includes(key))) throw Error('Invalid workspace preferences.');
+  const next = {...previous};
+  if ('theme' in input) {
+    if (!['light','dark','system'].includes(input.theme)) throw Error('Invalid appearance.');
+    next.theme = input.theme;
+  }
+  if ('orderViews' in input) {
+    if (!Array.isArray(input.orderViews) || input.orderViews.length > 12) throw Error('Save at most 12 views.');
+    const operators = ['none','contains','excludes','equals','blank','notblank','gt','lt','between'];
+    for (const view of input.orderViews) {
+      if (!object(view) || !text(view.name,50) || !view.name.trim() || !text(view.search,2048) ||
+          !['all','attention'].includes(view.group) || !text(view.product,512) || !object(view.filters) ||
+          Object.keys(view.filters).length > 100) throw Error('Invalid saved view.');
+      for (const [column,filter] of Object.entries(view.filters)) {
+        if (!text(column,256) || !object(filter) ||
+            (filter.values != null && (!Array.isArray(filter.values) || filter.values.length > 2000 || !filter.values.every(v=>text(v,2048)))) ||
+            (filter.operator != null && !operators.includes(filter.operator)) ||
+            (filter.query != null && !text(filter.query,2048)) || (filter.end != null && !text(filter.end,2048))) throw Error('Invalid saved filter.');
+      }
+    }
+    next.orderViews = JSON.parse(JSON.stringify(input.orderViews));
+  }
+  return next;
+}
+
 function createVault(file, safeStorage) {
+  let recovery = null;
   function requireEncryption() {
     if (!safeStorage.isEncryptionAvailable()) throw Error('Windows credential encryption is unavailable. Sign into Windows and try again.');
   }
-  return {
-    read() {
-      if (!fs.existsSync(file)) return {...DEFAULTS};
-      requireEncryption();
-      try {
-        const saved = {...DEFAULTS, ...JSON.parse(safeStorage.decryptString(fs.readFileSync(file)))};
+  function decode(buffer) {
+        const value = JSON.parse(safeStorage.decryptString(buffer));
+        if (!value || typeof value !== 'object' || Array.isArray(value)) throw Error('Invalid settings record.');
+        const saved = {...DEFAULTS, ...value};
         for (const key of ['fullTrackerTitle', 'remainingTrackerTitle']) {
           if (saved[key] === `${DEFAULTS[key]}_-_September_2026`) saved[key] = DEFAULTS[key];
         }
         return saved;
-      }
-      catch { throw Error('Saved settings could not be decrypted for this Windows account. Restore your original account or move settings.vault aside to configure a new connection.'); }
+  }
+  function atomicWrite(target, bytes) {
+    const temporary = `${target}.${process.pid}.tmp`;
+    const fd = fs.openSync(temporary, 'w', 0o600);
+    try { fs.writeFileSync(fd, bytes); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    fs.renameSync(temporary, target);
+  }
+  function backup() {
+    if (!fs.existsSync(file)) return null;
+    const directory = path.join(path.dirname(file), 'connection-backups', `${new Date().toISOString().replace(/[:.]/g, '-')}-${require('node:crypto').randomUUID()}`);
+    fs.mkdirSync(directory, {recursive: true});
+    for (const name of [path.basename(file), `${path.basename(file)}.bak`, 'Local State']) {
+      const source = path.join(path.dirname(file), name);
+      if (fs.existsSync(source)) fs.copyFileSync(source, path.join(directory, name), fs.constants.COPYFILE_EXCL);
+    }
+    return directory;
+  }
+  const vault = {
+    status: () => recovery && {...recovery},
+    backup,
+    read() {
+      if (!fs.existsSync(file)) return {...DEFAULTS};
+      requireEncryption();
+      try { return decode(fs.readFileSync(file)); }
+      catch { throw Error('Saved connections could not be unlocked. Your original settings and workspace have been preserved.'); }
     },
-    write(settings) {
+    readRecoverably() {
+      try {
+        if (!fs.existsSync(file) && fs.existsSync(`${file}.bak`)) throw Error('Primary settings are missing.');
+        return vault.read();
+      }
+      catch {
+        try {
+          requireEncryption();
+          const previous = decode(fs.readFileSync(`${file}.bak`));
+          backup();
+          atomicWrite(file, fs.readFileSync(`${file}.bak`));
+          recovery = {status: 'restored', message: 'Connections were restored from the last verified local backup. Check Connections & settings before your next capture.'};
+          return previous;
+        } catch {
+          recovery = {status: 'locked', message: 'Saved connections could not be unlocked. Your captures and original settings are preserved. Reconnect in Connections & settings. Scheduled work is paused until connections are saved.'};
+          return {...DEFAULTS};
+        }
+      }
+    },
+    write(settings, {replaceUnreadable = false} = {}) {
+      if (recovery?.status === 'locked' && !replaceUnreadable) throw Error('Reconnect in Connections & settings before saving preferences. Your original settings are preserved.');
       requireEncryption();
       fs.mkdirSync(path.dirname(file), {recursive: true});
-      const temporary = `${file}.tmp`;
-      fs.writeFileSync(temporary, safeStorage.encryptString(JSON.stringify(settings)), {mode: 0o600});
-      fs.renameSync(temporary, file);
+      const raw = JSON.stringify(settings);
+      const encrypted = safeStorage.encryptString(raw);
+      if (safeStorage.decryptString(encrypted) !== raw) throw Error('Windows could not verify the saved connections. Nothing was replaced.');
+      if (recovery?.status === 'locked') backup();
+      if (fs.existsSync(file) && recovery?.status !== 'locked') {
+        const previous = fs.readFileSync(file);
+        decode(previous);
+        atomicWrite(`${file}.bak`, previous);
+      }
+      atomicWrite(file, encrypted);
+      if (!fs.existsSync(`${file}.bak`) || recovery?.status === 'locked') atomicWrite(`${file}.bak`, encrypted);
+      recovery = null;
     },
   };
+  return vault;
 }
 
 function allowedExternal(value) {
   try { const url = new URL(value); return url.protocol === 'https:' && ['docs.google.com', 'console.cloud.google.com', 'tv.datatracetitle.com'].includes(url.hostname) && !url.username && !url.password; } catch { return false; }
 }
-module.exports = {DEFAULTS, validateSettings, validateServiceAccount, publicSettings, createVault, allowedExternal};
+module.exports = {DEFAULTS, validateSettings, validateServiceAccount, validateUiPreferences, publicSettings, createVault, allowedExternal};

@@ -29,7 +29,7 @@ test('retry targets the failed capture and CSV downloads the filtered production
   await expect.poll(()=>calls.length).toBe(1);
   expect(calls[0]).toEqual({preview:1});
   await page.getByRole('textbox',{name:'Search rows'}).fill('VISIBLE');
-  await expect(page.getByRole('cell',{name:'VISIBLE',exact:true}).first()).toBeVisible();
+  await expect(page.getByRole('button',{name:'Open order VISIBLE',exact:true})).toBeVisible();
   const downloading=page.waitForEvent('download');
   await page.getByRole('button',{name:'CSV',exact:true}).click();
   const download=await downloading;

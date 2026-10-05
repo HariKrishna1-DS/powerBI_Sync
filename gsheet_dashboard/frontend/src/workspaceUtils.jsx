@@ -32,7 +32,8 @@ function saveBlob(blob, filename) {
   a.href = url; a.download = filename; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 function csvDownload(rows, columns, name) {
-  const cell = value => '"' + str(value).replaceAll('"', '""') + '"';
+  // Spreadsheet applications execute formula-looking text even in quoted CSV cells.
+  const cell = value => {const raw=str(value);return '"'+(/^[\s]*[=+@-]|^[\t\r\n]/.test(raw)?"'":'')+raw.replaceAll('"','""')+'"';};
   saveBlob(new Blob(['\ufeff' + [columns, ...rows.map(row => columns.map(c => row[c]))].map(row => row.map(cell).join(',')).join('\r\n')], {type: 'text/csv;charset=utf-8'}), name);
 }
 function matches(row, filters, except) {

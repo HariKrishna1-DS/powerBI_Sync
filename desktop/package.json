@@ -1,6 +1,6 @@
 {
   "name": "tv-tracker",
-  "version": "2.2.1",
+  "version": "2.4.1",
   "description": "Private desktop workspace for title production and Google Sheets synchronization",
   "author": "Tv Tracker",
   "private": true,
@@ -16,7 +16,7 @@
     "productName": "Tv Tracker",
     "asar": true,
     "directories": {
-      "output": "../release/2.2.1",
+      "output": "../release/${version}",
       "buildResources": "assets"
     },
     "files": [

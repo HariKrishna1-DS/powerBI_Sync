@@ -3,8 +3,8 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const {spawn, execFile} = require('node:child_process');
-const {createVault, publicSettings, validateSettings, validateServiceAccount, allowedExternal} = require('./settings.cjs');
-const {createUpdater} = require('./updater.cjs');
+const {createVault, publicSettings, validateSettings, validateServiceAccount, validateUiPreferences, allowedExternal} = require('./settings.cjs');
+const {createUpdater, scheduleUpdateChecks} = require('./updater.cjs');
 
 app.setName('Tv Tracker');
 app.setAppUserModelId('com.datatrace.studio');
@@ -13,7 +13,7 @@ app.setPath('userData', process.env.DATATRACE_TEST_USER_DATA || path.join(app.ge
 const root = path.resolve(__dirname, '..');
 let window, tray, backend, backendUrl = '', settings, vault, pendingAccount;
 let quitting = false, restarting = false, quitRequested = false;
-let updates;
+let updates, stopUpdateChecks;
 const token = crypto.randomBytes(32).toString('hex');
 const icon = path.join(__dirname, 'assets', 'icon.png');
 const dataPath = path.join(app.getPath('userData'), 'workspace');
@@ -36,7 +36,8 @@ function safeError(error) {
   return message.slice(0, 2000);
 }
 function publicState() {
-  return {...publicSettings(settings), version: app.getVersion(), dataPath, browserDetected: !!detectBrowser(), packaged: app.isPackaged};
+  const connectionRecovery = vault.status() || (settings.connectionRepairPending ? {status: 'incomplete', message: 'Complete your Google Sheets and TitleVision connection details, then save to resume scheduled work. Your saved captures are available.'} : null);
+  return {...publicSettings(settings), connectionRecovery, version: app.getVersion(), dataPath, browserDetected: !!detectBrowser(), packaged: app.isPackaged};
 }
 function configureStartup(preserveDisabled = false) {
   // Retain the v2.0 registry entry name but update its executable after an upgrade.
@@ -69,6 +70,7 @@ async function startBackend() {
     DATATRACE_SPREADSHEET_ID: settings.spreadsheetId, DATATRACE_QUEUE_URL: settings.queueUrl,
     DATATRACE_FULL_TRACKER: settings.fullTrackerTitle, DATATRACE_REMAINING_TRACKER: settings.remainingTrackerTitle,
     DATATRACE_USERNAME: settings.username, DATATRACE_PASSWORD: settings.password,
+    DATATRACE_CONNECTION_RECOVERY: vault.status()?.status === 'locked' || settings.connectionRepairPending ? '1' : '0',
     GOOGLE_SERVICE_ACCOUNT_JSON: settings.serviceAccount, DATATRACE_HEADLESS: 'true',
     DATATRACE_NODE_EXECUTABLE: process.execPath,
     DATATRACE_EXTRACTOR_DIR: app.isPackaged ? path.join(process.resourcesPath, 'extractor') : path.join(root, '.desktop-build', 'extractor'),
@@ -158,6 +160,13 @@ function registerIpc() {
     try { return await handler(payload); } catch (error) { throw Error(safeError(error)); }
   });
   handle('desktop:settings', () => publicState());
+  handle('desktop:preferences', () => settings.uiPreferences || {theme:'system', orderViews:[]});
+  handle('desktop:save-preferences', input => {
+    const uiPreferences = validateUiPreferences(input, settings.uiPreferences);
+    const next = {...settings, uiPreferences};
+    vault.write(next); settings = next;
+    return uiPreferences;
+  });
   handle('desktop:update-state', () => updates.state());
   handle('desktop:update-check', () => updates.check());
   handle('desktop:update-download', () => updates.download());
@@ -181,7 +190,13 @@ function registerIpc() {
     const next = validateSettings(input, settings);
     if (pendingAccount) next.serviceAccount = pendingAccount;
     if (input.clearServiceAccount === true) next.serviceAccount = '';
-    vault.write(next); settings = next; pendingAccount = undefined;
+    if (vault.status()?.status === 'locked') next.connectionRepairPending = true;
+    if (next.connectionRepairPending && next.username && next.password && next.spreadsheetId && next.serviceAccount) next.connectionRepairPending = false;
+    if (vault.status()?.status === 'locked') {
+      const confirmation = await dialog.showMessageBox(window, {type: 'warning', message: 'Save these as your new connections?', detail: 'The original encrypted settings and their encryption metadata will be retained in connection-backups. Saved captures are unchanged.', buttons: ['Cancel', 'Save connections'], defaultId: 0, cancelId: 0});
+      if (confirmation.response !== 1) throw Error('Connections were not replaced. Your original settings are preserved.');
+    }
+    vault.write(next, {replaceUnreadable: true}); settings = next; pendingAccount = undefined;
     configureStartup();
     restarting = true;
     try { await stopBackend(); await startBackend(); configureSession(); }
@@ -211,8 +226,8 @@ function registerIpc() {
   });
 }
 async function launch() {
-  vault = createVault(settingsPath, safeStorage); settings = vault.read();
-  configureStartup(true);
+  vault = createVault(settingsPath, safeStorage); settings = vault.readRecoverably();
+  if (vault.status()?.status !== 'locked') configureStartup(true);
   await startBackend();
   window = new BrowserWindow({title: 'Tv Tracker', width: 1440, height: 960, minWidth: 980, minHeight: 680, backgroundColor: '#f5f6fa', show: false, icon,
     webPreferences: {preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, spellcheck: false}});
@@ -221,8 +236,10 @@ async function launch() {
     notify: state => { if (window && !window.isDestroyed()) window.webContents.send('desktop:update-state', state); },
     prepareInstall: async () => {
       if (restarting || quitRequested) throw Error('Wait for the app to finish restarting before installing.');
+      // Preserve both encrypted connections and their profile key before replacing binaries.
+      vault.backup();
       // The engine atomically enters maintenance mode and rejects shutdown during active jobs.
-      await engineRequest('/api/desktop/shutdown', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({force: false})});
+      await engineRequest('/api/desktop/shutdown', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({force: false, backup: true})});
       quitting = true;
       const child = backend;
       if (child && child.exitCode === null) {
@@ -256,11 +273,13 @@ async function launch() {
   tray.setContextMenu(Menu.buildFromTemplate([{label: 'Open Tv Tracker', click: focusWindow}, {label: 'Connections & settings', click: () => sendCommand('settings')}, {type: 'separator'}, {label: 'Quit', click: requestQuit}]));
   tray.on('double-click', focusWindow);
   await window.loadURL(backendUrl);
+  if (app.isPackaged) stopUpdateChecks = scheduleUpdateChecks(updates);
 }
 app.on('second-instance', focusWindow);
 app.on('activate', focusWindow);
 app.on('before-quit', event => { if (!quitting) { event.preventDefault(); requestQuit(); } });
 app.on('window-all-closed', () => { if (quitting) app.quit(); });
+app.on('will-quit', () => stopUpdateChecks?.());
 if (gotLock) app.whenReady().then(launch).catch(async error => {
   quitting = true;
   await stopBackend(true);

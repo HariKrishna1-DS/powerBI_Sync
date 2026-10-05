@@ -216,7 +216,7 @@ class SheetTransactionTests(unittest.TestCase):
         b = self.frame(2, [{'Order Number': 'B', 'Product': 'Full Title', 'Task Status': 'In Progress'}])
         sync_trackers(b, book=self.book)
         rows = records(self.book.worksheet(FULL).get_all_values())
-        self.assertEqual([r['Order Number'] for r in rows], ['BASE', 'A', 'B'])
+        self.assertEqual([r['Order Number'] for r in rows], ['A', 'B', 'BASE'])  # Missing arrivals tie-break by order.
         self.assertEqual(self.book.worksheet('Sheet1').get_all_values()[:len(old)], old)
         self.assertFalse(any(s.title.startswith('preview') for s in self.book.worksheets()))
         self.assertFalse(any(s.title in ('Preview History', 'Default conflicts', 'Changes', 'Ambiguous - Needs review')
@@ -229,7 +229,8 @@ class SheetTransactionTests(unittest.TestCase):
         sync_trackers(frame, book=self.book)
         count = len(self.book.batches)
         sync_trackers(frame, book=self.book)
-        self.assertEqual(len(self.book.batches), count)
+        self.assertEqual(len(self.book.batches), count+1)  # Formatting is reapplied without rewriting data.
+        self.assertFalse(any('updateCells' in r for r in self.book.batches[-1]['requests']))
 
     def test_numeric_archive_round_trip_retry_does_not_duplicate(self):
         frame = self.frame(1, [{'Order Number': '001', 'Product': 'Full Title',
@@ -239,7 +240,8 @@ class SheetTransactionTests(unittest.TestCase):
         archive.values[1][archive.values[0].index('Queue Age Hours')] = 240
         count = len(self.book.batches)
         sync_trackers(frame, book=self.book)
-        self.assertEqual(len(self.book.batches), count)
+        self.assertEqual(len(self.book.batches), count+1)
+        self.assertFalse(any('updateCells' in r for r in self.book.batches[-1]['requests']))
         self.assertEqual(len(records(archive.get_all_values())), 1)
 
     def test_numeric_change_or_text_identifier_change_still_blocks_retry(self):

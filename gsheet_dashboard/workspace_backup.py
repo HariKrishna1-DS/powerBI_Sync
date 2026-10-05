@@ -10,7 +10,7 @@ import tempfile
 import zipfile
 
 SETTINGS = ('remaining_products.json', 'sync_schedule.json', 'production-cache.json')
-TABLES = {'previews', 'sla_corrections', 'sync_receipts', 'sync_jobs', 'sync_reports', 'sync_failures', 'sqlite_sequence'}
+TABLES = {'previews', 'sla_corrections', 'sync_receipts', 'sync_jobs', 'sync_reports', 'sync_failures', 'operation_history', 'monthly_operations', 'sqlite_sequence'}
 
 
 def make_backup(store):

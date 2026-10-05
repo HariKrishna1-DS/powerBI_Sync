@@ -21,9 +21,10 @@ test('connected Google Sheet edits refresh visible data without replacing previe
     if(path==='/api/compare')return route.fulfill({json:{counts:{},record_counts:{},columns:[],rows:[],matched_rows:[],unmatched_rows:[]}});
     return route.fulfill({json:{rows:[]}});
   });
-  await page.goto('http://127.0.0.1:8525');
-  await page.getByRole('button',{name:'Data sheets',exact:true}).click();
-  await expect(page.getByRole('status').filter({hasText:'Connected Google Sheet'})).toBeVisible();
+  await page.goto('/');
+  await page.getByRole('button',{name:'Orders',exact:true}).click();
+  await expect(page.getByRole('status').filter({hasText:'Google Sheets connected'})).toBeVisible();
+  await page.getByRole('button',{name:'Open order A1',exact:true}).click();
   await expect(page.getByText('Original',{exact:true}).first()).toBeVisible();
   sheetComment='Edited in Google Sheet';
   await page.clock.fastForward(30000);

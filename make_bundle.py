@@ -11,7 +11,7 @@ VERSION = json.loads((ROOT / 'desktop' / 'package.json').read_text(encoding='utf
 OUTPUT = ROOT / 'release' / VERSION / f'Tv-Tracker-{VERSION}-source.zip'
 EXCLUDE_DIRS = {'.git', '.venv', 'venv', 'env', 'ENV', 'node_modules', '__pycache__', '.pytest_cache',
                 '.test-deps', '.desktop-build', '.codex', '.agents', 'release', 'test-results',
-                'playwright-report', 'test-output', 'previews', 'dist', 'logs', 'backups'}
+                'playwright-report', 'test-output', 'previews', 'dist', 'logs', 'backups', 'connection-backups'}
 EXCLUDE_SUFFIXES = {'.zip', '.log', '.pyc', '.pyo', '.xlsx', '.csv', '.sqlite', '.sqlite3', '.db', '.pem', '.key'}
 EXCLUDE_NAMES = {'secrets.toml', 'sync_schedule.json', 'sync_status.json', 'production-cache.json', 'desktop-ui-results.json'}
 
@@ -30,7 +30,7 @@ def main():
                     continue
                 if lower.startswith('.env') and lower != '.env.example':
                     continue
-                if 'service_account' in lower or lower.startswith('queue_data') or lower.endswith('.vault'):
+                if 'service_account' in lower or lower.startswith(('queue_data', 'settings.vault')) or lower.endswith('.vault') or lower == 'local state':
                     continue
                 relative = file.relative_to(ROOT).as_posix()
                 data = file.read_bytes()

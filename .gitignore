@@ -26,6 +26,9 @@ desktop/test-output/
 .env
 service_account*.json
 *service_account*
+settings.vault*
+Local State
+connection-backups/
 gsheet_dashboard/sync_status.json
 gsheet_dashboard/queue_data.json
 gsheet_dashboard/previews/

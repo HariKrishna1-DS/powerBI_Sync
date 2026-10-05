@@ -231,8 +231,8 @@ class AtomicSyncTests(unittest.TestCase):
         wb = load_workbook(BytesIO(response.data))
         self.assertNotIn(TRACKER_TITLES[0], wb.sheetnames)
         self.assertEqual(wb['Full Title']['J2'].value, 'Completed and Delivered')
-        self.assertEqual(wb['Full Title']['J2'].fill.fgColor.rgb, '00FFFF99')
-        self.assertEqual(wb['Full Title']['W2'].fill.fgColor.rgb, '00FFFF99')
+        self.assertEqual(wb['Full Title']['J2'].fill.fgColor.rgb, '00FFFFFF')
+        self.assertEqual(wb['Full Title']['W2'].fill.fgColor.rgb, '00FFFFFF')
         self.assertEqual(wb['Full Title']['U2'].value, '10/02/2026 11:00 AM')
 
     def test_sync_failure_retains_saved_preview_for_retry(self):

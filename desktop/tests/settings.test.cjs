@@ -4,7 +4,18 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const crypto = require('node:crypto');
-const {DEFAULTS, validateSettings, validateServiceAccount, publicSettings, createVault, allowedExternal} = require('../settings.cjs');
+const {DEFAULTS, validateSettings, validateServiceAccount, validateUiPreferences, publicSettings, createVault, allowedExternal} = require('../settings.cjs');
+
+test('workspace preferences use narrow bounded contracts and preserve other preferences',()=>{
+  const views=[{name:'My orders',search:'Full Title',group:'attention',product:'all',filters:{Status:{values:['Available'],operator:'contains',query:'avail'}}}];
+  const initial=validateUiPreferences({orderViews:views});
+  assert.deepEqual(validateUiPreferences({theme:'dark'},initial),{theme:'dark',orderViews:views});
+  for(const input of [{theme:'invalid'},{password:'bad'},{orderViews:Array(13).fill(views[0])},
+    {orderViews:[{...views[0],filters:{Status:{values:'not-an-array'}}}]},{orderViews:[{...views[0],search:'x'.repeat(131073)}]}]) {
+    assert.throws(()=>validateUiPreferences(input));
+  }
+  assert.equal('uiPreferences' in publicSettings({...DEFAULTS,uiPreferences:initial}),false);
+});
 
 test('spreadsheet URLs are normalized and empty passwords preserve saved credentials', () => {
   const value = validateSettings({spreadsheetId: 'https://docs.google.com/spreadsheets/d/1234567890123456789012345/edit', password: ''}, {...DEFAULTS, password: 'saved-value'});
@@ -47,10 +58,54 @@ test('vault uses encryption, round-trips, and fails closed on a corrupt file', (
     assert.equal(vault.read().fullTrackerTitle, DEFAULTS.fullTrackerTitle);
     assert.equal(vault.read().remainingTrackerTitle, 'Customer_-_September_2026');
     fs.writeFileSync(file, 'damaged');
-    assert.throws(() => vault.read(), /could not be decrypted/);
+    assert.throws(() => vault.read(), /could not be unlocked/);
+    const recovered = vault.readRecoverably();
+    assert.equal(recovered.password, 'do-not-store-plaintext');
+    assert.equal(vault.status().status, 'restored');
+    assert.ok(fs.readdirSync(path.join(directory, 'connection-backups')).length);
     safeStorage.isEncryptionAvailable = () => false;
     assert.throws(() => vault.write(DEFAULTS), /unavailable/);
   } finally { fs.rmSync(directory, {recursive: true}); }
+});
+
+test('unreadable connections never prevent startup or get overwritten by preference saves', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'datatrace-locked-vault-'));
+  const file = path.join(directory, 'settings.vault');
+  const storage = {isEncryptionAvailable: () => true, encryptString: s => Buffer.from(`encrypted:${s}`), decryptString: b => {
+    if (!b.toString().startsWith('encrypted:')) throw Error('Secret from a provider must not leak');
+    return b.toString().slice(10);
+  }};
+  try {
+    fs.writeFileSync(file, 'original-unreadable');
+    fs.writeFileSync(path.join(directory, 'Local State'), 'original-key-metadata');
+    const vault = createVault(file, storage);
+    assert.deepEqual(vault.readRecoverably(), {...DEFAULTS});
+    assert.equal(vault.status().status, 'locked');
+    assert.throws(() => vault.write({...DEFAULTS, uiPreferences: {theme: 'dark'}}), /Reconnect/);
+    assert.equal(fs.readFileSync(file, 'utf8'), 'original-unreadable');
+    vault.write({...DEFAULTS, username: 'new-connection'}, {replaceUnreadable: true});
+    assert.equal(vault.status(), null);
+    assert.equal(vault.read().username, 'new-connection');
+    const backup = path.join(directory, 'connection-backups', fs.readdirSync(path.join(directory, 'connection-backups'))[0]);
+    assert.equal(fs.readFileSync(path.join(backup, 'settings.vault'), 'utf8'), 'original-unreadable');
+    assert.equal(fs.readFileSync(path.join(backup, 'Local State'), 'utf8'), 'original-key-metadata');
+  } finally { fs.rmSync(directory, {recursive: true}); }
+});
+
+test('failed encryption verification preserves both the primary vault and last backup', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'datatrace-verify-vault-'));
+  const file = path.join(directory, 'settings.vault');
+  let broken = false;
+  const storage = {isEncryptionAvailable:()=>true, encryptString:s=>Buffer.from(s), decryptString:b=>broken?'wrong':b.toString()};
+  try {
+    const vault = createVault(file, storage);
+    vault.write(DEFAULTS);
+    const original = fs.readFileSync(file);
+    broken = true;
+    assert.throws(()=>vault.write({...DEFAULTS, username:'changed'}), /verify/);
+    assert.deepEqual(fs.readFileSync(file), original);
+    assert.deepEqual(fs.readFileSync(`${file}.bak`), original);
+  } finally { fs.rmSync(directory, {recursive:true}); }
 });
 test('external navigation allows exact service hosts and HTTPS only', () => {
   assert.equal(allowedExternal('https://docs.google.com/spreadsheets/d/example'), true);

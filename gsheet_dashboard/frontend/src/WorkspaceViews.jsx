@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Activity, ArrowDown, ArrowUp, ArrowDownToLine, ArrowLeftRight, BarChart3, CalendarDays, Check, ChevronLeft, ChevronRight, Clock3, CloudUpload, Database, FileSpreadsheet, Filter, HardDrive, LoaderCircle, Maximize2, Minimize2, Play, Plus, Printer, Search, SlidersHorizontal, Table2, Trash2, Upload, X } from 'lucide-react';
 import { ResponsiveContainer, LabelList, BarChart, Bar, LineChart, Line, AreaChart, Area, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Brush } from 'recharts';
 import {OfflineNotice} from './DesktopExperience';
+import {MonthlyDownload, MonthlyMaintenance} from './MonthlyMaintenance';
 import remainingProducts from '../../remaining_products.json';
 
 import {EMPTY, DEFAULT_IGNORE, colors, str, label, normalized, badgeClass, STATUS_COLORS, statusColor, textColorForBg, api, saveBlob, csvDownload, matches, IconButton} from './workspaceUtils';
@@ -641,6 +642,7 @@ function MonthlyOrders({preview,running}) {
   const [loading,setLoading]=useState(true), [snapshot,setSnapshot]=useState(null);
   const [slaFilter,setSlaFilter]=useState(''), [refreshId,setRefreshId]=useState(0), [saving,setSaving]=useState(false);
   const savePending=useRef(false), reportVersion=useRef(0);
+  const deferredSearch=useDeferredValue(search);
   useEffect(()=>{
     let active=true, busy=false;
     setLoading(true);
@@ -650,8 +652,8 @@ function MonthlyOrders({preview,running}) {
       const version=reportVersion.current;
       try{
         const data=await api('/api/monthly-orders');
-        if(active&&version===reportVersion.current){setHistory(data.rows);setSnapshot(data);setError(data.sla_error||'');}
-      }catch(e){if(active&&version===reportVersion.current){setHistory([]);setError(e.message);}}
+        if(active&&version===reportVersion.current){setHistory(data.rows);setSnapshot(data);setError(data.sla_error||'');setMonth(current=>current||data.rows.find(row=>row.Month===new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Kolkata',year:'numeric',month:'2-digit'}).format(new Date()))?.Month||data.rows[0]?.Month||'');}
+      }catch(e){if(active&&version===reportVersion.current){setSnapshot(previous=>previous?{...previous,offline:true}:previous);setError(e.message);}}
       finally{busy=false;if(active)setLoading(false);}
     };
     refresh();
@@ -671,20 +673,22 @@ function MonthlyOrders({preview,running}) {
     }finally{savePending.current=false;setSaving(false);}
   };
 
-  const selectedMonth=history.find(m=>m.Month===month)||history[0];
+  const currentMonth=new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Kolkata',year:'numeric',month:'2-digit'}).format(new Date());
+  const selectedMonth=history.find(m=>m.Month===month)||history.find(m=>m.Month===currentMonth)||history[0];
   const columns=selectedMonth?.columns||[];
-  const rows=(selectedMonth?.rows||[]).filter(row=>!search||columns.some(column=>str(row[column]).toLowerCase().includes(search.toLowerCase())));
-  const groups=[
-    ['Month Orders',rows],
-    ['Completed Orders',rows.filter(row=>selectedMonth?.completed_ids?.includes(str(row['Order Number']).trim()))],
-    ['Awaiting for Clarification',rows.filter(row=>normalized(row['Task Status'] ?? row.Status)==='awaiting for clarification')]
-  ];
+  const groups=useMemo(()=>{
+    const query=deferredSearch.toLowerCase(),completed=new Set(selectedMonth?.completed_ids||[]);
+    const rows=(selectedMonth?.rows||[]).filter(row=>!query||columns.some(column=>str(row[column]).toLowerCase().includes(query)));
+    return [['Month Orders',rows],['Completed Orders',rows.filter(row=>completed.has(str(row['Order Number']).trim()))],
+      ['Awaiting for Clarification',rows.filter(row=>normalized(row['Task Status'] ?? row.Status)==='awaiting for clarification')]];
+  },[selectedMonth,deferredSearch]);
   const names=MONTHLY_SERIES.map(series=>series.name);
 
   return <section className="daily-orders"><OfflineNotice snapshot={snapshot}/>
     {error&&<div className="notice error">{error}</div>}
+    <MonthlyMaintenance month={selectedMonth?.Month} running={running||saving||snapshot?.offline} onChanged={()=>setRefreshId(value=>value+1)}/>
     {loading?<div className="loading"><LoaderCircle className="spin"/>Loading monthly orders...</div>:<>
-      <div className="section-heading"><h2>Monthly production orders</h2><label>Month<select aria-label="Monthly orders date" disabled={saving} value={selectedMonth?.Month||''} onChange={e=>{setMonth(e.target.value);setSearch('');}}>{history.map(m=><option key={m.Month} value={m.Month}>{m.MonthLabel || m.Month}</option>)}</select></label></div>
+      <div className="section-heading"><h2>Monthly production orders</h2><div className="monthly-actions"><label>Month<select aria-label="Monthly orders date" disabled={saving} value={selectedMonth?.Month||''} onChange={e=>{setMonth(e.target.value);setSearch('');}}>{history.map(m=><option key={m.Month} value={m.Month}>{m.MonthLabel || m.Month}</option>)}</select></label><MonthlyDownload month={selectedMonth?.Month} disabled={running||saving||snapshot?.offline}/></div></div>
       <div className="metrics">{names.slice(0,3).map((name,index)=><div className={`metric ${['green','red','purple'][index]}`} key={name}><span>{name}</span><strong>{selectedMonth?.[name]??(error?'—':0)}</strong><small>{monthlyPercentage(selectedMonth,name)}</small></div>)}</div>
       <div className="section-heading"><h2>SLA COMMENTS</h2><button className="secondary" disabled={saving} onClick={()=>setRefreshId(value=>value+1)}>Refresh SLA</button></div>
       <div className="metrics sla-metrics">{names.slice(3).map(name=>{const value=name==='SLA On Time'?'On Time':'Missing';return <button className={`metric sla-metric ${value==='On Time'?'green':'amber'}`} key={name} disabled={saving} aria-pressed={slaFilter===value} onClick={()=>setSlaFilter(slaFilter===value?'':value)}><span>{name}</span><strong>{selectedMonth?.[name]??(error?'—':0)}</strong><small>{monthlyPercentage(selectedMonth,name)}</small></button>;})}</div>

@@ -2,11 +2,12 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const puppeteer = require('puppeteer');
+const puppeteer = require('../desktop/extractor/node_modules/puppeteer-core');
 
 // Run the actual scraper against an isolated two-page portal fixture.
 (async () => {
-    const browser = await puppeteer.launch({headless: true});
+    const browser = await puppeteer.launch({headless: true,
+        ...(process.env.PUPPETEER_EXECUTABLE_PATH ? {executablePath:process.env.PUPPETEER_EXECUTABLE_PATH} : {channel:'chrome'})});
     const originalNewPage = browser.newPage.bind(browser);
     browser.newPage = async () => {
         const page = await originalNewPage();
@@ -23,12 +24,13 @@ const puppeteer = require('puppeteer');
         return page;
     };
     let captured;
-    const fakeProcess = {env: {DATATRACE_USERNAME: 'fixture', DATATRACE_PASSWORD: 'fixture', DATATRACE_TIMEOUT_MS: '30000'}, exitCode: 0};
+    const fakeProcess = {env: {DATATRACE_DESKTOP:'1', PUPPETEER_EXECUTABLE_PATH:browser.process().spawnfile,
+        DATATRACE_USERNAME: 'fixture', DATATRACE_PASSWORD: 'fixture', DATATRACE_TIMEOUT_MS: '30000'}, exitCode: 0};
     try {
         await vm.runInNewContext(fs.readFileSync(path.join(__dirname, 'scrape_datatrace.js'), 'utf8'), {
             __dirname, console, setTimeout, process: fakeProcess,
             require(name) {
-                if (name === 'puppeteer') return {launch: async () => browser, executablePath: () => puppeteer.executablePath()};
+                if (name === 'puppeteer-core') return {launch: async () => browser};
                 if (name === './browser_options.cjs') return {browserOptions: () => require('./browser_options.cjs').browserOptions(fakeProcess.env, process.platform)};
                 if (name === 'dotenv') return {config() {}};
                 if (name === 'fs') return {writeFileSync: (_path, data) => {captured = JSON.parse(data);}};

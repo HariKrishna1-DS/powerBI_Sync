@@ -44,7 +44,7 @@ def comparable_rule(rule, row_count=None):
             rgb(fmt.get('textFormat', {}).get('foregroundColor', {})))
 
 
-def ensure_tracker_formatting(book):
+def ensure_tracker_formatting(book, attempt=0):
     """Reconcile owned rules; rereading makes recovery safe after a lost reply.
 
     Open-ended ranges cover future rows and respond to manual Status edits.
@@ -52,16 +52,24 @@ def ensure_tracker_formatting(book):
     """
     from tracker_sync import TRACKERS
     from datatrace_sync import sheet_color
+    from monthly_production import tab_identity, plain_format
     meta = book.fetch_sheet_metadata(params={'fields': 'sheets(properties,conditionalFormats)'})
     requests = []
     for item in meta['sheets']:
         props = item['properties']
-        if props['title'] not in (*TRACKERS, 'Status Report'):
+        if props['title'] not in (*TRACKERS, 'Status Report') and not tab_identity(props['title']):
             continue
         values = book.worksheet(props['title']).get_all_values()
         if not values or 'Status' not in values[0]:
             continue
         rules = item.get('conditionalFormats', [])
+        if props['title'] in TRACKERS or tab_identity(props['title']):
+            # Production is deliberately monochrome, including old status rules.
+            # Other report sheets keep their established status colors.
+            for i in reversed(range(len(rules))):
+                requests.append({'deleteConditionalFormatRule': {'sheetId': props['sheetId'], 'index': i}})
+            requests.extend(plain_format(props['sheetId'], len(values), len(values[0])))
+            continue
         owned = [i for i, rule in enumerate(rules) if MARKER in json.dumps(rule)]
         wanted = rules_for(props['sheetId'], values[0])
         row_count = props.get('gridProperties', {}).get('rowCount')
@@ -83,5 +91,15 @@ def ensure_tracker_formatting(book):
     if requests:
         # Do not retry a precomputed list of add/delete rule requests: on the
         # next attempt reconcile against fresh metadata instead.
-        book.batch_update({'requests': requests})
+        try:
+            book.batch_update({'requests': requests})
+        except Exception as exc:
+            from requests.exceptions import Timeout, ConnectionError
+            from gspread.exceptions import APIError
+            import time
+            transient = isinstance(exc, (Timeout, ConnectionError)) or (isinstance(exc, APIError) and exc.code in (429, 500, 502, 503, 504))
+            if not transient or attempt >= 2:
+                raise
+            time.sleep(2 ** attempt)
+            return ensure_tracker_formatting(book, attempt+1)
     return len(requests)

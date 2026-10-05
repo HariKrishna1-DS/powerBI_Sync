@@ -292,11 +292,16 @@ def sync_lock(root=None):
 
 
 def read_trackers(book):
-    return {title: records(values) for title, _, values in tracker_sources(book)}
+    from monthly_production import decode, tab_identity
+    return {sheet.title if tab_identity(sheet.title) else title: decode(values) for title, sheet, values in tracker_sources(book)}
 
 
 def tracker_sources(book):
     """Read existing legacy names without renaming a Sheet on a read request."""
+    from monthly_production import production_sources
+    monthly = production_sources(book)
+    if monthly:
+        return monthly
     sheets = {sheet.title: sheet for sheet in book.worksheets()}
     result = []
     for title, old, short in ((FULL, OLD_FULL, 'Full Title'), (REMAINING, OLD_REMAINING, 'Remaining Products')):
@@ -310,9 +315,11 @@ def tracker_sources(book):
 
 
 def read_tracker_rows(book):
-    return [dict(row, _sheet=sheet.title, _tracker=title, _sheet_row=index)
+    from monthly_production import decode, tab_identity
+    return [dict(row, _sheet=sheet.title, _tracker=title, _sheet_row=index,
+                 _month=(tab_identity(sheet.title) or ('', ''))[1])
             for title, sheet, values in tracker_sources(book)
-            for index, row in enumerate(records(values), 2)]
+            for index, row in enumerate(decode(values), 2)]
 
 
 def read_preview_history(book):
@@ -405,19 +412,22 @@ def import_default_details(book):
 def sheet_reports(trackers, audit=None):
     """All totals originate in tracker rows returned by Google Sheets."""
     from sla_comments import sla_entry, sla_status
-    rows = [dict(row, _sheet=title) for title in TRACKERS for row in trackers[title] if key(row)]
-    if len({key(row) for row in rows}) != len(rows):
+    from monthly_production import arrival_sort, tab_identity, local_datetime
+    rows = [dict(row, _sheet=row.get('_sheet', title), _tracker=(tab_identity(title) or (title, ''))[0],
+                 _month=row.get('_month') or (tab_identity(title) or ('', ''))[1])
+            for title, items in trackers.items() for row in items if key(row)]
+    if len({(r['_month'], key(r)) for r in rows}) != len(rows):
         raise ValueError('Duplicate Order Number in Google Sheets trackers. Resolve duplicates before reporting.')
     groups = {'daily': {}, 'monthly': {}}
     completed_months = {}
     for row in rows:
-        date = timestamp(row.get('Date')) or timestamp(row.get('In-Time'))
+        date = local_datetime(row.get('In-Time')) or timestamp(row.get('Date'))
         day = date.strftime('%Y-%m-%d') if date else 'Undated'
-        for kind, bucket in (('daily', day), ('monthly', day[:7] if date else 'Undated')):
+        for kind, bucket in (('daily', day), ('monthly', row['_month'] or (day[:7] if date else 'Undated'))):
             groups[kind].setdefault(bucket, []).append(row)
         completed_at = timestamp(row.get('Out Time'))
         if completed_at and sla_status(row.get('Free Site')):
-            month = completed_at.strftime('%Y-%m')
+            month = row['_month'] or completed_at.strftime('%Y-%m')
             completed_months.setdefault(month, []).append(row)
             groups['monthly'].setdefault(month, [])
     reports = {}
@@ -427,6 +437,7 @@ def sheet_reports(trackers, audit=None):
     for kind, buckets in groups.items():
         reports[kind] = []
         for period, items in sorted(buckets.items(), reverse=True):
+            items = arrival_sort(items)
             completed = [r['Order Number'] for r in items if text(r.get('Status')).casefold() == 'completed and delivered']
             absent = [r['Order Number'] for r in items if key(r) in missing]
             new_ids = [r['Order Number'] for r in items if key(r) in added]
@@ -441,7 +452,7 @@ def sheet_reports(trackers, audit=None):
                 'Awaiting for Clarification': sum(text(r.get('Status')).casefold() == 'awaiting for clarification' for r in items),
                 'SLA On Time': sum(r['Free Site'] == 'On Time' for r in sla),
                 'SLA Missed': sum(r['Free Site'] == 'Missing' for r in sla), 'sla_rows': sla,
-                'rows': items, 'columns': HEADERS, 'missing_ids': absent, 'completed_ids': completed,
+                'rows': items, 'columns': list(dict.fromkeys(HEADERS + [c for r in items for c in r if not c.startswith('_')])), 'missing_ids': absent, 'completed_ids': completed,
                 'new_ids': new_ids, 'unchanged_ids': unchanged})
     return reports
 
@@ -465,6 +476,10 @@ def sync_trackers(frame=None, on_progress=None, book=None):
         store = PreviewStore(store_root or BASE / 'previews')
         if book is None:
             book, _ = target_worksheet()
+        from monthly_production import tab_identity
+        if any(tab_identity(s.title) for s in book.worksheets()):
+            from monthly_sync import sync_monthly
+            return sync_monthly(book, frame, store, on_progress)
         worksheets = {s.title: s for s in book.worksheets()}
         if FULL == OLD_FULL.removesuffix('_-_September_2026') and FULL not in worksheets and OLD_FULL in worksheets:
             worksheets[OLD_FULL].update_title(FULL)
@@ -560,6 +575,8 @@ def sync_trackers(frame=None, on_progress=None, book=None):
             except KeyError:
                 previous = committed[last_name]
         merged, report = merge_trackers(current, incoming, previous, anchor)
+        from monthly_production import arrival_sort
+        merged = {title: arrival_sort(rows, report['ambiguous']) for title, rows in merged.items()}
         new_seed_ids = {key(r) for rows in additions.values() for r in rows}
         for rows in merged.values():
             for row in rows:

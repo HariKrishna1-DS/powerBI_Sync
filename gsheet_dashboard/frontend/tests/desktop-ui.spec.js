@@ -24,8 +24,8 @@ test('cached production is explicitly marked offline',async({page})=>{
   await page.goto('/');
   await expect(page.getByText('Viewing a saved Google Sheets copy')).toBeVisible();
   await expect(page.getByText('Google Sheets connected',{exact:false})).toHaveCount(0);
-  await page.getByRole('button',{name:'Data sheets',exact:true}).click();
-  await expect(page.getByRole('cell',{name:'CACHED-ONLY',exact:true}).first()).toBeVisible();
+  await page.getByRole('button',{name:'Orders',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Open order CACHED-ONLY',exact:true})).toBeVisible();
 });
 
 test('large local captures remain paginated and searchable',async({page},testInfo)=>{
@@ -37,7 +37,7 @@ test('large local captures remain paginated and searchable',async({page},testInf
     return route.fulfill({status:routePath==='/api/live-sheets'?502:200,json:routePath==='/api/state'?{...empty,previews:[preview]}:routePath==='/api/previews/1'?{...preview,columns:Object.keys(rows[0]),rows}:{error:'Offline'}});
   });
   await page.goto('/');
-  await page.getByRole('button',{name:'Saved captures',exact:true}).click();
+  await page.getByRole('button',{name:'Captures',exact:true}).click();
   await expect(page.getByRole('cell',{name:'ORDER-00000',exact:true})).toBeVisible();
   await expect(page.locator('tbody tr')).toHaveCount(50);
   const started=Date.now();
