@@ -9,6 +9,7 @@ let snapshot = null;
 export function readProduction(refresh = false) {
   if (inFlight) return refresh && !forced ? inFlight.then(() => readProduction(true), () => readProduction(true)) : inFlight;
   const params = new URLSearchParams();
+  params.set('background', '1');
   if (snapshot?.revision) params.set('revision', snapshot.revision);
   if (refresh) params.set('refresh', '1');
   forced = refresh;

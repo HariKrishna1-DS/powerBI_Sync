@@ -47,7 +47,7 @@ test('production views use retained Sheet orders and Sync activity reads local r
 test('a failed Sheet connection does not show raw previews as production data', async ({page}) => {
   await mockProduction(page, true);
   await page.goto('/');
-  await expect(page.getByRole('status').filter({hasText: 'Connect Google Sheets to load production reports'})).toBeVisible();
+  await expect(page.getByRole('status').filter({hasText: 'Could not refresh Google Sheets reports'})).toBeVisible();
   await expect(page.locator('.metric').filter({hasText: 'Visible orders'}).locator('strong')).toHaveText('0');
   await page.getByRole('button', {name: 'Data Sheets', exact: true}).click();
   await expect(page.getByText('RAW-ONLY', {exact: true})).toHaveCount(0);

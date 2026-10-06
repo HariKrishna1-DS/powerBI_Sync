@@ -41,7 +41,7 @@ def archive_history(store, active_import=None, keep_captures=50, keep_imports=10
     with store.connect() as db:
         for number in candidates:
             db.execute('DELETE FROM previews WHERE id=?', (number,))
-            for table in ('sync_jobs', 'sync_reports', 'sync_failures', 'sync_receipts', 'capture_metadata'):
+            for table in ('sync_jobs', 'sync_reports', 'sync_failures', 'sync_receipts', 'capture_metadata', 'sync_retry'):
                 db.execute(f'DELETE FROM {table} WHERE preview_id=?', (number,))
         db.executemany('DELETE FROM report_imports WHERE id=?', [(identity,) for identity in imports])
     for number in candidates:

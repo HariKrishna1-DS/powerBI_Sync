@@ -12,6 +12,8 @@ try {
   Check-Exit 'Reporting lint'
   & $Python -m ruff check --select E9,F gsheet_dashboard/backup_protection.py gsheet_dashboard/cloud_retention.py gsheet_dashboard/test_backup_protection.py gsheet_dashboard/test_cloud_retention.py desktop/live-sheets-acceptance.py
   Check-Exit 'Recovery lint'
+  & $Python -m ruff check --select E9,F gsheet_dashboard/sheets_transport.py gsheet_dashboard/test_sheets_quota.py gsheet_dashboard/production_cache.py gsheet_dashboard/sheet_reads.py
+  Check-Exit 'Sheets transport lint'
   & $Python -m pip_audit -r desktop/requirements-build.lock --no-deps --disable-pip
   Check-Exit 'Python dependency audit'
 } finally { $env:PYTHONPATH = $priorPath }

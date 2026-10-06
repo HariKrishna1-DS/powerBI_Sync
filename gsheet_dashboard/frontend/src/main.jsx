@@ -144,11 +144,11 @@ function App() {
       catch(e){if(active){setLiveSheets(previous=>previous?{...previous,offline:true}:null);setLiveSheetError(e.message);}}
       finally{busy=false;}
     };
-    refresh();const timer=setInterval(()=>{if(!document.hidden)refresh();},30000);
+    refresh();const timer=setInterval(()=>{if(!document.hidden)refresh();},liveSheets?.refreshing?2000:30000);
     const visible=()=>{if(!document.hidden)refresh();};
     document.addEventListener('visibilitychange',visible);
     return()=>{active=false;clearInterval(timer);document.removeEventListener('visibilitychange',visible);};
-  },[view,state.job.running]);
+  },[view,state.job.running,liveSheets?.refreshing]);
   async function refreshProduction(){
     if(refreshingProduction)return;
     setRefreshingProduction(true);
@@ -307,13 +307,13 @@ function App() {
       <WorkspaceContext view={view} production={productionView} preview={preview} snapshot={liveSheets} running={running} stage={pending&&!state.job.running?'Starting…':state.job.stage} pending={state.pending_sync} selected={selected} sheetUrl={state.sheet_url} onRefresh={refreshProduction} refreshing={refreshingProduction}/>
       {sidebarError&&<div className="notice warning" role="alert">{sidebarError}</div>}
       {deleteMessage&&<div className="notice" role="status">{deleteMessage}<IconButton title="Dismiss recovery message" onClick={()=>setDeleteMessage('')}><X size={16}/></IconButton></div>}
-      {(state.failed_syncs||[]).map(failure=><div key={failure.preview_id} className="notice warning" role="alert"><strong>{failure.preview_name} retained locally.</strong> {failure.error}<button className="secondary" disabled={running} onClick={()=>retryFailed(failure.preview_id)}>Retry sync</button></div>)}
+      {(state.failed_syncs||[]).map(failure=><div key={failure.preview_id} className="notice warning" role={failure.automatic_retry?'status':'alert'}><strong>{failure.preview_name} retained locally.</strong> {failure.error}{failure.automatic_retry?<span>Automatic retry queued{failure.retry_at?` · after ${new Date(failure.retry_at*1000).toLocaleTimeString()}`:''}</span>:<button className="secondary" disabled={running} onClick={()=>retryFailed(failure.preview_id)}>Retry sync</button>}</div>)}
       {view==='audit'&&<div className="notice">Local sync activity · {syncAudit?.preview_name||'No sync report yet'}</div>}
       {view==='audit'&&auditError&&<div className="notice error">{auditError}</div>}
       {error&&<div className="notice error" role="alert">{error}<IconButton title="Dismiss error" onClick={()=>setError('')}><X size={16}/></IconButton></div>}
-      {liveSheetError&&(!state.capabilities?.desktop||state.capabilities?.google_configured)&&productionView&&<div className="notice warning" role="status">Connect Google Sheets to load production reports. {liveSheetError}</div>}
+      {liveSheetError&&(!state.capabilities?.desktop||state.capabilities?.google_configured)&&productionView&&<div className="notice warning" role="status">{liveSheetError.includes('limiting requests')?'': 'Could not refresh Google Sheets reports. '}{liveSheetError}</div>}
       {liveSheets?.cache_warning&&productionView&&<div className="notice warning" role="status">{liveSheets.cache_warning}</div>}
-      {productionView&&<OfflineNotice snapshot={liveSheets}/>}{liveCurrent&&!liveSheets.offline&&<DismissibleNotice key={`connected-${state.job.run_id}`} noticeId={`connected-${state.job.run_id}`} role="status"><Check size={14}/>Google Sheets connected · all retained tracker orders{liveSheets.updated_at&&<span> · Refreshed {new Date(liveSheets.updated_at).toLocaleTimeString()}</span>}</DismissibleNotice>}
+      {productionView&&<OfflineNotice snapshot={liveSheets}/>}{liveCurrent&&!liveSheets.offline&&!liveSheets.refreshing&&<DismissibleNotice key={`connected-${state.job.run_id}`} noticeId={`connected-${state.job.run_id}`} role="status"><Check size={14}/>Google Sheets connected · all retained tracker orders{liveSheets.updated_at&&<span> · Refreshed {new Date(liveSheets.updated_at).toLocaleTimeString()}</span>}</DismissibleNotice>}
       {result?.error&&<DismissibleNotice key={`error-${state.job.run_id}`} noticeId={`error-${state.job.run_id}`} className="notice warning" role="status">{result.preview_name&&<strong>{result.preview_name} saved. </strong>}{result.error}</DismissibleNotice>}
       {result&&!result.error&&!running&&<DismissibleNotice key={`result-${state.job.run_id}`} noticeId={`result-${state.job.run_id}`} className="notice success"><Check size={16}/>{result.action==='sync'?`${result.preview_name} synced · ${result.rows} rows · ${result.worksheets?.length||0} Google Sheets tabs updated`:`${result.preview_name} saved locally · ${result.rows} rows · Google Sheets sync pending`}</DismissibleNotice>}
       {result?.pass_report&&!running&&<DismissibleNotice key={`scan-${state.job.run_id}`} noticeId={`scan-${state.job.run_id}`} role="status">{result.pass_report.scanned} scanned · {result.pass_report.added} added · {result.pass_report.updated} updated · {result.pass_report.unchanged} unchanged · {reportCount(result.pass_report,'not_in_latest')} not in latest preview</DismissibleNotice>}

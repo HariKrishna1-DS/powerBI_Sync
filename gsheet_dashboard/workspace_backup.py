@@ -14,7 +14,7 @@ import re
 from backup_protection import protect, unprotect, suffix
 
 SETTINGS = ('remaining_products.json', 'sync_schedule.json', 'production-cache.json')
-TABLES = {'previews', 'sla_corrections', 'sync_receipts', 'sync_jobs', 'sync_reports', 'sync_failures', 'operation_history', 'monthly_operations', 'sqlite_sequence', 'report_imports', 'report_preferences', 'capacity_targets', 'capture_metadata'}
+TABLES = {'previews', 'sla_corrections', 'sync_receipts', 'sync_jobs', 'sync_reports', 'sync_failures', 'sync_retry', 'operation_history', 'monthly_operations', 'sqlite_sequence', 'report_imports', 'report_preferences', 'capacity_targets', 'capture_metadata'}
 MAX_EXPANDED_BYTES = 256 * 1024 * 1024
 MAX_ARCHIVE_BYTES = 100 * 1024 * 1024
 CLOUD_FILE = re.compile(r'^cloud-archives/cloud-history-[a-f0-9]{32}\.tvcloud$')

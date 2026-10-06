@@ -12,7 +12,8 @@ export class WorkspaceBoundary extends React.Component {
 }
 
 export function OfflineNotice({snapshot}) {
-  return snapshot?.offline ? <div className="offline-notice" role="status"><WifiOff size={17}/><div><strong>Viewing a saved Google Sheets copy</strong><span>Last refreshed {new Date(snapshot.updated_at).toLocaleString()}. Reconnect to sync changes.</span></div></div> : null;
+  if(snapshot?.refreshing)return <div className="offline-notice" role="status"><LoaderCircle className="spin" size={17}/><div><strong>Refreshing Google Sheets reports</strong><span>{snapshot.updated_at?`Showing the saved copy from ${new Date(snapshot.updated_at).toLocaleString()}. `:''}You can keep working while reports refresh.</span></div></div>;
+  return snapshot?.offline ? <div className="offline-notice" role="status"><WifiOff size={17}/><div><strong>Viewing a saved Google Sheets copy</strong><span>Last refreshed {new Date(snapshot.updated_at).toLocaleString()}. {snapshot.sync_error||'Reconnect to sync changes.'}</span></div></div> : null;
 }
 
 export function Dialog({title, children, onClose, className='', initialFocus=''}) {

@@ -9,7 +9,7 @@ def register_report_routes(app, store, gate, maintenance, tracker_snapshot, get_
     workspace = ReportWorkspace(store)
     publish_lock = threading.Lock()
 
-    def snapshot(force=False, known_revision=None):
+    def snapshot(force=False, known_revision=None, background=False):
         prefs = workspace.preferences()
         if prefs['source'] == 'import':
             result = workspace.imported_snapshot()
@@ -17,7 +17,7 @@ def register_report_routes(app, store, gate, maintenance, tracker_snapshot, get_
                 result = {k: v for k, v in result.items() if k not in ('sheets', 'reports')}
                 result['unchanged'] = True
         else:
-            result = tracker_snapshot(force=force, known_revision=known_revision)
+            result = tracker_snapshot(force=force, known_revision=known_revision, background=background)
             result['source_mode'] = 'tracker'
         result['report_preferences'] = prefs
         return result
@@ -38,7 +38,10 @@ def register_report_routes(app, store, gate, maintenance, tracker_snapshot, get_
         try:
             value = snapshot(force=True)
             if value.get('offline'):
-                raise ValueError('Reconnect before publishing tracker reports. The saved offline copy will not overwrite live Sheets.')
+                if value.get('retry_after'):
+                    from sheets_transport import SheetsQuotaError
+                    raise SheetsQuotaError(value['retry_after'])
+                raise ValueError(value.get('sync_error') or 'Reconnect before publishing tracker reports. The saved offline copy will not overwrite live Sheets.')
             result = publish_reports(book, value, workspace.capacity(value))
             workspace.update(publish_status='published', publish_error='', published=result)
             return result

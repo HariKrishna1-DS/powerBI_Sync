@@ -124,9 +124,11 @@ def production_sources(book, sheets=None):
 
 
 def snapshot(book):
+    from sheet_reads import read_values
     aliases = set(BASES) | {'Full Title', 'Remaining Products'} | {base + '_-_September_2026' for base in BASES}
-    data = {s.title: {'id': s.id, 'values': s.get_all_values(value_render_option='FORMULA'), 'formula_cells': []}
-            for s in book.worksheets() if tab_identity(s.title) or s.title in aliases}
+    sheets = [s for s in book.worksheets() if tab_identity(s.title) or s.title in aliases]
+    data = {s.title: {'id': s.id, 'values': values, 'formula_cells': []}
+            for s, values in zip(sheets, read_values(book, sheets, render='FORMULA'))}
     candidates = [title for title, sheet in data.items() if any(isinstance(v, str) and v.startswith('=') for row in sheet['values'] for v in row)]
     if candidates:
         # FORMULA rendering alone cannot distinguish a formula from literal '=text'.

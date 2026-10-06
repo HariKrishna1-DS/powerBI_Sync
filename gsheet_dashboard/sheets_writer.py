@@ -142,7 +142,8 @@ class SharedWriterGuard:
         with self.lock:
             jobs = getattr(_active, 'jobs', {})
             if self.key in jobs:
-                self.ensure()
+                # Guarded mutations revalidate ownership themselves. Re-entering
+                # a local context must not add another remote read per mutation.
                 yield
                 return
             self.enable()
@@ -177,6 +178,8 @@ class SharedWriterGuard:
             _active.jobs = jobs
             jobs[self.key] = token
             try:
+                from sheets_transport import clear_book_metadata
+                clear_book_metadata(self.book)
                 self.ensure()
                 yield
             finally:

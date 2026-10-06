@@ -5,7 +5,7 @@ if ($env:GITHUB_ACTIONS -ne 'true' -or $env:RUNNER_ENVIRONMENT -ne 'github-hoste
 $projectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location -LiteralPath $projectRoot
 $version = (Get-Content desktop/package.json | ConvertFrom-Json).version
-$env:BASELINE_VERSION = '2.7.0'
+$env:BASELINE_VERSION = '2.7.1'
 $baseline = Join-Path $env:RUNNER_TEMP 'tv-tracker-baseline'
 $installation = Join-Path $env:RUNNER_TEMP 'tv-tracker-installed'
 New-Item -ItemType Directory -Path $baseline -ErrorAction Stop | Out-Null

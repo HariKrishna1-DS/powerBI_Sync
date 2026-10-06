@@ -23,6 +23,7 @@ from preview_store import PreviewStore, compare
 from order_reporting import automatic_sync_frame, daily_orders, monthly_orders, AUTOMATIC_RULES, completion_history
 from sync_config import BASE_DIR, ASSET_DIR, SPREADSHEET_ID, TARGET_GSHEET_URL, TRACKER_TITLES
 from production_cache import ProductionCache
+from sheets_transport import SheetsQuotaError, request_context
 from operation_journal import OperationJournal
 from request_metrics import RequestMetrics
 from tracker_sync import read_tracker_rows, read_preview_history, tracker_sources, TRACKERS, FULL, REMAINING, HEADERS, sheet_reports, read_pass_report
@@ -313,11 +314,14 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
                         if len(local['rows']) != len(preview['rows']) or any(not archive_value_matches(a.get(c, ''), b.get(c, '')) for a, b in zip(local['rows'], preview['rows']) for c in local['columns']):
                             raise ValueError(f"Local {local['name']} conflicts with shared history. It was retained; review it before starting another capture.")
                     store.restore(preview['id'], preview['columns'], preview['rows'], preview['source'], created=preview['created'])
-                    store.mark_synced(preview['id'], {'recovered': True})
+                    if preview['id'] not in pending:
+                        store.mark_synced(preview['id'], {'recovered': True})
                 invalidate_snapshot()
             except Exception as exc:
                 app.logger.exception('Could not recover latest preview from Google Sheets')
                 if required:
+                    if isinstance(exc, SheetsQuotaError):
+                        raise
                     if isinstance(exc, ValueError):
                         raise RuntimeError(str(exc)) from exc
                     if desktop_mode and not (SPREADSHEET_ID and os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON')):
@@ -410,6 +414,8 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
     def begin_sync(trigger='manual', preview_id=None, previous_id=None, keys=None, ignore=None, remaining_products=None):
         nonlocal worker_active
         preview_id = int(preview_id) if preview_id is not None else None
+        if trigger == 'manual' and preview_id is not None:
+            store.reset_retry(preview_id)
 
         def work():
             operation_id = None
@@ -443,6 +449,8 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
                     state.update(result=result, stage='Finished')
             except Exception as exc:
                 app.logger.exception('Google Sheets sync failed')
+                if isinstance(exc, SheetsQuotaError) and preview_id is not None:
+                    store.defer_sync(preview_id, str(exc), exc.retry_after)
                 with state_lock:
                     state.update(stage='Sync failed', result={'action': 'sync', 'trigger': trigger,
                                  'google_sheet': 'failed', 'error': str(exc)})
@@ -490,14 +498,17 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
                 if scheduler_stop.is_set():
                     raise RuntimeError('Sync interrupted; the capture remains saved.')
                 worksheets = syncer(frame, on_progress=progress) if syncer is sync_workbook else syncer(frame)
-                store.mark_synced(number, frame.attrs.get('pass_report', {}))
                 invalidate_snapshot()
                 production_cache.invalidate()
                 if syncer is sync_workbook:
                     app.extensions['publish_reports']()
+                store.mark_synced(number, frame.attrs.get('pass_report', {}))
                 return worksheets
             except Exception as exc:
                 # Validation/conflict errors need intervention, not automatic retries.
+                if isinstance(exc, SheetsQuotaError):
+                    store.defer_sync(number, str(exc), exc.retry_after)
+                    raise
                 if isinstance(exc, (ValueError, KeyError)) or attempt == 2 or scheduler_stop.is_set():
                     store.mark_failed(number, str(exc))
                     raise
@@ -505,7 +516,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
                 scheduler_stop.wait(2 ** attempt)
 
     def drain_earlier_previews(preview_id, retry_failed=False):
-        failures = {row['preview_id'] for row in store.failed_syncs()}
+        failures = {row['preview_id'] for row in store.failed_syncs() if not row.get('automatic_retry')}
         for number in store.unsynced_ids():
             if number >= preview_id:
                 break
@@ -607,6 +618,10 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
     @app.errorhandler(ValueError)
     def invalid(exc):
         return jsonify(error=str(exc)), 422
+
+    @app.errorhandler(SheetsQuotaError)
+    def sheets_busy(exc):
+        return jsonify(error=str(exc), retry_after=exc.retry_after), 429
 
     @app.errorhandler(KeyError)
     def missing(exc):
@@ -822,7 +837,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
             finally:
                 gate.release()
 
-    def tracker_snapshot(force=False, known_revision=None):
+    def tracker_snapshot(force=False, known_revision=None, background=False):
         def load():
             book, _ = target_worksheet()
             sheets, trackers, groups = {}, {}, {}
@@ -850,7 +865,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
             audit = read_pass_report(book, store)
             reports = sheet_reports(trackers, audit)
             return dict(preview_name=audit.get('preview_name'), sheets=sheets, reports=reports, source='Google Sheets', offline=False)
-        result = production_cache.get(load, force=force, known_revision=known_revision) if desktop_mode else load()
+        result = production_cache.get(load, force=force, known_revision=known_revision, background=background) if desktop_mode else load()
         if result.get('unchanged'):
             return result
         # Older desktop caches did not include reports. Derive them from their saved tracker rows.
@@ -865,16 +880,21 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
     production_snapshot = register_report_routes(app, store, gate, maintenance, tracker_snapshot,
                                                  lambda: target_worksheet(), SPREADSHEET_ID)
 
+    from contextlib import contextmanager
+    @contextmanager
     def writer_job(label, wait=600):
         from contextlib import nullcontext
-        if desktop_mode and syncer is sync_workbook:
-            from sheets_writer import shared_job
-            book, _ = target_worksheet()
-            def progress(message):
-                with state_lock:
-                    state['stage'] = message
-            return shared_job(book, label, wait=wait, progress=progress)
-        return nullcontext()
+        def progress(message):
+            with state_lock:
+                state['stage'] = message
+        with request_context(progress, scheduler_stop):
+            context = nullcontext()
+            if desktop_mode and syncer is sync_workbook:
+                from sheets_writer import shared_job
+                book, _ = target_worksheet()
+                context = shared_job(book, label, wait=wait, progress=progress)
+            with context:
+                yield
 
     def release_writer_job(scope):
         try:
@@ -908,7 +928,10 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
         if app.extensions['report_workspace'].preferences()['source'] == 'tracker':
             recover_latest_preview()
         try:
-            return jsonify(production_snapshot(force=request.args.get('refresh') == '1', known_revision=request.args.get('revision')))
+            return jsonify(production_snapshot(force=request.args.get('refresh') == '1', known_revision=request.args.get('revision'),
+                                               background=desktop_mode and request.args.get('background') == '1'))
+        except SheetsQuotaError as exc:
+            return sheets_busy(exc)
         except RuntimeError as exc:
             return jsonify(error=str(exc)), 502
         except Exception as exc:

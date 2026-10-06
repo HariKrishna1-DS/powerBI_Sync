@@ -70,7 +70,8 @@ def target_worksheet():
     try:
         credentials = Credentials.from_service_account_info(
             info, scopes=['https://www.googleapis.com/auth/spreadsheets'])
-        client = gspread.authorize(credentials)
+        from sheets_transport import QuotaHTTPClient
+        client = gspread.authorize(credentials, http_client=QuotaHTTPClient)
         client.set_timeout((10, 90))
         book = client.open_by_key(SPREADSHEET_ID)
         if os.environ.get('DATATRACE_DESKTOP') == '1':
@@ -95,6 +96,19 @@ def target_worksheet():
                        'GOOGLE_SERVICE_ACCOUNT_JSON, then restart or redeploy the backend.')
         raise RuntimeError(message) from exc
     except Exception as exc:
+        from sheets_transport import SheetsQuotaError
+        from gspread.exceptions import APIError, WorksheetNotFound
+        from requests.exceptions import ConnectionError, Timeout
+        if isinstance(exc, SheetsQuotaError):
+            raise
+        if isinstance(exc, APIError) and exc.code == 429:
+            raise SheetsQuotaError() from exc
+        if isinstance(exc, (ConnectionError, Timeout)) or (isinstance(exc, APIError) and exc.code >= 500):
+            raise RuntimeError('Google Sheets is temporarily unavailable. Your saved data is safe. '
+                               'Check the internet connection and retry shortly; connection settings were retained.') from exc
+        if isinstance(exc, WorksheetNotFound):
+            raise RuntimeError(f'The configured Google Sheets tab (gid={WORKSHEET_GID}) was not found. '
+                               'Choose an existing tab in Connections & settings.') from exc
         raise RuntimeError(
             f'Google Sheets access failed ({type(exc).__name__}). Enable the Google Sheets API, '
             f'check credentials and worksheet gid={WORKSHEET_GID}, and share '

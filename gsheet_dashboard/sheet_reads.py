@@ -1,18 +1,18 @@
 """Read-only batching that preserves worksheet order and formatted cell values."""
 
 
-def read_values(book, sheets):
+def read_values(book, sheets, render='FORMATTED_VALUE', headers_only=False):
     sheets = list(sheets)
     if not sheets:
         return []
     # Legacy adapters and fixture books may only expose worksheet reads.
     if not callable(getattr(type(book), 'values_batch_get', None)):
-        return [sheet.get_all_values() for sheet in sheets]
+        return [sheet.get_all_values(value_render_option=render) if render != 'FORMATTED_VALUE' else sheet.get_all_values() for sheet in sheets]
     values = []
     for offset in range(0, len(sheets), 50):
         group = sheets[offset:offset + 50]
-        ranges = ["'" + sheet.title.replace("'", "''") + "'" for sheet in group]
-        response = book.values_batch_get(ranges, params={'valueRenderOption': 'FORMATTED_VALUE'})
+        ranges = ["'" + sheet.title.replace("'", "''") + "'" + ('!1:1' if headers_only else '') for sheet in group]
+        response = book.values_batch_get(ranges, params={'valueRenderOption': render})
         blocks = response.get('valueRanges') if isinstance(response, dict) else None
         if not isinstance(blocks, list) or len(blocks) != len(group):
             raise RuntimeError('Google Sheets returned an incomplete production read. Refresh to retry.')

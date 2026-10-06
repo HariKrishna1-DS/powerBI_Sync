@@ -68,12 +68,18 @@ def ensure_tracker_formatting(book, attempt=0):
     from monthly_production import tab_identity
     from monthly_views import view_identity
     meta = book.fetch_sheet_metadata(params={'fields': 'sheets(properties,conditionalFormats)'})
+    from sheet_reads import read_values
+    from types import SimpleNamespace
+    eligible = [item for item in meta['sheets'] if item['properties']['title'] in (*TRACKERS, 'Status Report', 'All Products', 'Sheet1')
+                or tab_identity(item['properties']['title']) or view_identity(item['properties']['title'])]
+    # Formatting only needs the header, not thousands of historical order rows.
+    if callable(getattr(type(book), 'values_batch_get', None)):
+        headers = read_values(book, [SimpleNamespace(title=item['properties']['title']) for item in eligible], headers_only=True)
+    else:
+        headers = [book.worksheet(item['properties']['title']).get_all_values()[:1] for item in eligible]
     requests = []
-    for item in meta['sheets']:
+    for item, values in zip(eligible, headers):
         props = item['properties']
-        if props['title'] not in (*TRACKERS, 'Status Report', 'All Products', 'Sheet1') and not tab_identity(props['title']) and not view_identity(props['title']):
-            continue
-        values = book.worksheet(props['title']).get_all_values()
         if not values or not any(column in values[0] for column in ('Status', 'Task Status')):
             continue
         rules = item.get('conditionalFormats', [])

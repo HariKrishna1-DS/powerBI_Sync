@@ -29,9 +29,17 @@ class PreviewStore:
             db.execute('CREATE TABLE IF NOT EXISTS sync_jobs (preview_id INTEGER PRIMARY KEY, state TEXT NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS sync_reports (preview_id INTEGER PRIMARY KEY, sha256 TEXT NOT NULL, report_json TEXT NOT NULL, committed INTEGER NOT NULL DEFAULT 0)')
             db.execute('CREATE TABLE IF NOT EXISTS sync_failures (preview_id INTEGER PRIMARY KEY, error TEXT NOT NULL, created TEXT NOT NULL)')
+            db.execute('CREATE TABLE IF NOT EXISTS sync_retry (preview_id INTEGER PRIMARY KEY, retry_at REAL NOT NULL, attempts INTEGER NOT NULL)')
             # Upgrade v2.0 without re-uploading already committed snapshots.
             db.execute("INSERT OR IGNORE INTO sync_jobs SELECT preview_id, 'synced' FROM sync_receipts")
             db.execute('CREATE TABLE IF NOT EXISTS capture_metadata (preview_id INTEGER PRIMARY KEY, metadata_json TEXT NOT NULL)')
+            # v2.7.1 made transient 429s permanent failures. Resume only that
+            # specific failure class; permission/data conflicts stay manual.
+            for number, error in db.execute("SELECT f.preview_id,f.error FROM sync_failures f JOIN sync_jobs j ON j.preview_id=f.preview_id WHERE j.state='failed'").fetchall():
+                if '[429]' in error and 'Quota exceeded' in error:
+                    db.execute("UPDATE sync_jobs SET state='waiting' WHERE preview_id=?", (number,))
+                    db.execute('INSERT OR IGNORE INTO sync_retry VALUES(?,0,0)', (number,))
+                    db.execute("UPDATE sync_failures SET error='Google Sheets request limit reached. Saved capture queued for automatic retry.' WHERE preview_id=?", (number,))
 
 
     @contextmanager
@@ -127,7 +135,7 @@ class PreviewStore:
     def delete(self, number):
         with self.connect() as db:
             cursor = db.execute('DELETE FROM previews WHERE id=' + '?', (number,))
-            for table in ('sync_jobs', 'sync_reports', 'sync_failures', 'sync_receipts', 'capture_metadata'):
+            for table in ('sync_jobs', 'sync_reports', 'sync_failures', 'sync_receipts', 'capture_metadata', 'sync_retry'):
                 db.execute(f'DELETE FROM {table} WHERE preview_id=?', (number,))
         if not cursor.rowcount:
             raise KeyError('Preview not found.')
@@ -162,6 +170,7 @@ class PreviewStore:
         with self.connect() as db:
             db.execute("INSERT INTO sync_jobs VALUES(?, 'synced') ON CONFLICT(preview_id) DO UPDATE SET state='synced'", (number,))
             db.execute('DELETE FROM sync_failures WHERE preview_id=?', (number,))
+            db.execute('DELETE FROM sync_retry WHERE preview_id=?', (number,))
             db.execute('INSERT INTO sync_receipts VALUES(?,?) ON CONFLICT(preview_id) DO UPDATE SET report_json=excluded.report_json', (number, json.dumps(report or {})))
 
     def stage_sync_report(self, number, digest, report):
@@ -199,18 +208,45 @@ class PreviewStore:
             db.execute('INSERT INTO sync_failures VALUES(?,?,?) ON CONFLICT(preview_id) DO UPDATE SET error=excluded.error,created=excluded.created',
                        (number, str(error), datetime.now(timezone.utc).isoformat()))
 
+    def defer_sync(self, number, error, seconds=65):
+        """Persist quota recovery across app restarts; never skip an older capture."""
+        import time
+        with self.connect() as db:
+            row = db.execute('SELECT attempts,retry_at FROM sync_retry WHERE preview_id=?', (number,)).fetchone()
+            if row and row[1] > time.time():
+                return  # The outer operation is reporting the same deferred attempt.
+            attempts = (row[0] if row else 0) + 1
+            if attempts > 5:
+                self.mark_failed(number, 'Google Sheets remained busy after five automatic recovery attempts. '
+                                 'Your capture is safe. Check other computers and retry sync when ready.')
+                return
+            db.execute("INSERT INTO sync_jobs VALUES(?, 'waiting') ON CONFLICT(preview_id) DO UPDATE SET state='waiting'", (number,))
+            db.execute('INSERT INTO sync_retry VALUES(?,?,?) ON CONFLICT(preview_id) DO UPDATE SET retry_at=excluded.retry_at,attempts=excluded.attempts',
+                       (number, time.time() + max(seconds, min(600, 65 * attempts)), attempts))
+            db.execute('INSERT INTO sync_failures VALUES(?,?,?) ON CONFLICT(preview_id) DO UPDATE SET error=excluded.error,created=excluded.created',
+                       (number, str(error), datetime.now(timezone.utc).isoformat()))
+
+    def reset_retry(self, number):
+        with self.connect() as db:
+            db.execute('DELETE FROM sync_retry WHERE preview_id=?', (number,))
+
     def failed_syncs(self):
         with self.connect() as db:
-            return [{'preview_id': number, 'preview_name': f'preview{number}', 'error': error, 'created': created}
-                    for number, error, created in db.execute('SELECT preview_id,error,created FROM sync_failures ORDER BY preview_id')]
+            return [{'preview_id': number, 'preview_name': f'preview{number}', 'error': error, 'created': created,
+                     'automatic_retry': state == 'waiting', 'retry_at': retry_at}
+                    for number, error, created, state, retry_at in db.execute('SELECT f.preview_id,f.error,f.created,j.state,r.retry_at FROM sync_failures f '
+                        'LEFT JOIN sync_jobs j ON j.preview_id=f.preview_id LEFT JOIN sync_retry r ON r.preview_id=f.preview_id ORDER BY f.preview_id')]
 
     def pending_syncs(self):
         """Automatic retries stop at the first failed capture until explicit retry."""
         with self.connect() as db:
             rows = db.execute("SELECT id,state FROM previews LEFT JOIN sync_jobs ON preview_id=id WHERE state IS NULL OR state!='synced' ORDER BY id").fetchall()
         pending = []
+        import time
+        with self.connect() as db:
+            retry_at = dict(db.execute('SELECT preview_id,retry_at FROM sync_retry'))
         for number, state in rows:
-            if state == 'failed':
+            if state == 'failed' or (state == 'waiting' and retry_at.get(number, 0) > time.time()):
                 break
             pending.append(number)
         return pending
