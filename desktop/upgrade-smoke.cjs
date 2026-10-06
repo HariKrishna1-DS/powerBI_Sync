@@ -38,7 +38,7 @@ const crypto = require('node:crypto');
   try {
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
     let page = await launch(process.env.BASELINE_EXE || path.resolve('release/2.6.0/win-unpacked/Tv Tracker.exe'));
-    assert.equal((await page.evaluate(() => window.desktop.getUpdateState())).currentVersion, '2.6.0');
+    assert.equal((await page.evaluate(() => window.desktop.getUpdateState())).currentVersion, process.env.BASELINE_VERSION || '2.6.0');
     console.log('Baseline: save connections and wait for engine restart.');
     const oldOrigin = new URL(page.url()).origin;
     await page.evaluate(() => window.desktop.saveSettings({username: 'upgrade-fixture', password: 'Fixture-only upgrade password'}));
@@ -99,7 +99,7 @@ const crypto = require('node:crypto');
       assert.ok(matches, 'NSIS must install the exact candidate application');
       await new Promise(resolve => setTimeout(resolve, 5000));
     } else await quit();
-    console.log('Opening 2.7.0 with the existing 2.6.0 profile.');
+    console.log(`Opening ${version} with the existing ${process.env.BASELINE_VERSION || '2.6.0'} profile.`);
     page = await launch(process.env.DESKTOP_EXE || path.join(folder, 'win-unpacked/Tv Tracker.exe'));
     assert.equal((await page.evaluate(() => window.desktop.getUpdateState())).currentVersion, version);
     const settings = await page.evaluate(() => window.desktop.getSettings());
@@ -116,7 +116,7 @@ const crypto = require('node:crypto');
     await page.evaluate(() => { window.desktop.restoreBackup('').catch(() => {}); });
     await page.waitForEvent('load', {timeout: 30000});
     assert.deepEqual(await page.evaluate(async () => (await (await fetch('/api/state')).json()).previews), baseline);
-    console.log(JSON.stringify({passed: true, from: '2.6.0', to: version,
+    console.log(JSON.stringify({passed: true, from: process.env.BASELINE_VERSION || '2.6.0', to: version,
       installerExecuted: install,
       checks: ['actual updater download and SHA-512', 'isolated update cache', 'failed installer handoff recovery', 'version migration preserves capture and encrypted connections and preferences', 'restore real pre-update backup'],
       limitations: ['loopback transport, not hosted GitHub assets', ...(!install ? ['NSIS installation not executed'] : []), 'synthetic profile']}));

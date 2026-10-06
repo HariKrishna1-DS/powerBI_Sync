@@ -24,6 +24,8 @@ The rename preserves the previous DataTrace Studio profile and installer identit
 
 ## Current workflow
 
+**2.7.1 shared-workbook fix:** all updated PCs can capture and publish one job at a time. Stop older jobs and update every writer before resuming. See [rollout, conflict review and recovery](docs/TV_TRACKER_2_7_1_RELEASE.md).
+
 - **Data sheets:** combined production trackers, individual trackers, and Status Report. Live production values come from Google Sheets.
 - **Saved captures:** immutable imported/extracted queues, available locally with raw Excel and filtered CSV downloads.
 - **Daily Orders / Monthly report:** retained production orders with period navigation and labeled charts. Monthly SLA entries follow actual completion month.

@@ -34,11 +34,11 @@ def completion_inferred(row):
 
 
 def counts(rows):
-    from production_timing import sla_result
+    from production_timing import sla_result, sla_review_reason
     buckets = Counter(status_bucket(row) for row in rows)
     result = {'Received': len(rows), **{name: buckets[name] for name in STATUS_COLUMNS},
               'On time SLA': 0, 'Missed SLA': 0, 'SLA Unclassified': 0,
-              'Inferred Completions': 0}
+              'Inferred Completions': 0, 'SLA Review Reasons': {}}
     for row in rows:
         if status_bucket(row) != 'Completed':
             continue
@@ -51,15 +51,21 @@ def counts(rows):
             outcome = 'On Time' if override == 'on time' else 'Missing'
         if inferred or not outcome:
             result['SLA Unclassified'] += 1
+            reason = sla_review_reason(row)
+            result['SLA Review Reasons'][reason] = result['SLA Review Reasons'].get(reason, 0) + 1
         else:
             result['On time SLA' if outcome == 'On Time' else 'Missed SLA'] += 1
     return result
 
 
 def enrich_reports(reports):
+    from production_timing import sla_review_reason
     for kind in ('daily', 'monthly'):
         for report in reports.get(kind, []):
             report.update(counts(report.get('rows', [])))
+            report['rows'] = [dict(row, **{'SLA Review Reason': sla_review_reason(row)}) for row in report.get('rows', [])]
+            if 'SLA Review Reason' not in report.get('columns', []):
+                report['columns'] = [*report.get('columns', []), 'SLA Review Reason']
     return reports
 
 

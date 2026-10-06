@@ -486,227 +486,229 @@ def sync_trackers(frame=None, on_progress=None, book=None):
         store = PreviewStore(store_root or BASE / 'previews')
         if book is None:
             book, _ = target_worksheet()
-        from monthly_production import tab_identity
-        if any(tab_identity(s.title) for s in book.worksheets()):
-            from monthly_sync import sync_monthly
-            return sync_monthly(book, frame, store, on_progress)
-        worksheets = {s.title: s for s in book.worksheets()}
-        if FULL == OLD_FULL.removesuffix('_-_September_2026') and FULL not in worksheets and OLD_FULL in worksheets:
-            worksheets[OLD_FULL].update_title(FULL)
-            worksheets[FULL] = worksheets.pop(OLD_FULL)
-        if REMAINING == OLD_REMAINING.removesuffix('_-_September_2026') and REMAINING not in worksheets and OLD_REMAINING in worksheets:
-            worksheets[OLD_REMAINING].update_title(REMAINING)
-            worksheets[REMAINING] = worksheets.pop(OLD_REMAINING)
-        def sheet(title):
-            if title not in worksheets:
-                worksheets[title] = book.add_worksheet(title=title, rows=1, cols=1)
-            return worksheets[title]
-        history_sheet = sheet('Sheet1')
-        history_values = history_sheet.get_all_values(value_render_option='UNFORMATTED_VALUE')
-        history = records(history_values)
-        committed = {}
-        for row in history:
-            if re.fullmatch(r'preview[1-9]\d*', text(row.get('Preview'))):
-                committed.setdefault(row['Preview'], []).append(row)
-        preview = frame.attrs.get('preview_name', 'Preview') if frame is not None else 'Default trackers'
-        original = frame.attrs.get('original_capture') if frame is not None else None
-        incoming = original['rows'] if original else frame.fillna('').to_dict('records') if frame is not None else []
-        digest = hashlib.sha256(json.dumps(incoming, sort_keys=True, default=str).encode()).hexdigest()
-        preview_id = frame.attrs.get('preview_id') if frame is not None else 0
-        receipt = store.get_sync_report(preview_id, include_staged=True)
-        if frame is None and receipt and receipt['committed']:
-            refresh_monthly_views(book)
-            ensure_tracker_formatting(book)
-            import_default_details(book)
-            return list(TRACKERS)
-        if frame is not None and preview in committed:
-            columns = original['columns'] if original else list(frame.columns)
-            raw_committed = committed[preview]
-            if not incoming and len(raw_committed) == 1 and not any(text(raw_committed[0].get(c)) for c in columns):
-                raw_committed = []  # The archive marker represents a valid empty capture.
-            if len(incoming) != len(raw_committed) or any(
-                    not archive_value_matches(wanted.get(c, ''), actual.get(c, ''))
-                    for wanted, actual in zip(incoming, raw_committed) for c in columns):
-                raise ValueError('This preview name already identifies a different saved snapshot.')
-            if receipt and receipt['sha256'] != digest:
-                raise ValueError('This preview has a different saved snapshot hash.')
-            if receipt and not receipt['committed']:
-                verify_tracker_cells(book, receipt['report'].get('_expected_tracker_cells', {}))
-                store.commit_sync_report(preview_id, digest)
-            refresh_monthly_views(book)
-            ensure_tracker_formatting(book)
-            frame.attrs['pass_report'] = {k: v for k, v in receipt['report'].items() if not k.startswith('_')} if receipt else {}
-            return list(TRACKERS) + ['All Products', 'Sheet1']
-        if frame is not None and frame.attrs.get('preview_id'):
-            last = max((int(name[7:]) for name in committed), default=0)
-            if frame.attrs['preview_id'] < last:
-                raise ValueError('An unsynced older preview cannot overwrite a newer tracker state. Review it in history.')
-        defaults = load_defaults()
-        current, additions, requests, saved_values, conflicts = {}, {}, [], {}, []
-        for title in TRACKERS:
-            # Migrate actual legacy tracker tabs by name, never by tab position.
-            legacy = 'Full Title' if title == FULL else 'Remaining Products'
-            default_title = OLD_FULL.removesuffix('_-_September_2026') if title == FULL else OLD_REMAINING.removesuffix('_-_September_2026')
-            if title == default_title and title not in worksheets and legacy in worksheets:
-                worksheets[legacy].update_title(title)
-                worksheets[title] = worksheets.pop(legacy)
-            target = sheet(title)
-            prior = target.get_all_values()
-            if prior and ('Order Number' not in prior[0] or len(set(prior[0])) != len(prior[0])):
-                raise ValueError(f'Tracker {title} needs unique headers and an Order Number column before syncing.')
-            saved_values[title] = prior
-        global_locations = {key(r): title for title in TRACKERS for r in records(saved_values[title]) if key(r)}
-        for title in TRACKERS:
-            prior = saved_values[title]
-            existing = records(prior)
-            ids = {key(r) for r in existing if key(r)}
-            source_ids = set()
-            extra = []
-            serial = max((int(text(r.get('No'))) for r in existing if text(r.get('No')).isdigit()), default=0)
-            for r in defaults[title]:
-                if key(r) in source_ids or (key(r) in global_locations and global_locations[key(r)] != title):
-                    conflicts.append(dict(r, **{'Source tracker': title, 'Reason': 'Duplicate Order Number in default workbook; retained for review'}))
-                source_ids.add(key(r))
-                if key(r) not in global_locations:
-                    serial += 1
-                    seeded = dict(r, No=serial)
-                    seeded['Status'] = STATUS_NAMES.get(text(seeded.get('Status')).casefold(), seeded.get('Status', ''))
-                    extra.append(seeded)
-                    ids.add(key(r))
-                    global_locations[key(r)] = title
-            # When a tracker already exists, its order and values remain authoritative.
-            current[title] = existing + extra
-            additions[title] = extra
-        created = frame.attrs.get('preview_created') if frame is not None else None
-        anchor = datetime.fromisoformat(created).astimezone(IST).replace(tzinfo=None) if created else datetime.now(IST).replace(tzinfo=None)
-        previous = []
-        if committed:
-            last_name = max(committed, key=lambda name: int(name[7:]))
-            try:
-                previous = store.get(int(last_name[7:]))['rows']
-            except KeyError:
-                previous = committed[last_name]
-        completion_history = None
-        if frame is not None and created:
-            completion_history = history + [dict(r, Preview=preview, **{'Preview Timestamp': anchor.isoformat()}) for r in incoming]
-            if not incoming:
-                completion_history.append({'Preview': preview, 'Preview Timestamp': anchor.isoformat()})
-        merged, report = merge_trackers(current, incoming, previous, anchor, completion_history)
-        from monthly_production import arrival_sort
-        merged = {title: arrival_sort(rows, report['ambiguous']) for title, rows in merged.items()}
-        new_seed_ids = {key(r) for rows in additions.values() for r in rows}
-        for rows in merged.values():
-            for row in rows:
-                if key(row) in new_seed_ids and key(row) not in {key(r) for r in incoming}:
-                    row['Free Site'], reason = free_site(row, anchor)
-                    if reason:
-                        report['ambiguous'].append({'Order Number': row['Order Number'], 'Reason': reason})
-        report.update(preview_name=preview, timestamp=anchor.isoformat(),
-                      seeded=sum(len(v) for v in additions.values()),
-                      default_conflicts_count=len(conflicts), default_conflicts=conflicts)
-
-        def write(title, values, tracker=False, append=False):
-            target = sheet(title)
-            prior = saved_values.get(title)
-            if prior is None:
+        from sheets_writer import shared_job
+        with shared_job(book, 'Synchronize queue'):
+            from monthly_production import tab_identity
+            if any(tab_identity(s.title) for s in book.worksheets()):
+                from monthly_sync import sync_monthly
+                return sync_monthly(book, frame, store, on_progress)
+            worksheets = {s.title: s for s in book.worksheets()}
+            if FULL == OLD_FULL.removesuffix('_-_September_2026') and FULL not in worksheets and OLD_FULL in worksheets:
+                worksheets[OLD_FULL].update_title(FULL)
+                worksheets[FULL] = worksheets.pop(OLD_FULL)
+            if REMAINING == OLD_REMAINING.removesuffix('_-_September_2026') and REMAINING not in worksheets and OLD_REMAINING in worksheets:
+                worksheets[OLD_REMAINING].update_title(REMAINING)
+                worksheets[REMAINING] = worksheets.pop(OLD_REMAINING)
+            def sheet(title):
+                if title not in worksheets:
+                    worksheets[title] = book.add_worksheet(title=title, rows=1, cols=1)
+                return worksheets[title]
+            history_sheet = sheet('Sheet1')
+            history_values = history_sheet.get_all_values(value_render_option='UNFORMATTED_VALUE')
+            history = records(history_values)
+            committed = {}
+            for row in history:
+                if re.fullmatch(r'preview[1-9]\d*', text(row.get('Preview'))):
+                    committed.setdefault(row['Preview'], []).append(row)
+            preview = frame.attrs.get('preview_name', 'Preview') if frame is not None else 'Default trackers'
+            original = frame.attrs.get('original_capture') if frame is not None else None
+            incoming = original['rows'] if original else frame.fillna('').to_dict('records') if frame is not None else []
+            digest = hashlib.sha256(json.dumps(incoming, sort_keys=True, default=str).encode()).hexdigest()
+            preview_id = frame.attrs.get('preview_id') if frame is not None else 0
+            receipt = store.get_sync_report(preview_id, include_staged=True)
+            if frame is None and receipt and receipt['committed']:
+                refresh_monthly_views(book)
+                ensure_tracker_formatting(book)
+                import_default_details(book)
+                return list(TRACKERS)
+            if frame is not None and preview in committed:
+                columns = original['columns'] if original else list(frame.columns)
+                raw_committed = committed[preview]
+                if not incoming and len(raw_committed) == 1 and not any(text(raw_committed[0].get(c)) for c in columns):
+                    raw_committed = []  # The archive marker represents a valid empty capture.
+                if len(incoming) != len(raw_committed) or any(
+                        not archive_value_matches(wanted.get(c, ''), actual.get(c, ''))
+                        for wanted, actual in zip(incoming, raw_committed) for c in columns):
+                    raise ValueError('This preview name already identifies a different saved snapshot.')
+                if receipt and receipt['sha256'] != digest:
+                    raise ValueError('This preview has a different saved snapshot hash.')
+                if receipt and not receipt['committed']:
+                    verify_tracker_cells(book, receipt['report'].get('_expected_tracker_cells', {}))
+                    store.commit_sync_report(preview_id, digest)
+                refresh_monthly_views(book)
+                ensure_tracker_formatting(book)
+                frame.attrs['pass_report'] = {k: v for k, v in receipt['report'].items() if not k.startswith('_')} if receipt else {}
+                return list(TRACKERS) + ['All Products', 'Sheet1']
+            if frame is not None and frame.attrs.get('preview_id'):
+                last = max((int(name[7:]) for name in committed), default=0)
+                if frame.attrs['preview_id'] < last:
+                    raise ValueError('An unsynced older preview cannot overwrite a newer tracker state. Review it in history.')
+            defaults = load_defaults()
+            current, additions, requests, saved_values, conflicts = {}, {}, [], {}, []
+            for title in TRACKERS:
+                # Migrate actual legacy tracker tabs by name, never by tab position.
+                legacy = 'Full Title' if title == FULL else 'Remaining Products'
+                default_title = OLD_FULL.removesuffix('_-_September_2026') if title == FULL else OLD_REMAINING.removesuffix('_-_September_2026')
+                if title == default_title and title not in worksheets and legacy in worksheets:
+                    worksheets[legacy].update_title(title)
+                    worksheets[title] = worksheets.pop(legacy)
+                target = sheet(title)
                 prior = target.get_all_values()
-            headers = values[0]
-            rows = values[1:]
-            if append and prior:
-                headers = list(dict.fromkeys(prior[0] + headers))
-                rows = [[r.get(c, '') for c in headers] for r in records(prior) + records(values)]
-                values = [headers] + rows
-            row_count = max(target.row_count, len(values), 2)
-            col_count = max(target.col_count, len(headers), 1)
-            requests.append({'updateSheetProperties': {'properties': {'sheetId': target.id,
-                'gridProperties': {'rowCount': row_count, 'columnCount': col_count, 'frozenRowCount': 1}},
-                'fields': 'gridProperties.rowCount,gridProperties.columnCount,gridProperties.frozenRowCount'}})
-            if tracker and prior:
-                if prior[0] != headers:
-                    # Existing columns retain their positions, new columns append.
-                    requests.append({'updateCells': {'start': {'sheetId': target.id, 'rowIndex': 0, 'columnIndex': 0},
-                        'rows': [{'values': [sheet_cell(c) for c in headers]}], 'fields': 'userEnteredValue'}})
-                for i, row in enumerate(rows, 1):
-                    old = prior[i] if i < len(prior) else []
-                    if i >= len(prior):
-                        if i == len(prior):
-                            requests.append({'updateCells': {'start': {'sheetId': target.id, 'rowIndex': i, 'columnIndex': 0},
-                                'rows': [{'values': [sheet_cell(v) for v in r]} for r in rows[i - 1:]], 'fields': 'userEnteredValue'}})
-                    else:
-                        for j, val in enumerate(row):
-                            old_val = old[j] if j < len(old) else ''
-                            if text(val) != text(old_val):
-                                requests.append({'updateCells': {'start': {'sheetId': target.id, 'rowIndex': i, 'columnIndex': j},
-                                    'rows': [{'values': [sheet_cell(val)]}], 'fields': 'userEnteredValue'}})
-            elif append and prior and prior[0] == headers:
-                requests.append({'updateCells': {'start': {'sheetId': target.id, 'rowIndex': len(prior), 'columnIndex': 0},
-                    'rows': [{'values': [sheet_cell(v) for v in r]} for r in values[len(prior):]], 'fields': 'userEnteredValue'}})
-            else:
-                requests.append({'updateCells': {'range': {'sheetId': target.id, 'startRowIndex': 0,
-                    'endRowIndex': max(len(values), len(prior)), 'startColumnIndex': 0, 'endColumnIndex': max(len(headers), max((len(r) for r in prior), default=0))},
-                    'rows': [{'values': [sheet_cell(v) for v in row]} for row in values], 'fields': 'userEnteredValue'}})
-        for title in TRACKERS:
-            prior_headers = saved_values[title][0] if saved_values[title] else HEADERS
-            headers = list(dict.fromkeys(prior_headers + HEADERS + [c for r in merged[title] for c in r]))
-            write(title, matrix(merged[title], headers), tracker=True)
-        full_headers = list(dict.fromkeys((saved_values[FULL][0] if saved_values[FULL] else HEADERS) + HEADERS + [c for r in merged[FULL] for c in r]))
-        for title, values in monthly_view_values(merged, headers=full_headers).items():
-            from monthly_views import keep_view_headers
-            if title in worksheets:
-                prior_view = worksheets[title].get_all_values()
-                values = keep_view_headers(values, prior_view)
-                if prior_view:
-                    import secrets
-                    used_ids = {s.id for s in worksheets.values()}
-                    backup_id = secrets.randbelow(2**30)
-                    while backup_id in used_ids:
+                if prior and ('Order Number' not in prior[0] or len(set(prior[0])) != len(prior[0])):
+                    raise ValueError(f'Tracker {title} needs unique headers and an Order Number column before syncing.')
+                saved_values[title] = prior
+            global_locations = {key(r): title for title in TRACKERS for r in records(saved_values[title]) if key(r)}
+            for title in TRACKERS:
+                prior = saved_values[title]
+                existing = records(prior)
+                ids = {key(r) for r in existing if key(r)}
+                source_ids = set()
+                extra = []
+                serial = max((int(text(r.get('No'))) for r in existing if text(r.get('No')).isdigit()), default=0)
+                for r in defaults[title]:
+                    if key(r) in source_ids or (key(r) in global_locations and global_locations[key(r)] != title):
+                        conflicts.append(dict(r, **{'Source tracker': title, 'Reason': 'Duplicate Order Number in default workbook; retained for review'}))
+                    source_ids.add(key(r))
+                    if key(r) not in global_locations:
+                        serial += 1
+                        seeded = dict(r, No=serial)
+                        seeded['Status'] = STATUS_NAMES.get(text(seeded.get('Status')).casefold(), seeded.get('Status', ''))
+                        extra.append(seeded)
+                        ids.add(key(r))
+                        global_locations[key(r)] = title
+                # When a tracker already exists, its order and values remain authoritative.
+                current[title] = existing + extra
+                additions[title] = extra
+            created = frame.attrs.get('preview_created') if frame is not None else None
+            anchor = datetime.fromisoformat(created).astimezone(IST).replace(tzinfo=None) if created else datetime.now(IST).replace(tzinfo=None)
+            previous = []
+            if committed:
+                last_name = max(committed, key=lambda name: int(name[7:]))
+                try:
+                    previous = store.get(int(last_name[7:]))['rows']
+                except KeyError:
+                    previous = committed[last_name]
+            completion_history = None
+            if frame is not None and created:
+                completion_history = history + [dict(r, Preview=preview, **{'Preview Timestamp': anchor.isoformat()}) for r in incoming]
+                if not incoming:
+                    completion_history.append({'Preview': preview, 'Preview Timestamp': anchor.isoformat()})
+            merged, report = merge_trackers(current, incoming, previous, anchor, completion_history)
+            from monthly_production import arrival_sort
+            merged = {title: arrival_sort(rows, report['ambiguous']) for title, rows in merged.items()}
+            new_seed_ids = {key(r) for rows in additions.values() for r in rows}
+            for rows in merged.values():
+                for row in rows:
+                    if key(row) in new_seed_ids and key(row) not in {key(r) for r in incoming}:
+                        row['Free Site'], reason = free_site(row, anchor)
+                        if reason:
+                            report['ambiguous'].append({'Order Number': row['Order Number'], 'Reason': reason})
+            report.update(preview_name=preview, timestamp=anchor.isoformat(),
+                          seeded=sum(len(v) for v in additions.values()),
+                          default_conflicts_count=len(conflicts), default_conflicts=conflicts)
+
+            def write(title, values, tracker=False, append=False):
+                target = sheet(title)
+                prior = saved_values.get(title)
+                if prior is None:
+                    prior = target.get_all_values()
+                headers = values[0]
+                rows = values[1:]
+                if append and prior:
+                    headers = list(dict.fromkeys(prior[0] + headers))
+                    rows = [[r.get(c, '') for c in headers] for r in records(prior) + records(values)]
+                    values = [headers] + rows
+                row_count = max(target.row_count, len(values), 2)
+                col_count = max(target.col_count, len(headers), 1)
+                requests.append({'updateSheetProperties': {'properties': {'sheetId': target.id,
+                    'gridProperties': {'rowCount': row_count, 'columnCount': col_count, 'frozenRowCount': 1}},
+                    'fields': 'gridProperties.rowCount,gridProperties.columnCount,gridProperties.frozenRowCount'}})
+                if tracker and prior:
+                    if prior[0] != headers:
+                        # Existing columns retain their positions, new columns append.
+                        requests.append({'updateCells': {'start': {'sheetId': target.id, 'rowIndex': 0, 'columnIndex': 0},
+                            'rows': [{'values': [sheet_cell(c) for c in headers]}], 'fields': 'userEnteredValue'}})
+                    for i, row in enumerate(rows, 1):
+                        old = prior[i] if i < len(prior) else []
+                        if i >= len(prior):
+                            if i == len(prior):
+                                requests.append({'updateCells': {'start': {'sheetId': target.id, 'rowIndex': i, 'columnIndex': 0},
+                                    'rows': [{'values': [sheet_cell(v) for v in r]} for r in rows[i - 1:]], 'fields': 'userEnteredValue'}})
+                        else:
+                            for j, val in enumerate(row):
+                                old_val = old[j] if j < len(old) else ''
+                                if text(val) != text(old_val):
+                                    requests.append({'updateCells': {'start': {'sheetId': target.id, 'rowIndex': i, 'columnIndex': j},
+                                        'rows': [{'values': [sheet_cell(val)]}], 'fields': 'userEnteredValue'}})
+                elif append and prior and prior[0] == headers:
+                    requests.append({'updateCells': {'start': {'sheetId': target.id, 'rowIndex': len(prior), 'columnIndex': 0},
+                        'rows': [{'values': [sheet_cell(v) for v in r]} for r in values[len(prior):]], 'fields': 'userEnteredValue'}})
+                else:
+                    requests.append({'updateCells': {'range': {'sheetId': target.id, 'startRowIndex': 0,
+                        'endRowIndex': max(len(values), len(prior)), 'startColumnIndex': 0, 'endColumnIndex': max(len(headers), max((len(r) for r in prior), default=0))},
+                        'rows': [{'values': [sheet_cell(v) for v in row]} for row in values], 'fields': 'userEnteredValue'}})
+            for title in TRACKERS:
+                prior_headers = saved_values[title][0] if saved_values[title] else HEADERS
+                headers = list(dict.fromkeys(prior_headers + HEADERS + [c for r in merged[title] for c in r]))
+                write(title, matrix(merged[title], headers), tracker=True)
+            full_headers = list(dict.fromkeys((saved_values[FULL][0] if saved_values[FULL] else HEADERS) + HEADERS + [c for r in merged[FULL] for c in r]))
+            for title, values in monthly_view_values(merged, headers=full_headers).items():
+                from monthly_views import keep_view_headers
+                if title in worksheets:
+                    prior_view = worksheets[title].get_all_values()
+                    values = keep_view_headers(values, prior_view)
+                    if prior_view:
+                        import secrets
+                        used_ids = {s.id for s in worksheets.values()}
                         backup_id = secrets.randbelow(2**30)
-                    backup_title = f'__DataTrace_Backup_{title}_{preview}'[:99]
-                    if backup_title not in worksheets:
-                        requests.append({'duplicateSheet': {'sourceSheetId': worksheets[title].id, 'newSheetId': backup_id, 'newSheetName': backup_title}})
-                        requests.append({'updateSheetProperties': {'properties': {'sheetId': backup_id, 'hidden': True}, 'fields': 'hidden'}})
-            write(title, values)
-        if frame is not None:
-            raw_headers = list(original['columns']) if original else list(frame.columns)
-            raw_history = [dict(r, Preview=preview, **{'Preview Timestamp': anchor.isoformat()}) for r in incoming]
-            if not raw_history:
-                raw_history = [{'Preview': preview, 'Preview Timestamp': anchor.isoformat()}]
-            history_headers = list(dict.fromkeys(['Preview', 'Preview Timestamp'] + raw_headers))
-            for title in ('All Products', 'Sheet1'):
-                write(title, matrix(raw_history, history_headers), append=True)
-        # These cached sheets are refreshed from tracker results on each sync. API reports
-        # also reread live tracker values, including subsequent human edits.
-        all_rows = [r for title in TRACKERS for r in merged[title] if key(r)]
-        statuses = Counter(text(r.get('Status')) or '(Blank)' for r in all_rows)
-        write('Status Report', [['Status', 'Orders', 'Share', 'Preview', 'Sync Date & Time']] +
-              [[s, n, n / len(all_rows) if all_rows else 0, preview, anchor.isoformat()] for s, n in statuses.items()])
-        summaries = sheet_reports(merged, report)
-        for title, kind, period in (('Daily Orders', 'daily', 'Date'), ('Monthly report', 'monthly', 'Month')):
-            columns = [period, 'Today Orders' if kind == 'daily' else 'Month Orders', 'Completed Orders',
-                       'Awaiting for Clarification', 'Not in latest preview', 'SLA On Time', 'SLA Missed']
-            write(title, matrix(summaries[kind], columns))
-        report['ambiguous_count'] = len(report['ambiguous'])
-        report['not_in_latest_count'] = len(report['not_in_latest'])
-        report['_expected_tracker_cells'] = {title: [
-            {c: text(row.get(c)) for c in ('Order Number', 'Status', 'ETA', 'Out Time', 'SLA Expiration', 'Free Site', *EMPTY_COLUMNS) if c in row}
-            for row in merged[title]] for title in TRACKERS}
-        store.stage_sync_report(preview_id, digest, report)
-        if on_progress:
-            on_progress(f'Updating trackers and saving {preview} history')
-        write_sheet_batch(book, history_sheet, requests, on_progress)
-        ensure_tracker_formatting(book)
-        actual = read_trackers(book)
-        expected_ids = {key(r) for r in all_rows}
-        actual_ids = {key(r) for rs in actual.values() for r in rs if key(r)}
-        if expected_ids != actual_ids or sum(len(rs) for rs in actual.values()) != sum(len(rs) for rs in merged.values()):
-            raise RuntimeError('Tracker readback totals do not match the sync. Preview retained; retry safely.')
-        verify_tracker_cells(book, report['_expected_tracker_cells'], actual)
-        store.commit_sync_report(preview_id, digest)
-        if frame is not None:
-            frame.attrs['pass_report'] = {k: v for k, v in report.items() if not k.startswith('_')}
-        else:
-            import_default_details(book)
-        return list(TRACKERS) + ['All Products', 'Sheet1', 'Status Report', 'Daily Orders', 'Monthly report']
+                        while backup_id in used_ids:
+                            backup_id = secrets.randbelow(2**30)
+                        backup_title = f'__DataTrace_Backup_{title}_{preview}'[:99]
+                        if backup_title not in worksheets:
+                            requests.append({'duplicateSheet': {'sourceSheetId': worksheets[title].id, 'newSheetId': backup_id, 'newSheetName': backup_title}})
+                            requests.append({'updateSheetProperties': {'properties': {'sheetId': backup_id, 'hidden': True}, 'fields': 'hidden'}})
+                write(title, values)
+            if frame is not None:
+                raw_headers = list(original['columns']) if original else list(frame.columns)
+                raw_history = [dict(r, Preview=preview, **{'Preview Timestamp': anchor.isoformat()}) for r in incoming]
+                if not raw_history:
+                    raw_history = [{'Preview': preview, 'Preview Timestamp': anchor.isoformat()}]
+                history_headers = list(dict.fromkeys(['Preview', 'Preview Timestamp'] + raw_headers))
+                for title in ('All Products', 'Sheet1'):
+                    write(title, matrix(raw_history, history_headers), append=True)
+            # These cached sheets are refreshed from tracker results on each sync. API reports
+            # also reread live tracker values, including subsequent human edits.
+            all_rows = [r for title in TRACKERS for r in merged[title] if key(r)]
+            statuses = Counter(text(r.get('Status')) or '(Blank)' for r in all_rows)
+            write('Status Report', [['Status', 'Orders', 'Share', 'Preview', 'Sync Date & Time']] +
+                  [[s, n, n / len(all_rows) if all_rows else 0, preview, anchor.isoformat()] for s, n in statuses.items()])
+            summaries = sheet_reports(merged, report)
+            for title, kind, period in (('Daily Orders', 'daily', 'Date'), ('Monthly report', 'monthly', 'Month')):
+                columns = [period, 'Today Orders' if kind == 'daily' else 'Month Orders', 'Completed Orders',
+                           'Awaiting for Clarification', 'Not in latest preview', 'SLA On Time', 'SLA Missed']
+                write(title, matrix(summaries[kind], columns))
+            report['ambiguous_count'] = len(report['ambiguous'])
+            report['not_in_latest_count'] = len(report['not_in_latest'])
+            report['_expected_tracker_cells'] = {title: [
+                {c: text(row.get(c)) for c in ('Order Number', 'Status', 'ETA', 'Out Time', 'SLA Expiration', 'Free Site', *EMPTY_COLUMNS) if c in row}
+                for row in merged[title]] for title in TRACKERS}
+            store.stage_sync_report(preview_id, digest, report)
+            if on_progress:
+                on_progress(f'Updating trackers and saving {preview} history')
+            write_sheet_batch(book, history_sheet, requests, on_progress)
+            ensure_tracker_formatting(book)
+            actual = read_trackers(book)
+            expected_ids = {key(r) for r in all_rows}
+            actual_ids = {key(r) for rs in actual.values() for r in rs if key(r)}
+            if expected_ids != actual_ids or sum(len(rs) for rs in actual.values()) != sum(len(rs) for rs in merged.values()):
+                raise RuntimeError('Tracker readback totals do not match the sync. Preview retained; retry safely.')
+            verify_tracker_cells(book, report['_expected_tracker_cells'], actual)
+            store.commit_sync_report(preview_id, digest)
+            if frame is not None:
+                frame.attrs['pass_report'] = {k: v for k, v in report.items() if not k.startswith('_')}
+            else:
+                import_default_details(book)
+            return list(TRACKERS) + ['All Products', 'Sheet1', 'Status Report', 'Daily Orders', 'Monthly report']
 
 
 def verify_tracker_cells(book, expected, actual=None):

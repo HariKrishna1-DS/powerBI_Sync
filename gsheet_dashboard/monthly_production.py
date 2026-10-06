@@ -5,6 +5,7 @@ confirmed rollover, never by an ordinary capture. Once carried, an order stays
 in its current month when completed. September 2026 is a read-only archive.
 Raw capture history remains immutable; sorting applies to production records.
 """
+from sheets_writer import coordinated
 from collections import Counter
 from datetime import datetime, timedelta
 from io import BytesIO
@@ -362,6 +363,7 @@ def receipt(book, operation):
     return bool(ledger and any(row and row[0] == operation for row in ledger.get_all_values()[1:]))
 
 
+@coordinated('Monthly maintenance')
 def apply_plan(book, plan, check=True):
     """Backups, creates, renames, replacements and receipt are one atomic batch.
 

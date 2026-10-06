@@ -70,6 +70,45 @@ class ReportWorkspaceTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 read_workbooks([('bad.xlsx', workbook([row]))])
 
+    def test_duplicate_formatting_and_complementary_blank_fields_merge(self):
+        first = order('001', Client='Northstar', Comments='')
+        second = order('001', **{'In-Time': '2026-10-01 09:00:00', 'Client': ' northstar ', 'Comments': 'Verified'})
+        value = read_workbooks([('a.xlsx', workbook([first])), ('b.xlsx', workbook([second]))])
+        self.assertEqual(len(value['rows']), 1)
+        self.assertEqual(value['rows'][0]['Comments'], 'Verified')
+
+    def test_conflict_review_is_explicit_and_bound_to_the_whole_upload(self):
+        from report_workspace import ImportConflictError
+        uploads = [('a.xlsx', workbook([order('001')])), ('b.xlsx', workbook([order('001', 'Cancelled')]))]
+        with self.assertRaises(ImportConflictError) as caught:
+            self.workspace.save_import(uploads)
+        conflict = caught.exception.conflicts[0]
+        self.assertEqual(conflict['order'], '001')
+        self.assertIn('Status', conflict['columns'])
+        self.assertIn('row 2', conflict['options'][1]['source'])
+        choice = {'001': conflict['options'][1]['token']}
+        result = self.workspace.save_import(uploads, choice)
+        self.assertEqual(result['conflicts_resolved'], 1)
+        self.assertEqual(self.workspace.imported_snapshot(result['id'])['reports']['daily'][0]['Cancelled'], 1)
+        uploads[1] = ('b.xlsx', workbook([order('001', 'Completed and Delivered')]))
+        with self.assertRaises(ImportConflictError):
+            self.workspace.save_import(uploads, choice)
+        self.assertEqual(len(self.workspace.imports()), 1)
+
+    def test_timing_review_explains_uncertainty_without_changing_source_data(self):
+        from report_metrics import enrich_reports
+        rows = [order('1', 'Completed'), order('2', 'Completed', **{'Out Time': '10/01/2026'}),
+                order('3', 'Completed', **{'Out Time': '10/01/2026 11:00 AM'}), order('4', 'Cancelled')]
+        reports = {'daily': [{'rows': rows, 'columns': list(rows[0])}], 'monthly': []}
+        enrich_reports(reports)
+        day = reports['daily'][0]
+        self.assertEqual(day['SLA Unclassified'], 3)
+        self.assertEqual(sum(day['SLA Review Reasons'].values()), 3)
+        self.assertEqual(day['rows'][0]['SLA Review Reason'], 'Out Time is missing')
+        self.assertIn('date alone', day['rows'][1]['SLA Review Reason'])
+        self.assertEqual(day['rows'][2]['SLA Review Reason'], 'SLA Expiration is missing')
+        self.assertNotIn('SLA Review Reason', rows[0])
+
     def test_import_reports_are_independent_and_capacity_is_editable(self):
         saved = self.workspace.save_import([('one.xlsx', workbook([order('1'), order('2', 'Cancelled')]))])
         value = self.workspace.imported_snapshot(saved['id'])

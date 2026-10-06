@@ -75,6 +75,42 @@ class ReportSafetyTests(unittest.TestCase):
             self.gate.release()
         self.assertEqual(self.workspace.preferences()['revision'], 0)
 
+    def test_import_route_returns_review_choices_before_creating_a_dataset(self):
+        import json
+        rows = [workbook([order('A')]), workbook([order('A', 'Cancelled')])]
+        def upload(choices=None):
+            return self.client.post('/api/reporting/import', data={'files': [(BytesIO(raw), f'{i}.xlsx') for i, raw in enumerate(rows)], 'choices': json.dumps(choices or {})})
+        response = upload()
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json['conflict_count'], 1)
+        self.assertEqual(self.workspace.imports(), [])
+        conflict = response.json['conflicts'][0]
+        self.assertEqual(upload({conflict['identity']: conflict['options'][1]['token']}).status_code, 200)
+        self.assertEqual(self.workspace.preferences()['source'], 'tracker')
+        self.assertFalse(self.gate.locked())
+
+    def test_shared_recovery_requires_stopped_job_confirmation_and_matching_token(self):
+        from sheets_writer import GuardedBook, JOB_ID, JOB_TITLE
+        raw = self.book
+        self.book = GuardedBook(raw, 'this-PC', shared=True, key=f'recovery-{id(self)}')
+        guard = self.book.writer_guard
+        guard.enable()
+        raw.batch_update({'requests': [{'addSheet': {'properties': {'sheetId': JOB_ID, 'title': JOB_TITLE}}},
+            guard.cells(JOB_ID, [['Protocol', 'Token', 'Computer', 'Job', 'Started'], ['tv-tracker-job-v2', 'token-A', 'stopped-PC', 'Sync', '2020-01-01T00:00:00Z']])]})
+        endpoint = '/api/reporting/shared-job/recover'
+        self.assertEqual(self.client.get('/api/reporting/shared-job').json['job']['token'], 'token-A')
+        self.assertEqual(self.client.post(endpoint, json={'token': 'token-A'}).status_code, 422)
+        self.assertEqual(self.client.post(endpoint, json={'token': 'changed', 'confirmed': True}).status_code, 409)
+        self.assertIsNotNone(guard.job())
+        self.gate.acquire()
+        try:
+            self.assertEqual(self.client.post(endpoint, json={'token': 'token-A', 'confirmed': True}).status_code, 409)
+        finally:
+            self.gate.release()
+        self.assertEqual(self.client.post(endpoint, json={'token': 'token-A', 'confirmed': True}).status_code, 200)
+        self.assertIsNone(guard.job())
+        self.assertFalse(self.gate.locked())
+
     def test_offline_tracker_never_overwrites_sheets_and_restart_exposes_retry(self):
         self.client.post('/api/reporting/publish')
         self.wait_publish()

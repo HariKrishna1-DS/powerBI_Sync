@@ -64,6 +64,24 @@ class PreviewStore:
             export_to_excel_and_csv(frame, self.root / f'preview{number}')
         return self.get(number)
 
+    def next_number(self):
+        with self.connect() as db:
+            value = db.execute("SELECT seq FROM sqlite_sequence WHERE name='previews'").fetchone()
+        return (value[0] if value else 0) + 1
+
+    def reserve_number(self, number):
+        if type(number) is not int or number < 1:
+            raise ValueError('A valid shared preview number is required.')
+        with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            row = db.execute("SELECT seq FROM sqlite_sequence WHERE name='previews'").fetchone()
+            if row and row[0] >= number:
+                raise ValueError('Shared preview numbering moved backwards. No capture was created.')
+            if row:
+                db.execute("UPDATE sqlite_sequence SET seq=? WHERE name='previews'", (number - 1,))
+            else:
+                db.execute("INSERT INTO sqlite_sequence(name,seq) VALUES('previews',?)", (number - 1,))
+
     def restore(self, number, columns, rows, source='Google Sheets recovery', created=None):
         """Recover the last synced numbered preview after ephemeral storage is lost."""
         if number < 1 or not columns:

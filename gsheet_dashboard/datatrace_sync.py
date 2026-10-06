@@ -75,7 +75,7 @@ def target_worksheet():
         book = client.open_by_key(SPREADSHEET_ID)
         if os.environ.get('DATATRACE_DESKTOP') == '1':
             from sheets_writer import GuardedBook, device_identity
-            book = GuardedBook(book, device_identity(BASE_DIR))
+            book = GuardedBook(book, device_identity(BASE_DIR), shared=True, key=SPREADSHEET_ID)
         return book, book.get_worksheet_by_id(WORKSHEET_GID)
     except RefreshError as exc:
         details = next((arg for arg in exc.args if isinstance(arg, dict)), {})

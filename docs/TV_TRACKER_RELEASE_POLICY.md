@@ -16,7 +16,7 @@ pre-install backup. No certificate-validation override was added to the client.
 ## Publication
 
 Pushing `tv-tracker` builds and tests the candidate, then publishes a new version
-only after all gates pass, including actual 2.6.0 installation, in-app updater
+only after all gates pass, including actual 2.7.0 installation, in-app updater
 handoff to the candidate, profile preservation and pre-update backup recovery on
 a disposable Windows runner. Pull requests never publish. A manual workflow run
 can build without publishing, or publish with `publish_release` enabled.
@@ -34,11 +34,12 @@ time, result and recovery evidence for each item:
 1. Complete and incomplete portal capture with current live pagination.
 2. Publication/source switching and charts in an authorized representative
    workbook; verify no unrelated tabs or custom fields are lost.
-3. Two cooperating installations: only the designated writer writes. Stop the
-   old writer before a deliberate transfer. The protocol is not a distributed
-   transaction against manual edits or older software; Google permissions are
-   the external security boundary.
-4. Install the exact candidate over 2.6.0 in an isolated test installation;
+3. Four cooperating updated installations: only one publishing job writes at a
+   time. Update all older writers and stop their jobs before shared-protocol
+   migration. Recover an interrupted slot only after its app is stopped. The
+   protocol cannot coordinate manual edits or external scripts; Google sharing
+   permissions remain the external boundary.
+4. Install the exact candidate over 2.7.0 in an isolated test installation;
    confirm captures, connections, settings and report source survive. Verify
    rollback/recovery using the resulting pre-update backup.
 5. Sleep/resume, internet loss, portal failure and repeated retry on the target

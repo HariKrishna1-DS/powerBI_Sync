@@ -20,7 +20,7 @@ def run(config):
     from preview_store import PreviewStore
     from report_workspace import ReportWorkspace
     from report_publishing import publish_reports, CHART_TITLE
-    from sheets_writer import GuardedBook, WriterGuard
+    from sheets_writer import GuardedBook, WriterGuard, shared_job
 
     identity = config['testSpreadsheetId']
     if identity == config['spreadsheetId']:
@@ -37,8 +37,7 @@ def run(config):
     if any(any(str(cell) for cell in row) for row in prior) and prior != baseline:
         raise ValueError('The synthetic raw tab has unexpected data; refusing to overwrite it.')
     raw.update(values=baseline, range_name='A1')
-    guarded = GuardedBook(book, 'tv-tracker-live-qa-A')
-    guarded.writer_guard.ensure()
+    guarded = GuardedBook(book, 'tv-tracker-live-qa-A', shared=True, key='live-qa-A')
     with tempfile.TemporaryDirectory() as directory:
         workspace = ReportWorkspace(PreviewStore(Path(directory) / 'previews'))
         def snapshot(number, source, remaining=True):
@@ -65,6 +64,20 @@ def run(config):
             raise AssertionError('A second writer was authorized')
         except ValueError:
             pass
+        # Four updated PCs can take turns, while a competing active job is blocked.
+        reserved = []
+        for number in range(4):
+            pc = GuardedBook(book, f'live-pc-{number}', shared=True, key=f'live-pc-{number}')
+            with shared_job(pc, 'Synthetic capture'):
+                reserved.append(pc.writer_guard.reserve_preview(100))
+                other = GuardedBook(book, 'competing-pc', shared=True, key='competing-pc')
+                try:
+                    with shared_job(other):
+                        raise AssertionError('Two PCs owned the same publishing slot')
+                except ValueError:
+                    pass
+            assert pc.writer_guard.job() is None
+        assert len(set(reserved)) == 4 and reserved == list(range(reserved[0], reserved[0] + 4))
         # Commit to the real API, then simulate a lost HTTP reply. The receipt
         # must prove this attempt committed, without replaying sheet creation.
         actual_batch = book.batch_update
@@ -75,12 +88,13 @@ def run(config):
             if len(calls) == 1:
                 raise Timeout('synthetic lost response after real commit')
             return result
-        book.batch_update = lost_reply
         second = snapshot('TV-QA-002', 'Google Sheets (synthetic tracker)', remaining=False)
-        try:
-            updated = publish_reports(guarded, second, workspace.capacity(second))
-        finally:
-            book.batch_update = actual_batch
+        with shared_job(guarded, 'Lost-response acceptance'):
+            book.batch_update = lost_reply
+            try:
+                updated = publish_reports(guarded, second, workspace.capacity(second))
+            finally:
+                book.batch_update = actual_batch
         assert len(calls) == 1, 'Committed update was replayed after a lost reply'
         assert updated['daily_gid'] == initial['daily_gid']
         assert book.worksheet('All Products').acell('A2').value is not None
@@ -123,7 +137,7 @@ def run(config):
         assert book.worksheet('__DataTrace_Backup_000000000001_0').acell('B1', value_render_option='FORMULA').value == '=1+1'
         assert raw.get_all_values() == baseline
         return {'passed': True, 'test_workbook': config['testSpreadsheetId'], 'production_rows_modified': False,
-                'checks': ['live report publication', 'SLA deadline equality', 'source replacement', 'empty product category', 'preserved raw data', 'shared detail schema', 'single capacity chart', 'second writer rejected', 'lost response verified without replay', 'stable daily date links', 'encrypted cloud archive', 'cloud restore with formulas and notes']}
+                'checks': ['live report publication', 'SLA deadline equality', 'source replacement', 'empty product category', 'preserved raw data', 'shared detail schema', 'single capacity chart', 'legacy writer fenced', 'four PCs take turns', 'competing job rejected', 'unique preview reservations', 'lost response verified without replay', 'stable daily date links', 'encrypted cloud archive', 'cloud restore with formulas and notes']}
 
 
 if __name__ == '__main__':

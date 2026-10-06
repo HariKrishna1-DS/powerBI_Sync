@@ -60,6 +60,8 @@ class AtomicBook:
                 if any(s.id == props['sheetId'] or s.title == props['title'] for s in working):
                     raise ValueError('Duplicate worksheet')
                 working.append(Sheet(props['title'], props['sheetId']))
+            elif 'deleteSheet' in request:
+                working.remove(find(request['deleteSheet']['sheetId']))
             elif 'updateSheetProperties' in request:
                 props = request['updateSheetProperties']['properties']
                 target = find(props['sheetId'])

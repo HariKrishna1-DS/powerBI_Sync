@@ -32,6 +32,23 @@ def sla_eligible(row):
     return bool(sla_result(row)[0])
 
 
+def sla_review_reason(row):
+    """Explain unavailable timing without inventing completion or SLA evidence."""
+    from report_metrics import status_bucket, completion_inferred
+    if status_bucket(row) != 'Completed':
+        return ''
+    if completion_inferred(row):
+        return 'Completion inferred from queue absence; delivery needs verification'
+    if not str(row.get('Out Time', '') or '').strip():
+        return 'Out Time is missing'
+    if precise_timestamp(row.get('Out Time')) is None:
+        return 'Out Time needs a valid date and time (a date alone is insufficient)'
+    if not str(row.get('SLA Expiration', '') or '').strip():
+        return 'SLA Expiration is missing'
+    outcome, reason = sla_result(dict(row, Status='Completed and Delivered'))
+    return '' if outcome else (reason or 'SLA Expiration needs a valid date and time')
+
+
 def sla_result(row, anchor=None):
     from tracker_sync import deadline
     if not completed(row):

@@ -19,13 +19,72 @@ def now():
     return datetime.now(timezone.utc).isoformat()
 
 
-def read_workbooks(uploads):
+class ImportConflictError(ValueError):
+    def __init__(self, conflicts):
+        self.conflicts = conflicts
+        super().__init__(f'{len(conflicts)} conflicting duplicate orders need review. Choose the source row to retain for each order, then validate again.')
+
+
+def comparable_value(column, value):
+    from monthly_production import local_datetime
+    raw = ' '.join(str(value or '').split())
+    if column in ('In-Time', 'Out Time', 'SLA Expiration', 'Date'):
+        parsed = local_datetime(raw)
+        if parsed is not None:
+            return parsed.isoformat()
+    return raw.casefold()
+
+
+def merge_rows(prior, current):
+    """Merge complementary fields only when every overlapping value agrees."""
+    ignored = {'No', 'Free Site'}  # Generated fields are recalculated after selection.
+    for column in (prior.keys() & current.keys()) - ignored:
+        if prior[column] and current[column] and comparable_value(column, prior[column]) != comparable_value(column, current[column]):
+            return None
+    return {column: prior.get(column) or current.get(column, '') for column in dict.fromkeys([*prior, *current])}
+
+
+def resolve_import_rows(groups, choices):
+    resolved, conflicts, reviewed = [], [], 0
+    for identity, candidates in groups.items():
+        merged = candidates[0]['row']
+        for candidate in candidates[1:]:
+            merged = merge_rows(merged, candidate['row'])
+            if merged is None:
+                break
+        if merged is not None:
+            resolved.append((candidates[0]['file_index'], merged))
+            continue
+        choice = choices.get(identity)
+        selected = next((candidate for candidate in candidates if candidate['token'] == choice), None)
+        if selected is not None:
+            resolved.append((selected['file_index'], selected['row']))
+            reviewed += 1
+            continue
+        columns = list(dict.fromkeys(column for candidate in candidates for column in candidate['row'] if column not in ('No', 'Free Site')))
+        different = [column for column in columns if len({comparable_value(column, candidate['row'].get(column, '')) for candidate in candidates}) > 1]
+        conflicts.append({'identity': identity, 'order': candidates[0]['row']['Order Number'], 'columns': different,
+                          'options': [{key: candidate[key] for key in ('token', 'source', 'row')} for candidate in candidates]})
+    if conflicts:
+        raise ImportConflictError(conflicts)
+    return resolved, reviewed
+
+
+def read_workbooks(uploads, choices=None):
     from openpyxl import load_workbook
     from monthly_production import local_datetime
     from tracker_sync import canonical_headers, HEADERS, text
     if not uploads or len(uploads) > MAX_FILES:
         raise ValueError(f'Select between 1 and {MAX_FILES} Excel workbooks.')
-    by_order, files, skipped, duplicates, examined = {}, [], [], 0, 0
+    choices = choices or {}
+    if not isinstance(choices, dict) or len(choices) > MAX_ROWS or any(not isinstance(k, str) or not isinstance(v, str) for k, v in choices.items()):
+        raise ValueError('Use the reviewed source-row selections from import validation.')
+    # Bind choices to the entire upload, including its order and filenames.
+    digest = hashlib.sha256()
+    for filename, raw in uploads:
+        digest.update(filename.encode()); digest.update(hashlib.sha256(raw).digest())
+    upload_digest = digest.hexdigest()
+    by_order, files, skipped, examined = {}, [], [], 0
     aliases = {'in time': 'In-Time', 'in-time': 'In-Time', 'arrival time': 'In-Time',
                'out time': 'Out Time', 'sla expiration*': 'SLA Expiration'}
     for filename, raw in uploads:
@@ -39,7 +98,7 @@ def read_workbooks(uploads):
             workbook = load_workbook(BytesIO(raw), read_only=True, data_only=False, keep_links=False)
         except (BadZipFile, OSError, KeyError) as exc:
             raise ValueError(f'{filename}: invalid Excel workbook.') from exc
-        accepted = 0
+        file_index = len(files)
         try:
             for sheet in workbook:
                 iterator = iter(sheet.iter_rows(values_only=True))
@@ -85,25 +144,25 @@ def read_workbooks(uploads):
                     from production_timing import sla_result
                     row['Free Site'], _ = sla_result(row)
                     identity = row['Order Number'].strip().casefold()
-                    comparable = {k: v for k, v in row.items() if k != 'No' and v != ''}
-                    if identity in by_order:
-                        prior = {k: v for k, v in by_order[identity].items() if k != 'No' and v != ''}
-                        if prior != comparable:
-                            raise ValueError(f'{filename} / {sheet.title}, row {index}: conflicting duplicate order across imported sheets. Resolve it before importing.')
-                        duplicates += 1
-                        continue
-                    by_order[identity] = row
-                    accepted += 1
+                    source = f'{filename} / {sheet.title}, row {index}'
+                    token = hashlib.sha256(f'{upload_digest}|{file_index}|{source}'.encode()).hexdigest()
+                    by_order.setdefault(identity, []).append({'row': row, 'file_index': file_index, 'source': source, 'token': token})
         finally:
             workbook.close()
-        files.append({'name': filename, 'accepted': accepted})
+        files.append({'name': filename, 'accepted': 0})
     if not by_order:
         raise ValueError('No production orders found. Import order-level workbooks, not summary reports.')
-    rows = list(by_order.values())
+    selected, reviewed = resolve_import_rows(by_order, choices)
+    rows = []
+    for file_index, row in selected:
+        row['Free Site'], _ = sla_result(row)
+        rows.append(row)
+        files[file_index]['accepted'] += 1
     columns = list(dict.fromkeys(HEADERS + [c for row in rows for c in row if c != 'No']))
     for index, row in enumerate(rows, 1):
         row['No'] = index
-    return {'rows': rows, 'columns': columns, 'files': files, 'skipped': skipped, 'duplicates_removed': duplicates}
+    return {'rows': rows, 'columns': columns, 'files': files, 'skipped': skipped,
+            'duplicates_removed': examined - len(rows), 'conflicts_resolved': reviewed}
 
 
 class ReportWorkspace:
@@ -144,13 +203,13 @@ class ReportWorkspace:
             db.execute('UPDATE report_preferences SET value_json=? WHERE id=1', (json.dumps(value),))
         return value
 
-    def save_import(self, uploads):
-        dataset = read_workbooks(uploads)
+    def save_import(self, uploads, choices=None):
+        dataset = read_workbooks(uploads, choices)
         digest = hashlib.sha256(json.dumps(dataset, sort_keys=True).encode()).hexdigest()
         identity = uuid.uuid4().hex
         with self.store.connect() as db:
             db.execute('INSERT INTO report_imports VALUES(?,?,?,?)', (identity, now(), digest, json.dumps(dataset)))
-        return dict(id=identity, digest=digest, count=len(dataset['rows']), **{k: dataset[k] for k in ('files', 'skipped', 'duplicates_removed')})
+        return dict(id=identity, digest=digest, count=len(dataset['rows']), **{k: dataset[k] for k in ('files', 'skipped', 'duplicates_removed', 'conflicts_resolved')})
 
     def imports(self):
         with self.store.connect() as db:

@@ -8,6 +8,16 @@
 .report-import-body{padding:24px;display:grid;gap:18px;overflow-wrap:anywhere}
 .report-import-body input[type=file]{max-width:100%}
 .import-summary{padding:18px;background:var(--accent-soft);border-radius:12px}
+.import-conflicts{display:grid;gap:16px;min-width:0}
+.import-conflicts fieldset{border:1px solid var(--line);border-radius:12px;padding:16px;min-width:0}
+.import-conflicts legend{font-weight:650;padding:0 6px}
+.import-conflict-option{display:block;border:1px solid var(--line);border-radius:8px;padding:12px;margin-top:12px;cursor:pointer}
+.import-conflict-option:has(input:checked){border-color:var(--accent);background:var(--accent-soft)}
+.import-conflict-option>span,.shared-job-confirm{display:flex;align-items:center;gap:10px;line-height:1.5}
+.import-conflict-option input,.shared-job-confirm input{width:18px;height:18px;flex:none;margin:0;accent-color:var(--accent)}
+.import-conflict-option dl{display:grid;grid-template-columns:minmax(100px,1fr) minmax(0,2fr);gap:6px 12px;font-size:12px;margin:12px 0 0}
+.import-conflict-option dt{color:var(--muted)}.import-conflict-option dd{margin:0;overflow-wrap:anywhere}
+.shared-job-confirm{margin:14px 0;font-size:12px}
 .report-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:22px 0}
 .report-metric{background:var(--surface);border:1px solid var(--line);border-top:3px solid var(--accent);border-radius:12px;padding:17px 20px;display:grid;gap:10px;min-width:0}
 .report-metric span{font-size:12px;color:var(--muted);font-weight:600}

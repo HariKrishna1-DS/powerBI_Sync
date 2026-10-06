@@ -86,7 +86,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Packaged connection recovery tests failed' }
           node desktop/shutdown-smoke.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Packaged unresponsive-engine shutdown tests failed' }
-      - name: Verify actual installed 2.6.0 upgrade and recovery
+      - name: Verify actual installed 2.7.0 upgrade and recovery
         timeout-minutes: 8
         shell: pwsh
         env:
@@ -159,7 +159,7 @@ jobs:
           $hashes = foreach ($asset in $assets) { "$( (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash.ToLowerInvariant() )  $(Split-Path -Leaf $asset)" }
           $hashes | Set-Content -Encoding utf8NoBOM "$folder/SHA256SUMS.txt"
           $assets += "$folder/SHA256SUMS.txt"
-          @("Tv Tracker $version", '', 'Install the Windows .exe once if upgrading from 2.1.0 or earlier.', 'Afterward use Connections & settings > Updates.', 'Local captures and encrypted connections are retained.', '', $signingNote, 'Installer SHA-512 is verified against latest.yml during build and update download.', '', "Source commit: $env:GITHUB_SHA") | Set-Content release-notes.txt
+          @("Tv Tracker $version", '', 'Install the Windows .exe once if upgrading from 2.1.0 or earlier.', 'Afterward use Connections & settings > Updates.', 'Local captures and encrypted connections are retained.', '', 'For shared workbooks: stop old capture/sync jobs and update every PC before publishing. Updated PCs take turns automatically. Interrupted publishing slots can be reviewed in Storage and recovery.', 'Excel imports now support explicit duplicate-order review. SLA timing review explains missing or invalid evidence.', '', $signingNote, 'Installer SHA-512 is verified against latest.yml during build and update download.', '', "Source commit: $env:GITHUB_SHA") | Set-Content release-notes.txt
           gh release create "v$version" --target "$env:GITHUB_SHA" --title "Tv Tracker $version" --draft --notes-file release-notes.txt
           if ($LASTEXITCODE -ne 0) { throw 'Draft creation failed' }
           gh release upload "v$version" @assets

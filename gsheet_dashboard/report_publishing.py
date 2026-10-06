@@ -6,6 +6,7 @@ import uuid
 import pandas as pd
 
 from report_metrics import report_matrices
+from sheets_writer import coordinated
 
 RECEIPT = '__TvTracker_ReportSource'
 CHART_TITLE = 'Tv Tracker · Received and completed against capacity'
@@ -53,6 +54,7 @@ def view_matrices(snapshot, capacity):
     return tables
 
 
+@coordinated('Publish reports')
 def publish_reports(book, snapshot, capacity):
     from sheets_repository import Batch
     from datatrace_sync import write_sheet_batch, sheet_color

@@ -23,6 +23,7 @@ export function ReportSourceControls({running, preferences, onChanged}) {
   const [preview, setPreview] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [conflicts, setConflicts] = useState(null), [choices, setChoices] = useState({});
   const prefs = data?.preferences || preferences;
   async function refresh() { setData(await api('/api/reporting')); }
   useEffect(() => { refresh().catch(e => setError(e.message)); }, [preferences?.revision]);
@@ -47,25 +48,41 @@ export function ReportSourceControls({running, preferences, onChanged}) {
       }}><option value="tracker">Tracker report</option><option value="import">Import Excel report</option></select></label>
       {prefs?.source === 'import' && <label>Saved import<select aria-label="Saved Excel import" value={prefs.import_id || ''} disabled={blocked}
         onChange={e => action(() => activate('import', e.target.value))}>{data?.imports.map(item => <option key={item.id} value={item.id}>{item.files.map(file => file.name).join(', ')} · {number(item.count)} orders</option>)}</select></label>}
-      <button className="secondary" disabled={blocked} onClick={() => { setPreview(null); setFiles([]); setOpen(true); }}><Upload size={16}/>Import Excel reports</button>
+      <button className="secondary" disabled={blocked} onClick={() => { setPreview(null); setFiles([]); setConflicts(null); setChoices({}); setError(''); setOpen(true); }}><Upload size={16}/>Import Excel reports</button>
       <button className="secondary" disabled={blocked} onClick={() => action(() => api('/api/reporting/publish', {method: 'POST'}))}><RefreshCw size={16}/>Publish reports</button>
     </div>
     <p className="field-help" role="status">{prefs?.publish_status === 'publishing' ? 'Publishing the selected source to Google Sheets…' : prefs?.publish_status === 'published' ? 'This source is published to Google Sheets.' : prefs?.publish_status === 'failed' ? prefs.publish_error : 'Choose a report source. Source changes also publish its reports to Google Sheets.'}</p>
-    <p className="field-help">The first upgraded computer to publish becomes this workbook’s designated writer. Other computers can read reports. Queue captures remain separate from imported reports.</p>
-    {error && <p role="alert" className="notice error">{error}</p>}    <StorageControls blocked={blocked} onChanged={onChanged}/>
+    <p className="field-help">All updated PCs can capture and publish. Google Sheets publishing runs one job at a time; other PCs wait safely. Update every PC and stop older sync jobs before first publishing. Queue captures remain separate from imported reports.</p>
+    {error && <p role="alert" className="notice error">{error}</p>}
+    <StorageControls blocked={blocked} onChanged={onChanged}/>
     {open && <Dialog title="Import Excel reports" onClose={() => { if (!busy) setOpen(false); }} className="report-import-dialog">
       <div className="report-import-body">
         <p>Select multiple production workbooks. Each order table needs Order Number, Product, Status and Date or In-Time. Use a values-only copy for formula workbooks.</p>
         <label>Excel workbooks<input aria-label="Excel report workbooks" type="file" accept=".xlsx" multiple disabled={busy}
-          onChange={e => { setFiles([...e.target.files]); setPreview(null); }}/></label>
+          onChange={e => { setFiles([...e.target.files]); setPreview(null); setConflicts(null); setChoices({}); setError(''); }}/></label>
         <p>{files.length} workbooks selected. Up to 20 files and 100,000 rows; 20 MB total upload.</p>
         <button className="secondary" disabled={busy || !files.length} onClick={() => action(async () => {
           const body = new FormData(); files.forEach(file => body.append('files', file));
-          setPreview(await api('/api/reporting/import', {method: 'POST', body}));
+          body.append('choices', JSON.stringify(choices));
+          try { setPreview(await api('/api/reporting/import', {method: 'POST', body})); setConflicts(null); }
+          catch (e) { if (e.details?.conflicts) setConflicts(e.details); throw e; }
         })}>{busy ? 'Checking workbooks…' : 'Validate import'}</button>
+        {conflicts && <section aria-label="Resolve duplicate orders" className="import-conflicts">
+          <h3>Review {number(conflicts.conflict_count)} conflicting orders</h3>
+          <p>Choose the source row to keep for each order. The other conflicting rows will be excluded. Your active report stays unchanged until validation succeeds and you activate the import.</p>
+          {conflicts.conflicts.map(conflict => <fieldset key={conflict.identity}><legend>Order {conflict.order}</legend>
+            <p className="field-help">Different fields: {conflict.columns.join(', ')}</p>
+            {conflict.options.map(option => <label className="import-conflict-option" key={option.token}>
+              <span><input type="radio" name={`conflict-${conflict.identity}`} disabled={busy} checked={choices[conflict.identity] === option.token}
+                onChange={() => setChoices(current => ({...current, [conflict.identity]: option.token}))}/>{option.source}</span>
+              <dl>{conflict.columns.map(column => <React.Fragment key={column}><dt>{column}</dt><dd>{String(option.row[column] || '(blank)')}</dd></React.Fragment>)}</dl>
+            </label>)}
+          </fieldset>)}
+          <p className="field-help">Validate again after selecting. Up to 50 unresolved orders appear per review; previous selections are retained.</p>
+        </section>}
         {preview && <section aria-label="Excel import summary" className="import-summary">
           <h3>{number(preview.count)} validated orders</h3>
-          <p>{number(preview.duplicates_removed)} identical duplicates removed. Conflicting duplicates are rejected.</p>
+          <p>{number(preview.duplicates_removed)} duplicate rows removed; {number(preview.conflicts_resolved || 0)} conflicts resolved using your source selections.</p>
           <ul>{preview.files.map((file, i) => <li key={i}>{file.name}: {number(file.accepted)} orders</li>)}</ul>
           {!!preview.skipped.length && <details><summary>Skipped summary sheets ({preview.skipped.length})</summary><ul>{preview.skipped.map((item, i) => <li key={i}>{item}</li>)}</ul></details>}
           <button className="primary" disabled={busy || running} onClick={() => action(async () => {
@@ -79,7 +96,55 @@ export function ReportSourceControls({running, preferences, onChanged}) {
 }
 
 
-function StorageControls({blocked, onChanged}) {  const [data, setData] = useState(null), [result, setResult] = useState(null), [error, setError] = useState(''), [busy, setBusy] = useState(false);  async function refresh() { setData(await api('/api/reporting/storage')); }  async function archive() {    setBusy(true); setError('');    try { setResult(await api('/api/reporting/archive', {method: 'POST'})); await refresh(); onChanged(); }    catch (e) { setError(e.message); } finally { setBusy(false); }  }  return <details className="storage-controls" onToggle={event => { if (event.currentTarget.open) refresh().catch(e => setError(e.message)); }}>    <summary>Storage and recovery</summary>    {data && <><p>{number(data.captures)} active captures · {number(data.imports)} report imports · {(data.database_bytes / 1048576).toFixed(1)} MB database · {(data.backup_bytes / 1048576).toFixed(1)} MB recovery archives</p><p className="field-help">{data.policy}</p></>}    <p className="field-help">Older synced history moves into a verified full-workspace archive before removal from the active list. Local archives need this Windows account. Before archiving, use Settings to export a password-encrypted backup to a second drive for recovery on another PC.</p>    {!!data?.legacy_backup_count && <><p className="field-help">{data.legacy_backup_count} older recovery archives are not encrypted.</p><button className="secondary" disabled={blocked || busy} onClick={async()=>{setBusy(true);setError('');try{const value=await api('/api/reporting/protect-backups',{method:'POST'});await refresh();if(value.failed)throw Error(`${value.failed} archives could not be protected; their originals were retained.`);}catch(e){setError(e.message);}finally{setBusy(false);}}}>Protect older backups</button></>}    <button className="secondary" disabled={blocked || busy || !data} onClick={archive}>{busy ? 'Archiving…' : 'Archive older local history'}</button>    {result && <p role="status">{result.archived_captures} captures and {result.archived_imports} imports archived. {result.backup && <><a href={`/api/reporting/archive/${encodeURIComponent(result.backup)}`} download>Download recovery archive</a><br/>{result.recovery}</>}</p>}    {error && <p role="alert" className="notice error">{error}</p>}    <CloudHistoryControls blocked={blocked || busy}/>  </details>;}function CloudHistoryControls({blocked}) {  const [plan,setPlan]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState(''),[selected,setSelected]=useState('');  async function refresh(){setPlan(await api('/api/reporting/cloud-history'));}  async function act(fn){setBusy(true);setError('');setMessage('');try{await fn();}catch(e){setError(e.message);}finally{setBusy(false);}}  return <section aria-label="Cloud history recovery"><h4>Google Sheets history</h4><p className="field-help">Preview older generated backup tabs before archiving. Active trackers and raw preview history remain in Sheets. Avoid archiving any backup tab used by your own formulas.</p>    <button className="secondary" disabled={blocked||busy} onClick={()=>act(refresh)}>Review cloud history</button>    {plan && <><p>{number(plan.allocated_cells)} allocated cells · {number(plan.reclaimable_cells)} cells can be archived.</p><p className="field-help">{plan.policy}</p>      {!!plan.tabs.length && <><details><summary>{plan.tabs.length} backup tabs selected</summary><ul>{plan.tabs.map(tab=><li key={tab.id}>{tab.title} · {tab.created}</li>)}</ul></details><p className="field-help">The selected tabs will be removed only after their recovery archive is saved and verified. Export a password-encrypted workspace backup afterward; it includes cloud recovery archives.</p><button className="secondary" disabled={blocked||busy} onClick={()=>act(async()=>{const result=await api('/api/reporting/cloud-history',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fingerprint:plan.fingerprint})});setMessage(`${result.archived_tabs} backup tabs archived. Export a protected workspace backup to another drive.`);await refresh();})}>Archive the listed backup tabs</button></>}      {!!plan.archives.length && <div className="report-source-controls"><label>Cloud recovery archive<select value={selected} onChange={e=>setSelected(e.target.value)}><option value="">Choose an archive</option>{plan.archives.map(name=><option key={name}>{name}</option>)}</select></label><button className="secondary" disabled={blocked||busy||!selected} onClick={()=>act(async()=>{const value=await api('/api/reporting/cloud-history/restore',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({archive:selected})});setMessage(`${value.restored_tabs} backup tabs restored. Existing tabs were preserved.`);await refresh();})}>Restore missing backup tabs</button></div>}    </>}{message&&<p role="status">{message}</p>}{error&&<p role="alert" className="notice error">{error}</p>}  </section>;}function SummaryTable({rows, columns, onSelect, selected, links = {}}) {
+function StorageControls({blocked, onChanged}) {
+  const [data, setData] = useState(null), [result, setResult] = useState(null), [error, setError] = useState(''), [busy, setBusy] = useState(false);
+  async function refresh() { setData(await api('/api/reporting/storage')); }
+  async function archive() {
+    setBusy(true); setError('');
+    try { setResult(await api('/api/reporting/archive', {method: 'POST'})); await refresh(); onChanged(); }
+    catch (e) { setError(e.message); } finally { setBusy(false); }
+  }
+  return <details className="storage-controls" onToggle={event => { if (event.currentTarget.open) refresh().catch(e => setError(e.message)); }}>
+    <summary>Storage and recovery</summary>
+    {data && <><p>{number(data.captures)} active captures · {number(data.imports)} report imports · {(data.database_bytes / 1048576).toFixed(1)} MB database · {(data.backup_bytes / 1048576).toFixed(1)} MB recovery archives</p><p className="field-help">{data.policy}</p></>}
+    <p className="field-help">Older synced history moves into a verified full-workspace archive before removal from the active list. Local archives need this Windows account. Before archiving, use Settings to export a password-encrypted backup to a second drive for recovery on another PC.</p>
+    {!!data?.legacy_backup_count && <><p className="field-help">{data.legacy_backup_count} older recovery archives are not encrypted.</p><button className="secondary" disabled={blocked || busy} onClick={async()=>{setBusy(true);setError('');try{const value=await api('/api/reporting/protect-backups',{method:'POST'});await refresh();if(value.failed)throw Error(`${value.failed} archives could not be protected; their originals were retained.`);}catch(e){setError(e.message);}finally{setBusy(false);}}}>Protect older backups</button></>}
+    <button className="secondary" disabled={blocked || busy || !data} onClick={archive}>{busy ? 'Archiving…' : 'Archive older local history'}</button>
+    {result && <p role="status">{result.archived_captures} captures and {result.archived_imports} imports archived. {result.backup && <><a href={`/api/reporting/archive/${encodeURIComponent(result.backup)}`} download>Download recovery archive</a><br/>{result.recovery}</>}</p>}
+    {error && <p role="alert" className="notice error">{error}</p>}
+    <CloudHistoryControls blocked={blocked || busy}/>
+    <SharedJobControls blocked={blocked || busy}/>
+  </details>;
+}
+function SharedJobControls({blocked}) {
+  const [data,setData]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[confirmed,setConfirmed]=useState(false),[message,setMessage]=useState('');
+  async function refresh(){setData(await api('/api/reporting/shared-job'));setConfirmed(false);}
+  async function act(work){setBusy(true);setError('');setMessage('');try{await work();}catch(e){setError(e.message);}finally{setBusy(false);}}
+  return <section aria-label="Shared publishing recovery"><h4>Shared publishing</h4>
+    <p className="field-help">Publishing jobs release their slot when finished. If a PC crashed or lost its connection, first stop Tv Tracker on that PC. Then review and release its interrupted slot. Never release a running job.</p>
+    <button className="secondary" disabled={busy} onClick={()=>act(refresh)}>Check shared publishing</button>
+    {data && (data.job ? <><p role="status">{data.job.computer} · {data.job.label} · Started {new Date(data.job.started).toLocaleString()}</p>
+      <label className="shared-job-confirm"><input type="checkbox" checked={confirmed} disabled={busy||blocked} onChange={e=>setConfirmed(e.target.checked)}/>I have stopped Tv Tracker on the computer running this job.</label>
+      <button className="secondary" disabled={blocked||busy||!confirmed} onClick={()=>act(async()=>{await api('/api/reporting/shared-job/recover',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:data.job.token,confirmed:true})});await refresh();setMessage('Interrupted slot released. You can retry publishing.');})}>Release interrupted publishing slot</button>
+    </> : <p role="status">No shared publishing job is active.</p>)}
+    {message&&<p role="status">{message}</p>}{error&&<p role="alert" className="notice error">{error}</p>}
+  </section>;
+}
+
+function CloudHistoryControls({blocked}) {
+  const [plan,setPlan]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState(''),[selected,setSelected]=useState('');
+  async function refresh(){setPlan(await api('/api/reporting/cloud-history'));}
+  async function act(fn){setBusy(true);setError('');setMessage('');try{await fn();}catch(e){setError(e.message);}finally{setBusy(false);}}
+  return <section aria-label="Cloud history recovery"><h4>Google Sheets history</h4><p className="field-help">Preview older generated backup tabs before archiving. Active trackers and raw preview history remain in Sheets. Avoid archiving any backup tab used by your own formulas.</p>
+    <button className="secondary" disabled={blocked||busy} onClick={()=>act(refresh)}>Review cloud history</button>
+    {plan && <><p>{number(plan.allocated_cells)} allocated cells · {number(plan.reclaimable_cells)} cells can be archived.</p><p className="field-help">{plan.policy}</p>
+      {!!plan.tabs.length && <><details><summary>{plan.tabs.length} backup tabs selected</summary><ul>{plan.tabs.map(tab=><li key={tab.id}>{tab.title} · {tab.created}</li>)}</ul></details><p className="field-help">The selected tabs will be removed only after their recovery archive is saved and verified. Export a password-encrypted workspace backup afterward; it includes cloud recovery archives.</p><button className="secondary" disabled={blocked||busy} onClick={()=>act(async()=>{const result=await api('/api/reporting/cloud-history',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({fingerprint:plan.fingerprint})});setMessage(`${result.archived_tabs} backup tabs archived. Export a protected workspace backup to another drive.`);await refresh();})}>Archive the listed backup tabs</button></>}
+      {!!plan.archives.length && <div className="report-source-controls"><label>Cloud recovery archive<select value={selected} onChange={e=>setSelected(e.target.value)}><option value="">Choose an archive</option>{plan.archives.map(name=><option key={name}>{name}</option>)}</select></label><button className="secondary" disabled={blocked||busy||!selected} onClick={()=>act(async()=>{const value=await api('/api/reporting/cloud-history/restore',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({archive:selected})});setMessage(`${value.restored_tabs} backup tabs restored. Existing tabs were preserved.`);await refresh();})}>Restore missing backup tabs</button></div>}
+    </>}{message&&<p role="status">{message}</p>}{error&&<p role="alert" className="notice error">{error}</p>}
+  </section>;
+}
+
+function SummaryTable({rows, columns, onSelect, selected, links = {}}) {
   return <div className="table-scroll report-summary-table" tabIndex={0} role="region" aria-label="Report summary table"><table>
     <thead><tr>{columns.map(column => <th scope="col" key={column}>{column}</th>)}</tr></thead>
     <tbody>{rows.map(row => <tr key={row.Date} className={selected === row.Date ? 'selected-report-day' : String(row.Date).endsWith('YTD') ? 'report-total' : ''}>
@@ -93,26 +158,29 @@ function StorageControls({blocked, onChanged}) {  const [data, setData] = useSt
 
 export function ProductionDailyReport({revision, running}) {
   const [data, setData] = useState(null), [date, setDate] = useState(''), [error, setError] = useState('');
-  const [search, setSearch] = useState(''), [page, setPage] = useState(0);
+  const [search, setSearch] = useState(''), [page, setPage] = useState(0), [reviewOnly, setReviewOnly] = useState(false);
   useEffect(() => { let active = true;
     api('/api/daily-orders').then(value => { if (active) { setData(value); setError(''); } }).catch(e => { if (active) setError(e.message); });
     return () => { active = false; };
   }, [revision, running]);
   const history = data?.rows || [], day = history.find(row => row.Date === date) || history[0];
-  const rows = (day?.rows || []).filter(row => !search || Object.values(row).some(value => String(value).toLowerCase().includes(search.toLowerCase())));
+  const rows = (day?.rows || []).filter(row => (!reviewOnly || row['SLA Review Reason']) && (!search || Object.values(row).some(value => String(value).toLowerCase().includes(search.toLowerCase()))));
   const columns = day?.columns || [];
   const currentPage = Math.min(page, Math.max(0, Math.ceil(rows.length / 25) - 1));
-  const select = value => { setDate(value); setPage(0); setSearch(''); };
+  const select = value => { setDate(value); setPage(0); setSearch(''); setReviewOnly(false); };
   return <section className="production-daily-report">
     <OfflineNotice snapshot={data}/>{error && <p role="alert" className="notice error">{error}</p>}
     <div className="section-heading"><div><h2>Daily production orders</h2><p className="muted">{data?.source || 'Loading reports…'} · Orders grouped by received date</p></div>
       <label>Date<select aria-label="Daily orders date" value={day?.Date || ''} onChange={e => select(e.target.value)}>{history.map(row => <option key={row.Date}>{row.Date}</option>)}</select></label></div>
     <div className="report-metrics">{DAILY.map((name, i) => <article className="report-metric" data-tone={i} key={name}><span>{name}</span><strong>{number(day?.[name])}</strong></article>)}</div>
     <p className="field-help">Completed + Clarification + Cancelled + Vendor Pending + In-House Pending = Received. SLA counts include only completed orders with valid recorded timing.</p>
-    {!!day?.['SLA Unclassified'] && <p role="status" className="notice warning">{number(day['SLA Unclassified'])} completed orders need verified timing; {number(day['Inferred Completions'])} are inferred from queue disappearance.</p>}
+    {!!day?.['SLA Unclassified'] && <div className="notice warning"><p role="status">{number(day['SLA Unclassified'])} completed orders need verified timing; {number(day['Inferred Completions'])} are inferred from queue disappearance.</p>
+      <ul>{Object.entries(day['SLA Review Reasons'] || {}).map(([reason,count])=><li key={reason}>{reason}: {number(count)}</li>)}</ul>
+      <button className="secondary" onClick={()=>{setReviewOnly(true);setSearch('');setPage(0);}}>Review timing details</button></div>}
     <ReportChart rows={[...history].reverse().slice(-14)}/>
     <SummaryTable rows={history} columns={['Date', ...DAILY]} onSelect={select} selected={day?.Date} links={data?.sheet_links}/>
     <div className="report-detail-toolbar"><label>Find an order<input aria-label="Search daily orders" value={search} onChange={e => { setSearch(e.target.value); setPage(0); }} placeholder="Search order details"/></label>
+      <label className="shared-job-confirm"><input type="checkbox" checked={reviewOnly} onChange={e=>{setReviewOnly(e.target.checked);setPage(0);}}/>Only orders needing timing review</label>
       {data?.sheet_links?.[day?.Date] && <a className="secondary" href={data.sheet_links[day.Date]} target="_blank" rel="noreferrer"><ExternalLink size={16}/>Open this date in Sheets</a>}</div>
     <div className="table-scroll" tabIndex={0} role="region" aria-label="Daily order details"><table><thead><tr>{columns.map(column => <th scope="col" key={column}>{column}</th>)}</tr></thead><tbody>{rows.slice(currentPage * 25, currentPage * 25 + 25).map((row, i) => <tr key={row['Order Number'] || i}>{columns.map(column => <td key={column}>{String(row[column] ?? '')}</td>)}</tr>)}</tbody></table></div>
     <div className="table-footer"><span>{number(rows.length)} orders</span><div className="inline"><button className="secondary" disabled={!currentPage} onClick={() => setPage(currentPage - 1)}>Previous</button><span>{currentPage + 1} / {Math.max(1, Math.ceil(rows.length / 25))}</span><button className="secondary" disabled={(currentPage + 1) * 25 >= rows.length} onClick={() => setPage(currentPage + 1)}>Next</button></div></div>

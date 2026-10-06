@@ -293,25 +293,33 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
             snapshot_cache['checked'] = clock.monotonic()
             return snapshot_cache['snapshot']
 
-    def recover_latest_preview(required=False):
+    def recover_latest_preview(required=False, refresh=False):
         nonlocal recovery_checked
-        if root is not None or reporting_snapshot()[0] or (desktop_mode and not required):
+        if root is not None or (not refresh and (reporting_snapshot()[0] or (desktop_mode and not required))):
             return
         with preview_recovery_lock:
             if not required and clock.monotonic() - recovery_checked < 60:
                 return
             recovery_checked = clock.monotonic()
-            if store.list():
+            if store.list() and not refresh:
                 return
             try:
                 book, primary = target_worksheet()
+                pending = set(store.unsynced_ids())
                 for preview in read_preview_history(book):
+                    if preview['id'] in pending:
+                        from tracker_sync import archive_value_matches
+                        local = store.get(preview['id'])
+                        if len(local['rows']) != len(preview['rows']) or any(not archive_value_matches(a.get(c, ''), b.get(c, '')) for a, b in zip(local['rows'], preview['rows']) for c in local['columns']):
+                            raise ValueError(f"Local {local['name']} conflicts with shared history. It was retained; review it before starting another capture.")
                     store.restore(preview['id'], preview['columns'], preview['rows'], preview['source'], created=preview['created'])
                     store.mark_synced(preview['id'], {'recovered': True})
                 invalidate_snapshot()
             except Exception as exc:
                 app.logger.exception('Could not recover latest preview from Google Sheets')
                 if required:
+                    if isinstance(exc, ValueError):
+                        raise RuntimeError(str(exc)) from exc
                     if desktop_mode and not (SPREADSHEET_ID and os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON')):
                         raise RuntimeError('Open Connections & settings, enter your spreadsheet URL, import the service-account JSON key, and Save settings. Sharing the Sheet alone does not configure this app.') from exc
                     raise RuntimeError('Could not recover existing preview numbers from Google Sheets. Test the saved connection in Connections & settings; check internet access, the account key, and spreadsheet permissions. No new capture was created.') from exc
@@ -405,6 +413,8 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
 
         def work():
             operation_id = None
+            from contextlib import ExitStack
+            shared_scope = ExitStack()
             while not scheduler_stop.is_set():
                 if gate.acquire(timeout=0.2):
                     break
@@ -415,6 +425,8 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
                              run_id=state['run_id'] + 1)
             try:
                 operation_id = journal.begin('sync')
+                shared_scope.enter_context(writer_job('Sync'))
+                recover_latest_preview(required=True, refresh=True)
                 frame, selected_preview, completed_orders, prior_id = prepare_sync(preview_id, previous_id, keys, ignore, remaining_products)
                 with state_lock:
                     state['stage'] = f"Syncing {selected_preview['name']} to Google Sheets"
@@ -435,6 +447,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
                     state.update(stage='Sync failed', result={'action': 'sync', 'trigger': trigger,
                                  'google_sheet': 'failed', 'error': str(exc)})
             finally:
+                release_writer_job(shared_scope)
                 with state_lock:
                     finish_operation(operation_id)
                     state['running'] = False
@@ -511,10 +524,13 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
         def work():
             saved_preview = None
             operation_id = None
+            from contextlib import ExitStack
+            shared_scope = ExitStack()
             try:
                 operation_id = journal.begin('scheduled_capture')
+                shared_scope.enter_context(writer_job('Scheduled Capture'))
                 require_writer()
-                recover_latest_preview(required=True)
+                prepare_capture_number()
                 prior_ids = {item['id'] for item in store.list()}
                 def progress(result):
                     with state_lock:
@@ -547,6 +563,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
                                  'trigger': 'schedule', 'error': str(exc),
                                  'preview_name': saved_preview['name'] if saved_preview else None})
             finally:
+                release_writer_job(shared_scope)
                 with state_lock:
                     finish_operation(operation_id)
                     state['running'] = False
@@ -720,7 +737,10 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
             selection[key] = expected
         if not gate.acquire(blocking=False):
             return jsonify(error='A sync or extraction is running. Save the SLA change after it finishes.'), 409
+        from contextlib import ExitStack
+        shared_scope = ExitStack()
         try:
+            shared_scope.enter_context(writer_job('Edit SLA results', wait=0))
             try:
                 book, sheet_rows, headers = read_sla_sheets()
             except Exception:
@@ -797,7 +817,10 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
             production_cache.invalidate()
             return jsonify(saved=True, updated_count=len(selection), rows=monthly_report(sheet_rows, corrections), message=message)
         finally:
-            gate.release()
+            try:
+                shared_scope.close()
+            finally:
+                gate.release()
 
     def tracker_snapshot(force=False, known_revision=None):
         def load():
@@ -842,12 +865,43 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
     production_snapshot = register_report_routes(app, store, gate, maintenance, tracker_snapshot,
                                                  lambda: target_worksheet(), SPREADSHEET_ID)
 
+    def writer_job(label, wait=600):
+        from contextlib import nullcontext
+        if desktop_mode and syncer is sync_workbook:
+            from sheets_writer import shared_job
+            book, _ = target_worksheet()
+            def progress(message):
+                with state_lock:
+                    state['stage'] = message
+            return shared_job(book, label, wait=wait, progress=progress)
+        return nullcontext()
+
+    def release_writer_job(scope):
+        try:
+            scope.close()
+        except Exception:
+            app.logger.exception('Shared publishing slot release failed; recovery is available in Storage and recovery')
+            with state_lock:
+                state['stage'] = 'Review shared publishing'
+                result = state.get('result') or {}
+                state['result'] = dict(result, error='The shared publishing slot release could not be confirmed. Saved data was retained. Stop this app’s jobs, then check Shared publishing in Storage and recovery before retrying.')
+
     def require_writer():
         if desktop_mode and syncer is sync_workbook:
             book, _ = target_worksheet()
             guard = getattr(book, 'writer_guard', None)
-            if guard is not None:
+            from sheets_writer import SharedWriterGuard
+            if guard is not None and not isinstance(guard, SharedWriterGuard):
                 guard.ensure()
+
+    def prepare_capture_number():
+        recover_latest_preview(required=True, refresh=True)
+        if desktop_mode and syncer is sync_workbook:
+            from sheets_writer import SharedWriterGuard
+            book, _ = target_worksheet()
+            guard = getattr(book, 'writer_guard', None)
+            if isinstance(guard, SharedWriterGuard):
+                store.reserve_number(guard.reserve_preview(store.next_number()))
 
     @app.get('/api/live-sheets')
     def get_live_sheets():
@@ -897,10 +951,13 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
         def work():
             saved = None
             operation_id = None
+            from contextlib import ExitStack
+            shared_scope = ExitStack()
             try:
                 operation_id = journal.begin('capture')
+                shared_scope.enter_context(writer_job('Capture'))
                 require_writer()
-                recover_latest_preview(required=True)
+                prepare_capture_number()
                 prior_ids = {item['id'] for item in store.list()}
                 with import_lock:
                     result = runner(on_progress=progress)
@@ -926,6 +983,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
                                  'preview_id': saved['id'] if saved else None})
             finally:
                 invalidate_snapshot()
+                release_writer_job(shared_scope)
                 with state_lock:
                     finish_operation(operation_id)
                     state['running'] = False
@@ -1024,6 +1082,9 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
             return jsonify(error='Another capture or import is using the local workspace. Try again when it finishes.'), 409
         owns_gate = gate.acquire(blocking=False)
         if not owns_gate:
+            if desktop_mode and syncer is sync_workbook:
+                import_lock.release()
+                return jsonify(error='Wait for this computer’s capture or sync before importing a queue file.'), 409
             with state_lock:
                 can_queue = state['running'] and state['action'] == 'sync' and not maintenance.is_set()
             if not can_queue:
@@ -1041,9 +1102,11 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
             except Exception as exc:
                 raise ValueError('Cannot read this file. Use a valid UTF-8 CSV or XLSX workbook with headers.') from exc
             can_sync = not desktop_mode or bool(SPREADSHEET_ID and os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON'))
-            if can_sync:
-                recover_latest_preview(required=True)
-            saved = store.save(frame, source=Path(upload.filename).name, metadata={'kind': 'import', 'complete': False})
+            from contextlib import nullcontext
+            with writer_job('Import queue file', wait=0) if can_sync else nullcontext():
+                if can_sync:
+                    prepare_capture_number()
+                saved = store.save(frame, source=Path(upload.filename).name, metadata={'kind': 'import', 'complete': False})
             invalidate_snapshot()
         finally:
             if owns_gate:

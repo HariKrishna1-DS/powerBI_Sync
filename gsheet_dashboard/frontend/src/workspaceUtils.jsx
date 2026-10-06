@@ -24,7 +24,7 @@ async function api(url, options = {}) {
   const timeout = AbortSignal.timeout(30000);
   const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
   const response = await fetch(url, {...options, signal});
-  if (!response.ok) { let body; try { body = await response.json(); } catch { body = {}; } throw Error(body.error || `Request failed (${response.status})`); }
+  if (!response.ok) { let body; try { body = await response.json(); } catch { body = {}; } const error = Error(body.error || `Request failed (${response.status})`); error.details = body; throw error; }
   const body = await response.json();
   if (body.clock) body.clock.receivedAt = performance.now();
   return body;

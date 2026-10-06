@@ -1,4 +1,5 @@
 """Explicit archive/restore of old app-generated backup tabs, never raw evidence."""
+from sheets_writer import coordinated
 from copy import deepcopy
 from datetime import datetime, timezone
 import gzip
@@ -77,6 +78,7 @@ def read_tabs(book, tabs):
     return sorted(normalized, key=lambda sheet: sheet['properties']['sheetId'])
 
 
+@coordinated('Archive cloud backups')
 def archive(book, folder, expected):
     current = plan(book)
     if current['fingerprint'] != expected:
@@ -122,6 +124,7 @@ def decode(raw):
     return value
 
 
+@coordinated('Restore cloud backups')
 def restore(book, raw):
     value = decode(raw)
     if value['workbook'] != book.id:

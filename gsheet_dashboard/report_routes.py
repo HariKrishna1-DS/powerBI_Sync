@@ -23,18 +23,27 @@ def register_report_routes(app, store, gate, maintenance, tracker_snapshot, get_
         return result
 
     def publish_current():
+        from sheets_writer import shared_job
+        try:
+            book, _ = get_book()
+            with shared_job(book, 'Publish reports', wait=600):
+                return publish_selected(book)
+        except Exception as exc:
+            workspace.update(publish_status='failed', publish_error=str(exc) if isinstance(exc, ValueError) else 'Reports are available locally. Check the Sheets connection and retry publishing.')
+            raise
+
+    def publish_selected(book):
         from report_publishing import publish_reports
         workspace.update(publish_status='publishing', publish_error='')
         try:
             value = snapshot(force=True)
             if value.get('offline'):
                 raise ValueError('Reconnect before publishing tracker reports. The saved offline copy will not overwrite live Sheets.')
-            book, _ = get_book()
             result = publish_reports(book, value, workspace.capacity(value))
             workspace.update(publish_status='published', publish_error='', published=result)
             return result
         except Exception:
-            workspace.update(publish_status='failed', publish_error='Reports are available locally. Sheets publishing failed; check the connection and designated writer, then retry.')
+            workspace.update(publish_status='failed', publish_error='Reports are available locally. Sheets publishing failed; check the connection and shared publishing job, then retry.')
             raise
 
     def queue_publish(gate_owned=False):
@@ -64,6 +73,37 @@ def register_report_routes(app, store, gate, maintenance, tracker_snapshot, get_
     @app.get('/api/reporting')
     def settings():
         return jsonify(preferences=workspace.preferences(), imports=workspace.imports())
+
+    @app.get('/api/reporting/shared-job')
+    def shared_status():
+        from sheets_writer import SharedWriterGuard
+        book, _ = get_book()
+        guard = getattr(book, 'writer_guard', None)
+        return jsonify(job=guard.job() if isinstance(guard, SharedWriterGuard) else None)
+
+    @app.post('/api/reporting/shared-job/recover')
+    def recover_shared_job():
+        from sheets_writer import SharedWriterGuard, JOB_ID
+        body = json_body()
+        if body.get('confirmed') is not True or not isinstance(body.get('token'), str):
+            raise ValueError('Confirm that the computer running this job has stopped before releasing its slot.')
+        if maintenance.is_set() or not gate.acquire(blocking=False):
+            return jsonify(error='Stop the local operation before recovering a shared job.'), 409
+        try:
+            book, _ = get_book()
+            guard = getattr(book, 'writer_guard', None)
+            if not isinstance(guard, SharedWriterGuard):
+                raise ValueError('Update this computer before using shared publishing.')
+            job = guard.job()
+            if not job:
+                return jsonify(recovered=True)
+            if job['token'] != body['token']:
+                return jsonify(error='The publishing job changed. Refresh its status before recovery.'), 409
+            # Deliberate recovery only. There is no timer that steals an active job.
+            guard.book.batch_update({'requests': [{'deleteSheet': {'sheetId': JOB_ID}}]})
+            return jsonify(recovered=True)
+        finally:
+            gate.release()
 
     @app.get('/api/reporting/storage')
     def storage():
@@ -142,8 +182,18 @@ def register_report_routes(app, store, gate, maintenance, tracker_snapshot, get_
         if maintenance.is_set() or not gate.acquire(blocking=False):
             return jsonify(error='Wait for the current operation before importing reports.'), 409
         try:
+            import json
+            from report_workspace import ImportConflictError
             files = request.files.getlist('files')
-            result = workspace.save_import([(file.filename, file.read()) for file in files])
+            try:
+                choices = json.loads(request.form.get('choices', '{}'))
+            except (ValueError, TypeError) as exc:
+                raise ValueError('Invalid import source-row selections.') from exc
+            try:
+                result = workspace.save_import([(file.filename, file.read()) for file in files], choices)
+            except ImportConflictError as exc:
+                # Return a bounded review page. Resubmitted choices remain bound to these uploads.
+                return jsonify(error=str(exc), conflicts=exc.conflicts[:50], conflict_count=len(exc.conflicts)), 409
             return jsonify(result)
         finally:
             gate.release()
