@@ -1,5 +1,5 @@
 // Real packaged engine + renderer; disposable files/profile, no external credentials.
-const {_electron: electron} = require('../gsheet_dashboard/frontend/node_modules/playwright');
+const {_electron: electron, expect} = require('../gsheet_dashboard/frontend/node_modules/@playwright/test');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
@@ -35,13 +35,13 @@ for name,number,product,status in [('full','001','Full Title','Completed and Del
     await page.getByRole('heading', {name: '2 validated orders'}).waitFor();
     await page.getByRole('button', {name: 'Use this import and publish reports'}).click();
     await page.waitForFunction(async () => (await (await fetch('/api/reporting')).json()).preferences.publish_status === 'failed');
-    assert.equal(await page.getByRole('combobox', {name: 'Report source', exact: true}).inputValue(), 'import');
+    await expect(page.getByRole('combobox', {name: 'Report source', exact: true})).toHaveValue('import');
     const state = await page.evaluate(async () => (await fetch('/api/state?light=1')).json());
     assert.equal(state.previews.length, 0, 'Report imports must never become queue captures');
     await page.getByRole('button', {name: 'Daily Orders', exact: true}).click();
     await page.getByRole('heading', {name: 'Daily production orders'}).waitFor();
-    assert.equal(await page.locator('.report-metric').filter({hasText: /^Received/}).locator('strong').innerText(), '2');
-    assert.equal(await page.locator('.report-metric').filter({hasText: /^On time SLA/}).locator('strong').innerText(), '1');
+    await expect(page.locator('.report-metric').filter({hasText: /^Received/}).locator('strong')).toHaveText('2');
+    await expect(page.locator('.report-metric').filter({hasText: /^On time SLA/}).locator('strong')).toHaveText('1');
     const exported = await page.evaluate(async () => {const r = await fetch('/api/reporting/export');return {status: r.status, bytes: (await r.arrayBuffer()).byteLength};});
     assert.equal(exported.status, 200);assert.ok(exported.bytes > 5000);
     await page.getByRole('button', {name: 'Capacity Report', exact: true}).click();
@@ -51,7 +51,7 @@ for name,number,product,status in [('full','001','Full Title','Completed and Del
     await page.screenshot({path: path.join(output, 'packaged-capacity-report.png')});
     await page.reload();
     await page.getByRole('combobox', {name: 'Report source', exact: true}).waitFor();
-    assert.equal(await page.getByRole('combobox', {name: 'Report source', exact: true}).inputValue(), 'import');
+    await expect(page.getByRole('combobox', {name: 'Report source', exact: true})).toHaveValue('import');
     assert.deepEqual(errors, []);
     const result = {passed: true, checks: ['real multiple workbook validation', 'source activation', 'publish failure recovery state', 'capture isolation', 'daily SLA equality', 'real workbook export', 'capacity totals', 'reload persistence'], rendererErrors: errors};
     fs.writeFileSync(path.join(output, 'packaged-report-smoke.json'), JSON.stringify(result, null, 2));
