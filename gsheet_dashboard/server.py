@@ -18,9 +18,9 @@ import pandas as pd
 from openpyxl.worksheet.table import Table, TableStyleInfo
 
 from datatrace_sync import run_sync, sync_workbook, target_worksheet
-from reporting_dates import reporting_date
 from preview_store import PreviewStore, compare
-from order_reporting import automatic_sync_frame, daily_orders, monthly_orders, AUTOMATIC_RULES, completion_history
+from order_reporting import automatic_sync_frame, AUTOMATIC_RULES
+from order_reporting import daily_orders as daily_orders
 from sync_config import BASE_DIR, ASSET_DIR, SPREADSHEET_ID, TARGET_GSHEET_URL, TRACKER_TITLES
 from production_cache import ProductionCache
 from sheets_transport import SheetsQuotaError, request_context
@@ -153,6 +153,22 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
     app.extensions['stop_scheduler'] = scheduler_stop
     from shared_routes import register_shared_routes
     register_shared_routes(app, store, gate, maintenance)
+    from shared_runtime import SharedRuntime, environment_selection, open_worker_book
+    shared_runtime = SharedRuntime(store, environment_selection(os.environ.get('DATATRACE_SHARED_WORKSPACE')) if desktop_mode else None, open_worker_book)
+    app.extensions['shared_runtime'] = shared_runtime
+
+    @app.post('/api/desktop/shared/pulse')
+    def shared_pulse():
+        if not shared_runtime.enabled:
+            return jsonify(enabled=False)
+        # Clear/update access even while a capture owns the operation gate.
+        shared_runtime.update_token(request.headers.get('X-TV-Cloud-Access', ''))
+        if not gate.acquire(blocking=False):
+            return jsonify(busy=True), 202
+        try:
+            return jsonify(shared_runtime.tick())
+        finally:
+            gate.release()
     production_cache = ProductionCache(store.root.parent / 'production-cache.json', '|'.join((SPREADSHEET_ID, *TRACKER_TITLES)))
     app.extensions['production_cache'] = production_cache
 
@@ -219,7 +235,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
     @app.get('/api/health')
     def health():
         with state_lock:
-            return jsonify(ready=True, running=state['running'] or bool(queued_ids), stage=state['stage'], desktop=desktop_mode)
+            return jsonify(ready=True, running=state['running'] or bool(queued_ids) or gate.locked(), stage=state['stage'], desktop=desktop_mode)
 
     @app.post('/api/desktop/shutdown')
     def shutdown_desktop():
@@ -298,6 +314,8 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
 
     def recover_latest_preview(required=False, refresh=False):
         nonlocal recovery_checked
+        if shared_runtime.enabled:
+            return
         if root is not None or (not refresh and (reporting_snapshot()[0] or (desktop_mode and not required))):
             return
         with preview_recovery_lock:
@@ -433,6 +451,11 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
                              run_id=state['run_id'] + 1)
             try:
                 operation_id = journal.begin('sync')
+                if shared_runtime.enabled:
+                    result = shared_runtime.submit(store.get(preview_id))
+                    with state_lock:
+                        state.update(result=result, stage=result['stage'])
+                    return
                 shared_scope.enter_context(writer_job('Sync'))
                 recover_latest_preview(required=True, refresh=True)
                 frame, selected_preview, completed_orders, prior_id = prepare_sync(preview_id, previous_id, keys, ignore, remaining_products)
@@ -557,6 +580,11 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
                     raise RuntimeError('Extraction did not save a new preview; Google Sheets were not changed.')
                 saved_preview = store.get(preview_id)
                 invalidate_snapshot()
+                if shared_runtime.enabled:
+                    result = shared_runtime.submit(saved_preview)
+                    with state_lock:
+                        state.update(result=result, stage=result['stage'])
+                    return
                 frame, preview, completed, previous_id = prepare_sync(preview_id)
                 with state_lock:
                     state.update(action='sync', stage=f"Syncing {preview['name']} to Google Sheets")
@@ -658,10 +686,11 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
         return jsonify(previews=previews, job=job, schedule=schedule, clock=indian_clock.snapshot(), failed_syncs=store.failed_syncs(), sheet_url=TARGET_GSHEET_URL,
                        remaining_products=remaining_products,
                        daily_completed_ids=daily_completed_ids,
-                       pending_sync=store.pending_count(),
+                       pending_sync=store.pending_count(), shared=shared_runtime.status(),
                        report_preferences=app.extensions['report_workspace'].preferences(),
                        capabilities={'report_sources': True, 'status_rules': True, 'automatic_statuses': True, 'desktop': desktop_mode,
-                                     'google_configured': bool(SPREADSHEET_ID and os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON'))})
+                                     'shared_workspace': shared_runtime.enabled,
+                                     'google_configured': shared_runtime.enabled or bool(SPREADSHEET_ID and os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON'))})
 
     @app.get('/api/remaining-products')
     def get_remaining_products():
@@ -840,6 +869,8 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
                 gate.release()
 
     def tracker_snapshot(force=False, known_revision=None, background=False):
+        if shared_runtime.enabled:
+            return shared_runtime.snapshot(force=force, known_revision=known_revision, background=background)
         def load():
             book, _ = target_worksheet()
             sheets, trackers, groups = {}, {}, {}
@@ -885,6 +916,9 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
     from contextlib import contextmanager
     @contextmanager
     def writer_job(label, wait=600):
+        if shared_runtime.enabled:
+            yield
+            return
         from contextlib import nullcontext
         def progress(message):
             with state_lock:
@@ -909,6 +943,9 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
                 state['result'] = dict(result, error='The shared publishing slot release could not be confirmed. Saved data was retained. Stop this app’s jobs, then check Shared publishing in Storage and recovery before retrying.')
 
     def require_writer():
+        if shared_runtime.enabled:
+            shared_runtime.authorize_capture()
+            return
         if desktop_mode and syncer is sync_workbook:
             book, _ = target_worksheet()
             guard = getattr(book, 'writer_guard', None)
@@ -917,6 +954,8 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
                 guard.ensure()
 
     def prepare_capture_number():
+        if shared_runtime.enabled:
+            return
         recover_latest_preview(required=True, refresh=True)
         if desktop_mode and syncer is sync_workbook:
             from sheets_writer import SharedWriterGuard
@@ -992,6 +1031,12 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
                 if preview_id is None or preview_id in prior_ids:
                     raise RuntimeError('Extraction did not save a new preview; existing data was retained.')
                 invalidate_snapshot()
+                if shared_runtime.enabled:
+                    saved = store.get(preview_id)
+                    result = shared_runtime.submit(saved)
+                    with state_lock:
+                        state.update(result=result, stage=result['stage'])
+                    return
                 frame, saved, _, _ = prepare_sync(preview_id)
                 with state_lock:
                     state.update(action='sync', stage=f"Syncing {saved['name']} to Google Sheets")

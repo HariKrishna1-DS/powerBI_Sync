@@ -187,5 +187,55 @@ class BackendDatabaseTests(unittest.TestCase):
         self.assertEqual(result['state'], 'processed')
 
 
+    def test_seed_reconciles_once_and_preserves_shared_numbering(self):
+        args = [self.workspace, str(uuid.uuid4()), [{'Order Number':'0001','Comments':'Keep manual values'}], 45]
+        self.assertIn('access denied', rpc('tv_seed_workspace', args, user=VIEWER, fails=True))
+        first = rpc('tv_seed_workspace', args)
+        self.assertEqual(first, rpc('tv_seed_workspace', args))
+        self.assertEqual(first['orders'], 1)
+        self.assertEqual(rpc('tv_snapshot', [self.workspace])['orders'][0]['data']['Comments'], 'Keep manual values')
+        self.assertEqual(self.submit()['sequence'], 45)
+        self.assertIn('empty validation', rpc('tv_seed_workspace', [self.workspace, str(uuid.uuid4()), [], 1], fails=True))
+
+    def test_activation_binds_destination_revision_and_worker_idempotently(self):
+        worker, book = str(uuid.uuid4()), 'synthetic_book_' + uuid.uuid4().hex
+        args = [self.workspace, str(uuid.uuid4()), 1, book, worker, True]
+        self.assertIn('processing state changed', rpc('tv_activate_workspace', args, fails=True))
+        rpc('tv_seed_workspace', [self.workspace, str(uuid.uuid4()), [], 1])
+        self.assertIn('stopped legacy', rpc('tv_activate_workspace', args[:-1] + [False], fails=True))
+        result = rpc('tv_activate_workspace', args)
+        self.assertEqual(result, rpc('tv_activate_workspace', args))
+        self.assertIn('designated office worker', rpc('tv_worker_claim_job', [self.workspace, str(uuid.uuid4())], fails=True))
+        self.assertIn('designated office worker', rpc('tv_office_claim_job', [self.workspace, str(uuid.uuid4()), str(uuid.uuid4())], fails=True))
+        token = str(uuid.uuid4())
+        claimed = rpc('tv_office_claim_job', [self.workspace, token, worker])
+        self.assertEqual(claimed['spreadsheet'], book)
+        self.assertEqual(claimed['job']['kind'], 'publish')
+        self.assertEqual(rpc('tv_workspace_status', [self.workspace])['worker'], worker)
+        self.assertIn('access denied', rpc('tv_workspace_status', [self.workspace], user=OTHER, fails=True))
+
+    def test_accepted_and_processed_captures_are_not_reported_as_published_early(self):
+        operation, worker = str(uuid.uuid4()), str(uuid.uuid4())
+        rpc('tv_seed_workspace', [self.workspace,str(uuid.uuid4()),[],1])
+        rpc('tv_activate_workspace', [self.workspace,str(uuid.uuid4()),1,'qa_workbook_'+uuid.uuid4().hex,worker,True])
+        first = str(uuid.uuid4())
+        rpc('tv_office_claim_job',[self.workspace,first,worker])
+        rpc('tv_worker_ack_publication',[self.workspace,first,1])
+        self.submit(operation)
+        receipt = rpc('tv_operation',[self.workspace,operation])
+        self.assertEqual(receipt['processing_state'],'queued')
+        self.assertFalse(receipt['published'])
+        token = str(uuid.uuid4())
+        rpc('tv_office_claim_job',[self.workspace,token,worker])
+        rpc('tv_worker_commit_capture',[self.workspace,token,[{'Order Number':'001'}],{},False])
+        receipt = rpc('tv_operation',[self.workspace,operation])
+        self.assertEqual(receipt['processed_revision'],2)
+        self.assertFalse(receipt['published'])
+        publication = str(uuid.uuid4())
+        rpc('tv_office_claim_job',[self.workspace,publication,worker])
+        rpc('tv_worker_ack_publication',[self.workspace,publication,2])
+        self.assertTrue(rpc('tv_operation',[self.workspace,operation])['published'])
+
+
 if __name__ == '__main__':
     unittest.main()

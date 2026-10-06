@@ -110,3 +110,27 @@ test('invalid membership cannot create a duplicate or return an unverified works
   await assert.rejects(auth.createWorkspace({name:'Tv Tracker',queueScope:'queue-23656'}),/membership/);
   assert.equal(calls,1);
 });
+
+test('joining requires active server membership and the exact designated worker',async()=>{
+  const id=user.id, worker='00000000-0000-0000-0000-000000000099';
+  const member={id,name:'Tv Tracker',queue_scope:'queue-23656',role:'editor',mode:'active'};
+  const detail={id,mode:'active',queue_scope:member.queue_scope,worker,spreadsheet:'synthetic_workbook_12345678'};
+  const {auth,read}=setup(async url=>response(url.endsWith('tv_list_workspaces')?[member]:detail),
+    {cloudSession:{...session(),expires_at:5000},queueUrl:member.queue_scope});
+  await assert.rejects(auth.joinWorkspace({id,officeWorker:true}),/designated/);
+  assert.equal(read().cloudWorkspace,undefined);
+  const selected=await auth.joinWorkspace({id,officeWorker:false});
+  assert.equal(selected.userId,user.id);
+  assert.equal(selected.officeWorker,false);
+  member.mode='shadow';
+  await assert.rejects(auth.joinWorkspace({id,officeWorker:false}),/activation/);
+});
+
+test('office worker identity survives retries and wrong-account sign-in cannot replace the workspace session',async()=>{
+  const {auth,read}=setup(async()=>response({...session(),user:{...user,id:'00000000-0000-0000-0000-000000000002'}}),
+    {cloudWorkspace:{userId:user.id}});
+  const worker=await auth.workerIdentity();
+  assert.equal(await auth.workerIdentity(),worker);
+  await assert.rejects(auth.signIn({email:user.email,password:'fixture'}),/another account/);
+  assert.equal(read().cloudSession,undefined);
+});

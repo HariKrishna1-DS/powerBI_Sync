@@ -39,7 +39,7 @@ class SharedRoutesTests(unittest.TestCase):
         self.rpc.call.return_value = []
         self.assertEqual(self.post().status_code, 403)
         self.rpc.call.return_value = [dict(self.member, mode='active')]
-        self.assertEqual(self.post().status_code, 409)
+        self.assertEqual(self.post(action='worker').status_code, 409)
         self.rpc.snapshot.assert_not_called()
 
     def test_inspection_returns_only_summary_and_releases_gate(self):

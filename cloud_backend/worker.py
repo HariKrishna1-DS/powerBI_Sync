@@ -61,16 +61,49 @@ class ShadowWorker:
             job = claim.get('job', {})
             if job.get('token') != token or job.get('workspace_id') != workspace:
                 raise CloudError('The worker claim belongs to another job.')
-            if claim.get('mode') != 'shadow' or job.get('kind') != 'capture':
-                raise CloudError('This preparation worker only processes shadow captures. Active publishing needs the verified publisher.')
-            rows, report, review = process_capture(claim)
-            receipt = self._receipt(self.rpc.call('tv_commit_capture', {'p_workspace': workspace,
-                'p_token': token, 'p_rows': rows, 'p_report': report, 'p_review': review}))
+            receipt = self._receipt(self._perform(claim, workspace, token))
             self._clear(workspace, token)
             return receipt
+
+    def _perform(self, claim, workspace, token):
+        if claim.get('mode') != 'shadow' or claim['job'].get('kind') != 'capture':
+            raise CloudError('This preparation worker only processes shadow captures. Active publishing needs the verified publisher.')
+        return self._capture(claim, workspace, token)
+
+    def _capture(self, claim, workspace, token):
+        rows, report, review = process_capture(claim)
+        return self.rpc.call('tv_commit_capture', {'p_workspace': workspace,
+            'p_token': token, 'p_rows': rows, 'p_report': report, 'p_review': review})
 
     @staticmethod
     def _receipt(value):
         if not isinstance(value, dict) or value.get('state') not in ('processed', 'review') or type(value.get('revision')) is not int or value['revision'] < 0:
             raise CloudError('Worker completion could not be verified. The same job will be reconciled on retry.', 'retry')
         return value
+
+
+class OfficeWorker(ShadowWorker):
+    def __init__(self, rpc, state_directory, open_book):
+        super().__init__(rpc, state_directory)
+        self.open_book = open_book
+
+    def _perform(self, claim, workspace, token):
+        if claim.get('mode') != 'active' or not claim.get('spreadsheet'):
+            raise CloudError('The office worker requires a bound active workspace.')
+        if claim['job'].get('kind') == 'capture':
+            return self._capture(claim, workspace, token)
+        if claim['job'].get('kind') != 'publish':
+            raise CloudError('Unknown office worker job.')
+        from cloud_backend.publication import SheetsPublisher, projection
+        revision = claim['job']['revision']
+        tables, _ = projection(claim['orders'], claim['job']['started_at'])
+        publisher = SheetsPublisher(self.open_book(claim['spreadsheet']), workspace, claim['spreadsheet'])
+        publisher.publish(revision, tables)
+        return self.rpc.call('tv_ack_publication', {'p_workspace': workspace,
+            'p_token': token, 'p_revision': revision})
+
+    @staticmethod
+    def _receipt(value):
+        if isinstance(value, dict) and value.get('state') == 'published' and type(value.get('revision')) is int and value['revision'] > 0:
+            return value
+        return ShadowWorker._receipt(value)

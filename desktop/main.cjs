@@ -18,6 +18,7 @@ const root = path.resolve(__dirname, '..');
 let window, tray, backend, backendUrl = '', settings, vault, pendingAccount;
 let quitting = false, restarting = false, quitRequested = false;
 let updates, stopUpdateChecks, cloudAuth;
+let sharedPulseTimer, sharedPulseRunning=false, sharedPulseError='';
 const token = crypto.randomBytes(32).toString('hex');
 const icon = path.join(__dirname, 'assets', 'icon.png');
 const dataPath = path.join(app.getPath('userData'), 'workspace');
@@ -58,6 +59,21 @@ async function engineRequest(route, options = {}, timeoutMs = 30000) {
   }
   return response;
 }
+async function pulseShared() {
+  if (!settings?.cloudWorkspace || sharedPulseRunning || quitting || restarting || !backendUrl) return;
+  sharedPulseRunning=true;
+  try {
+    let access='';
+    try { access=await cloudAuth.accessToken(); } catch { /* The engine pauses upload but keeps local captures. */ }
+    await engineRequest('/api/desktop/shared/pulse',{method:'POST',headers:{'X-TV-Cloud-Access':access}},120000);
+    sharedPulseError='';
+  } catch(error) {const message=safeError(error);if(message!==sharedPulseError)log(message);sharedPulseError=message;}
+  finally { sharedPulseRunning=false; }
+}
+function startSharedPump() {
+  clearInterval(sharedPulseTimer);
+  if(settings.cloudWorkspace){sharedPulseTimer=setInterval(pulseShared,15000);sharedPulseTimer.unref();void pulseShared();}
+}
 function log(message) {
   fs.appendFileSync(path.join(logPath, 'desktop.log'), `${new Date().toISOString()} ${safeError(message)}\n`);
 }
@@ -75,6 +91,7 @@ async function startBackend() {
     DATATRACE_USERNAME: settings.username, DATATRACE_PASSWORD: settings.password,
     DATATRACE_CONNECTION_RECOVERY: vault.status()?.status === 'locked' || settings.connectionRepairPending ? '1' : '0',
     GOOGLE_SERVICE_ACCOUNT_JSON: settings.serviceAccount, DATATRACE_HEADLESS: 'true',
+    DATATRACE_SHARED_WORKSPACE: settings.cloudWorkspace ? JSON.stringify({...settings.cloudWorkspace,...settings.cloudConfig}) : '',
     DATATRACE_NODE_EXECUTABLE: process.execPath,
     DATATRACE_EXTRACTOR_DIR: app.isPackaged ? path.join(process.resourcesPath, 'extractor') : path.join(root, '.desktop-build', 'extractor'),
     PUPPETEER_EXECUTABLE_PATH: detectBrowser(),
@@ -106,6 +123,7 @@ async function startBackend() {
     child.stderr.on('data', chunk => log(chunk.toString()));
   });
   await engineRequest('/api/health');
+  startSharedPump();
 }
 async function stopBackend(force = false) {
   const child = backend;
@@ -168,6 +186,16 @@ function registerIpc() {
   handle('desktop:cloud-sign-in', input => cloudAuth.signIn(input));
   handle('desktop:cloud-sign-out', () => cloudAuth.signOut());
   handle('desktop:cloud-workspaces', () => cloudAuth.listWorkspaces());
+  handle('desktop:cloud-worker-identity', () => cloudAuth.workerIdentity());
+  handle('desktop:cloud-join', async input => {
+    const health=await (await engineRequest('/api/health')).json();
+    if(health.running)throw Error('Wait for the current workspace operation before changing connections.');
+    const selected=await cloudAuth.joinWorkspace(input);
+    restarting=true;
+    try { await stopBackend();await startBackend();configureSession();await window.loadURL(backendUrl); }
+    finally { restarting=false;void pulseShared(); }
+    return selected;
+  });
   handle('desktop:cloud-create-workspace', () => cloudAuth.createWorkspace({name:'Tv Tracker',queueScope:settings.queueUrl}));
   handle('desktop:cloud-action', async input => {
     if (!input || !['inspect','submit','drain','worker'].includes(input.action) ||
@@ -299,14 +327,14 @@ async function launch() {
   tray.setToolTip('Tv Tracker · running locally');
   tray.setContextMenu(Menu.buildFromTemplate([{label: 'Open Tv Tracker', click: focusWindow}, {label: 'Connections & settings', click: () => sendCommand('settings')}, {type: 'separator'}, {label: 'Quit', click: requestQuit}]));
   tray.on('double-click', focusWindow);
-  await window.loadURL(backendUrl);
+  await window.loadURL(!app.isPackaged && process.env.DATATRACE_CLOUD_PILOT==='1' ? `${backendUrl}/?setup=shared` : backendUrl);
   if (app.isPackaged) stopUpdateChecks = scheduleUpdateChecks(updates);
 }
 app.on('second-instance', focusWindow);
 app.on('activate', focusWindow);
 app.on('before-quit', event => { if (!quitting) { event.preventDefault(); requestQuit(); } });
 app.on('window-all-closed', () => { if (quitting) app.quit(); });
-app.on('will-quit', () => stopUpdateChecks?.());
+app.on('will-quit', () => {stopUpdateChecks?.();clearInterval(sharedPulseTimer);});
 if (gotLock) app.whenReady().then(launch).catch(async error => {
   quitting = true;
   await stopBackend(true);

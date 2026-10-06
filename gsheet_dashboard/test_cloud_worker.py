@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import Mock
 import uuid
 
-from cloud_backend.worker import ShadowWorker
+from cloud_backend.worker import ShadowWorker, OfficeWorker
 from shared_backend import CloudError
 from test_shared_backend import claim, order
 
@@ -70,3 +70,36 @@ class ShadowWorkerTests(unittest.TestCase):
             with self.assertRaises(CloudError):
                 self.worker.step(self.workspace)
         self.assertEqual(seen[0], seen[1])
+
+
+class OfficeWorkerTests(unittest.TestCase):
+    def test_publication_is_verified_before_ack_and_lost_ack_reuses_job(self):
+        from unittest.mock import patch
+        with tempfile.TemporaryDirectory() as folder:
+            workspace = str(uuid.uuid4())
+            rpc = Mock()
+            received = []
+            claim_body = {'mode':'active','spreadsheet':'synthetic-workbook','orders':[],
+                'job':{'workspace_id':workspace,'kind':'publish','revision':1,'started_at':'2026-10-06T12:00:00Z'}}
+            def call(name, body):
+                received.append(name)
+                if name == 'tv_claim_job':
+                    return dict(claim_body, job=dict(claim_body['job'], token=body['p_token']))
+                raise CloudError('Acknowledgment response lost', 'retry')
+            rpc.call.side_effect = call
+            worker = OfficeWorker(rpc, folder, lambda _: object())
+            with patch('cloud_backend.publication.SheetsPublisher') as publisher:
+                publisher.return_value.publish.side_effect = CloudError('Cannot verify Sheets', 'retry')
+                with self.assertRaises(CloudError):
+                    worker.step(workspace)
+                self.assertEqual(received, ['tv_claim_job'])
+                publisher.return_value.publish.side_effect = None
+                with self.assertRaises(CloudError):
+                    worker.step(workspace)
+                self.assertEqual(received[-1], 'tv_ack_publication')
+                publisher.reset_mock()
+                rpc.call.side_effect = None
+                rpc.call.return_value = {'completed':True,'result':{'state':'published','revision':1}}
+                recovered = OfficeWorker(rpc, folder, lambda _: object())
+                self.assertEqual(recovered.step(workspace), {'state':'published','revision':1})
+                publisher.assert_not_called()

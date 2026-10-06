@@ -10,3 +10,14 @@ class OwnerWorkerRpc(SupabaseRpc):
         if name not in names:
             raise ValueError('Unsupported worker operation.')
         return super().call(names[name], body)
+
+
+class OfficeWorkerRpc(OwnerWorkerRpc):
+    def __init__(self, url, api_key, access_token, worker, **kwargs):
+        super().__init__(url, api_key, access_token, **kwargs)
+        self.worker = worker
+
+    def call(self, name, body):
+        if name == 'tv_claim_job':
+            return SupabaseRpc.call(self, 'tv_office_claim_job', dict(body, p_worker=self.worker))
+        return super().call(name, body)

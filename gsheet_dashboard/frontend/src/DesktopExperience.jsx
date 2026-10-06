@@ -96,7 +96,8 @@ function Connections({onClose,running,initialTab='connections'}) {
 
 const PAGES=[['overview','Overview'],['sheets','Data Sheets'],['captures','Saved captures'],['daily','Daily Orders'],['capacity','Capacity Report'],['monthly','Monthly report'],['audit','Sync activity'],['changes','Changes between captures']];
 export function DesktopTools({onNavigate,onImport,running}) {
-  const [settings,setSettings]=useState(false),[commands,setCommands]=useState(false),[query,setQuery]=useState(''),[settingsTab,setSettingsTab]=useState('connections');
+  const sharedSetup=new URLSearchParams(location.search).get('setup')==='shared';
+  const [settings,setSettings]=useState(sharedSetup),[commands,setCommands]=useState(false),[query,setQuery]=useState(''),[settingsTab,setSettingsTab]=useState(sharedSetup?'shared':'connections');
   const [updateState,setUpdateState]=useState(null),[connectionRecovery,setConnectionRecovery]=useState(null);
   useEffect(()=>{
     let active=true;

@@ -27,7 +27,7 @@ def register_shared_routes(app, store, gate, maintenance):
             member = next((row for row in memberships if row.get('id') == workspace), None)
             if member is None:
                 return jsonify(error='This account does not have access to that workspace.'), 403
-            if member.get('mode') != 'shadow':
+            if member.get('mode') != 'shadow' and body['action'] != 'inspect':
                 return jsonify(error='This migration pilot only operates on validation workspaces.'), 409
             action = body['action']
             outbox = CloudOutbox(store)

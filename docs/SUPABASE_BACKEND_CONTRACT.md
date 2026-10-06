@@ -101,3 +101,28 @@ Desktop integration now includes:
 Verification: 13 PostgreSQL acceptance tests, 283 Python regression tests, 36 desktop tests and 10 focused UI tests passed; shared-backend lint and frontend build passed. Hosted anonymous checks confirmed Auth reachability, rejection of anonymous workspace/worker access and absence of private-schema exposure. UI checks cover sign-in failure, owner validation controls, viewer restrictions, the minimum desktop window, onboarding and updater regressions. These results do not establish authenticated hosted processing or four physical PC acceptance.
 
 Authenticated live testing requires the owner to sign in in the isolated validation app. Remaining implementation gates are central Sheets publication and its verified receipt, baseline reconciliation, activation and client routing, sustained office-worker operation/recovery, cloud backup/retention, and final installer/update acceptance. No public release is warranted yet.
+
+## Staged publication and routing checkpoint — 2026-10-06
+
+This section supersedes the earlier checkpoint status; it does not declare release readiness.
+
+- Migrations `202610060003_cutover.sql` and `202610060004_delivery_receipts.sql` were applied successfully through the supplied project's SQL editor. All four migrations still require CLI migration-ledger reconciliation before a CLI push. Production data has not been imported or activated.
+- Owner-only seed and activation RPCs now preserve the reviewed baseline and preview sequence, require an expected revision and acknowledgement that legacy writers stopped, and bind one spreadsheet and one office-worker identity. Active worker claims are restricted to that identity and owner membership.
+- Delivery receipts distinguish accepted, processed and actually published captures. Older processed captures without a recorded processing revision are not automatically treated as published.
+- The central Sheets publisher uploads hidden staging tabs in bounded batches, reads them back, checks the previous visible report digest, and commits values, formatting, publication receipt and staging deletion in one final batch. A failed upload retains the visible report. A lost commit response is reconciled by its receipt; a repeated revision is idempotent. Direct edits detected before commit stop publishing. Sheets does not provide compare-and-swap against an arbitrary human edit between the last check and commit: generated report tabs must be treated as read-only by operators.
+- Only the previously approved synthetic QA workbook was bound to the central protocol. Its legacy writer path is blocked, publication revision 2 verified successfully, and repeating that revision was idempotent. The production workbook was not modified. The QA workbook binding UUID is a publisher test identity, not an activated Supabase workspace.
+- Selected active workspaces can route verified captures, retries and scheduled captures through the durable local upload queue. Report reads use the shared database and dated local cache. An office worker can process jobs and publish, with its JWT held in memory and supplied by Electron's encrypted Auth session. The updater treats a running worker step as busy.
+
+Validation: **16 PostgreSQL tests passed; the 294-test Python regression run passed; 17 focused publisher/worker/runtime tests passed after the staged-upload change** (overlapping tests, not additive totals). The latter include a 7,500-row Unicode-heavy report, bounded serialized request sizes, interrupted staging, response loss, repeated publication, visible-row replacement, manual-edit conflicts and unknown-tab preservation. Earlier desktop and UI results remain 38 and 10 passing respectively. Live Sheets acceptance passed using synthetic data only. These are not four physical PC or sustained reliability results.
+
+The validation app was inspected through native Computer Use. Settings → Shared workspace showed **Sign-in needed**, with empty email and password fields. It is left on that screen. The owner must enter the application account credentials directly; the authenticated Supabase dashboard session cannot replace the app's user session.
+
+Remaining release gates:
+
+1. Authenticated hosted acceptance using the application's own session, including membership isolation and four-client concurrency.
+2. Complete owner-facing baseline reconciliation/backup and activation UI, office-worker enrollment, safe workspace disconnection and account switching.
+3. Adapt report imports/source changes, capacity targets, manual/SLA corrections and monthly maintenance to canonical shared storage; do not let legacy controls imply that these are already centralized.
+4. Profile real baseline size, define cloud retention and backup/restore, and complete stopped-worker recovery and sustained outage/sleep/resume checks.
+5. Review and stop production legacy writers before cutover; then complete packaged build, installation, in-app upgrade and recovery using the release artifacts.
+
+No new version was published. The package remains at 2.7.2 while this implementation is under validation.

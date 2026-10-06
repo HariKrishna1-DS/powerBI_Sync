@@ -33,6 +33,7 @@ function createCloudAuth({read, write, fetcher = fetch, now = () => Date.now()})
     const {cloudConfig, cloudSession} = read();
     return {configured: !!cloudConfig, projectUrl: cloudConfig?.url || PROJECT,
       signedIn: !!cloudSession, email: cloudSession?.user?.email || '',
+      workspace: read().cloudWorkspace || null,
       userId: cloudSession?.user?.id || '', expiresAt: cloudSession?.expires_at || null};
   }
   function saveSession(session) { write({...read(), cloudSession: session}); }
@@ -63,6 +64,9 @@ function createCloudAuth({read, write, fetcher = fetch, now = () => Date.now()})
         !UUID.test(value.user?.id || '') || typeof value.user?.email !== 'string' ||
         !Number.isFinite(value.expires_in) || value.expires_in <= 0 || value.expires_in > 86400) {
       throw Error('Sign-in response could not be verified. No session was saved.');
+    }
+    if(read().cloudWorkspace?.userId && read().cloudWorkspace.userId!==value.user.id) {
+      throw Error('Disconnect this PC from its current shared workspace before switching to another account.');
     }
     const session = {access_token: value.access_token, refresh_token: value.refresh_token,
       expires_at: Math.floor(now() / 1000) + value.expires_in,
@@ -100,6 +104,27 @@ function createCloudAuth({read, write, fetcher = fetch, now = () => Date.now()})
       return status();
     }),
     accessToken: () => exclusive(token),
+    joinWorkspace: input => exclusive(async () => {
+      if (!input || !UUID.test(input.id || '') || typeof input.officeWorker !== 'boolean') throw Error('Choose a shared workspace.');
+      const access = await token();
+      const memberships = verifiedWorkspaces(await request('/rest/v1/rpc/tv_list_workspaces', {}, access));
+      const member = memberships.find(row=>row.id===input.id);
+      if (!member || member.mode!=='active') throw Error('This workspace has not passed migration activation yet.');
+      const detail = await request('/rest/v1/rpc/tv_workspace_status', {p_workspace:input.id}, access);
+      if (!detail || detail.id!==input.id || detail.mode!=='active' || detail.queue_scope!==member.queue_scope ||
+          !/^[A-Za-z0-9_-]{20,150}$/.test(detail.spreadsheet || '') || !UUID.test(detail.worker || '')) throw Error('Workspace activation could not be verified.');
+      if (input.officeWorker && (member.role!=='owner' || detail.worker!==read().cloudWorkerId)) throw Error('This PC is not the designated office worker.');
+      const selected={id:member.id,name:member.name,role:member.role,queue_scope:member.queue_scope,userId:read().cloudSession.user.id,
+        spreadsheet:detail.spreadsheet,worker:detail.worker,officeWorker:input.officeWorker};
+      if (selected.queue_scope !== read().queueUrl) throw Error('The configured TitleVision queue must match this shared workspace.');
+      write({...read(),cloudWorkspace:selected});
+      return selected;
+    }),
+    workerIdentity: () => exclusive(async () => {
+      const id=read().cloudWorkerId;
+      if(id&&UUID.test(id))return id;
+      const created=randomUUID();write({...read(),cloudWorkerId:created});return created;
+    }),
     createWorkspace: ({name, queueScope}) => exclusive(async () => {
       if (typeof name !== 'string' || !name.trim() || name.length > 100 ||
           typeof queueScope !== 'string' || !queueScope || queueScope.length > 2048) throw Error('Workspace name and queue scope are required.');
