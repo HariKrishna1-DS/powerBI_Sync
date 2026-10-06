@@ -1,7 +1,7 @@
 """Crash-safe capture processor, initially restricted to shadow workspaces.
 
-The injected RPC transport must be a server-only credential boundary. This
-module intentionally has no desktop credentials or direct Google Sheets writes.
+The injected transport must enforce workspace-owner or server authorization.
+This module intentionally has no stored credentials or direct Google Sheets writes.
 """
 from contextlib import closing
 from pathlib import Path

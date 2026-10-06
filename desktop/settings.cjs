@@ -53,7 +53,7 @@ function validateServiceAccount(raw) {
 }
 
 function publicSettings(settings) {
-  const {password, serviceAccount, uiPreferences, ...publicFields} = settings;
+  const {password, serviceAccount, uiPreferences, cloudSession, ...publicFields} = settings;
   return {...publicFields, passwordSet: !!password, serviceAccountEmail: serviceAccount ? JSON.parse(serviceAccount).client_email : '', googleConfigured: !!(serviceAccount && settings.spreadsheetId)};
 }
 

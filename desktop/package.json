@@ -23,6 +23,7 @@
       "main.cjs",
       "preload.cjs",
       "settings.cjs",
+      "cloud-auth.cjs",
       "assets/**",
       "package.json",
       "updater.cjs",

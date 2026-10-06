@@ -174,6 +174,18 @@ class BackendDatabaseTests(unittest.TestCase):
         self.assertIn('access denied', self.submit(user=OTHER, fails=True))
         self.assertIn('valid role', rpc('tv_set_member', [self.workspace, str(uuid.uuid4()), OWNER, None], fails=True))
 
+    def test_owner_worker_boundary_denies_editors_viewers_and_other_workspaces(self):
+        rpc('tv_set_member', [self.workspace, str(uuid.uuid4()), OTHER, 'editor'])
+        self.submit()
+        token = str(uuid.uuid4())
+        for user in (VIEWER, OTHER):
+            self.assertIn('access denied', rpc('tv_worker_claim_job', [self.workspace, token], user=user, fails=True))
+            self.assertIn('access denied', rpc('tv_worker_commit_capture', [self.workspace, token, [], {}, False], user=user, fails=True))
+        self.assertIn('permission denied', rpc('tv_worker_claim_job', [self.workspace, token], role='anon', user=None, fails=True))
+        self.assertEqual(rpc('tv_worker_claim_job', [self.workspace, token])['job']['token'], token)
+        result = rpc('tv_worker_commit_capture', [self.workspace, token, [{'Order Number': '001'}], {}, False])
+        self.assertEqual(result['state'], 'processed')
+
 
 if __name__ == '__main__':
     unittest.main()

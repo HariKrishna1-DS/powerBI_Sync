@@ -151,6 +151,8 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
     scheduler_stop = threading.Event()
     maintenance = threading.Event()
     app.extensions['stop_scheduler'] = scheduler_stop
+    from shared_routes import register_shared_routes
+    register_shared_routes(app, store, gate, maintenance)
     production_cache = ProductionCache(store.root.parent / 'production-cache.json', '|'.join((SPREADSHEET_ID, *TRACKER_TITLES)))
     app.extensions['production_cache'] = production_cache
 

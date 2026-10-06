@@ -8,6 +8,7 @@ const {createUpdater, scheduleUpdateChecks} = require('./updater.cjs');
 const {redact} = require('./redaction.cjs');
 const {writeVerifiedFile} = require('./verified-file.cjs');
 const {encryptBackup, decryptBackup, validatePassword} = require('./backup-crypto.cjs');
+const {createCloudAuth} = require('./cloud-auth.cjs');
 
 app.setName('Tv Tracker');
 app.setAppUserModelId('com.datatrace.studio');
@@ -16,7 +17,7 @@ app.setPath('userData', process.env.DATATRACE_TEST_USER_DATA || path.join(app.ge
 const root = path.resolve(__dirname, '..');
 let window, tray, backend, backendUrl = '', settings, vault, pendingAccount;
 let quitting = false, restarting = false, quitRequested = false;
-let updates, stopUpdateChecks;
+let updates, stopUpdateChecks, cloudAuth;
 const token = crypto.randomBytes(32).toString('hex');
 const icon = path.join(__dirname, 'assets', 'icon.png');
 const dataPath = path.join(app.getPath('userData'), 'workspace');
@@ -34,7 +35,8 @@ function detectBrowser() {
   ].find(file => file && fs.existsSync(file)) || '';
 }
 function safeError(error) {
-  return redact(error, [token, settings?.password, settings?.serviceAccount]).slice(0, 2000);
+  return redact(error, [token, settings?.password, settings?.serviceAccount,
+    settings?.cloudSession?.access_token, settings?.cloudSession?.refresh_token]).slice(0, 2000);
 }
 function publicState() {
   const connectionRecovery = vault.status() || (settings.connectionRepairPending ? {status: 'incomplete', message: 'Complete your Google Sheets and TitleVision connection details, then save to resume scheduled work. Your saved captures are available.'} : null);
@@ -161,6 +163,21 @@ function registerIpc() {
     try { return await handler(payload); } catch (error) { throw Error(safeError(error)); }
   });
   handle('desktop:settings', () => publicState());
+  handle('desktop:cloud-state', () => cloudAuth.status());
+  handle('desktop:cloud-configure', input => cloudAuth.configure(input));
+  handle('desktop:cloud-sign-in', input => cloudAuth.signIn(input));
+  handle('desktop:cloud-sign-out', () => cloudAuth.signOut());
+  handle('desktop:cloud-workspaces', () => cloudAuth.listWorkspaces());
+  handle('desktop:cloud-create-workspace', () => cloudAuth.createWorkspace({name:'Tv Tracker',queueScope:settings.queueUrl}));
+  handle('desktop:cloud-action', async input => {
+    if (!input || !['inspect','submit','drain','worker'].includes(input.action) ||
+        typeof input.workspace !== 'string' || !/^[0-9a-f-]{36}$/i.test(input.workspace)) throw Error('Choose a shared workspace and action.');
+    const access = await cloudAuth.accessToken();
+    const response = await engineRequest('/api/desktop/shared/action', {method:'POST',
+      headers:{'Content-Type':'application/json','X-TV-Cloud-Access':access},
+      body:JSON.stringify({action:input.action, workspace:input.workspace, preview_id:input.preview_id, config:settings.cloudConfig})},120000);
+    return response.json();
+  });
   handle('desktop:preferences', () => settings.uiPreferences || {theme:'system', orderViews:[]});
   handle('desktop:save-preferences', input => {
     const uiPreferences = validateUiPreferences(input, settings.uiPreferences);
@@ -233,10 +250,14 @@ function registerIpc() {
 }
 async function launch() {
   vault = createVault(settingsPath, safeStorage); settings = vault.readRecoverably();
+  cloudAuth = createCloudAuth({read: () => settings, write: next => {vault.write(next); settings = next;}});
   if (vault.status()?.status !== 'locked') configureStartup(true);
   await startBackend();
   window = new BrowserWindow({title: 'Tv Tracker', width: 1440, height: 960, minWidth: 980, minHeight: 680, backgroundColor: '#f5f6fa', show: false, icon,
     webPreferences: {preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, spellcheck: false}});
+  if (!app.isPackaged && process.env.DATATRACE_CLOUD_PILOT === '1') {
+    window.on('page-title-updated', event => {event.preventDefault(); window.setTitle('Tv Tracker · Supabase validation');});
+  }
   updates = createUpdater({updater: require('electron-updater').autoUpdater,
     enabled: app.isPackaged && process.platform === 'win32', version: app.getVersion(),
     notify: state => { if (window && !window.isDestroyed()) window.webContents.send('desktop:update-state', state); },

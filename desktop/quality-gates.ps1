@@ -14,7 +14,7 @@ try {
   Check-Exit 'Recovery lint'
   & $Python -m ruff check --select E9,F gsheet_dashboard/sheets_transport.py gsheet_dashboard/test_sheets_quota.py gsheet_dashboard/production_cache.py gsheet_dashboard/sheet_reads.py
   Check-Exit 'Sheets transport lint'
-  & $Python -m ruff check --select E9,F cloud_backend supabase/tests gsheet_dashboard/shared_backend.py gsheet_dashboard/test_shared_backend.py gsheet_dashboard/test_cloud_worker.py
+  & $Python -m ruff check --select E9,F cloud_backend supabase/tests gsheet_dashboard/shared_backend.py gsheet_dashboard/shared_routes.py gsheet_dashboard/test_shared_routes.py gsheet_dashboard/test_shared_backend.py gsheet_dashboard/test_cloud_worker.py
   Check-Exit 'Shared backend lint'
   & $Python -m pip_audit -r desktop/requirements-build.lock --no-deps --disable-pip
   Check-Exit 'Python dependency audit'

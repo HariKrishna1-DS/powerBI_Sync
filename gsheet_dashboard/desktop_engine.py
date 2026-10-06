@@ -8,6 +8,7 @@ from pathlib import Path
 # Explicit development-only dependency path for embedded Python build environments.
 if not getattr(sys, 'frozen', False):
     sys.path.insert(0, str(Path(__file__).resolve().parent))
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
     if os.environ.get('DATATRACE_DEV_DEPS'):
         sys.path.insert(0, os.environ['DATATRACE_DEV_DEPS'])
 

@@ -1,6 +1,13 @@
 const {contextBridge, ipcRenderer} = require('electron');
 contextBridge.exposeInMainWorld('desktop', Object.freeze({
   getSettings: () => ipcRenderer.invoke('desktop:settings'),
+  getCloudState: () => ipcRenderer.invoke('desktop:cloud-state'),
+  configureCloud: value => ipcRenderer.invoke('desktop:cloud-configure', value),
+  signInCloud: value => ipcRenderer.invoke('desktop:cloud-sign-in', value),
+  signOutCloud: () => ipcRenderer.invoke('desktop:cloud-sign-out'),
+  getCloudWorkspaces: () => ipcRenderer.invoke('desktop:cloud-workspaces'),
+  createCloudWorkspace: () => ipcRenderer.invoke('desktop:cloud-create-workspace'),
+  runCloudAction: value => ipcRenderer.invoke('desktop:cloud-action', value),
   getPreferences: () => ipcRenderer.invoke('desktop:preferences'),
   savePreferences: value => ipcRenderer.invoke('desktop:save-preferences', value),
   getUpdateState: () => ipcRenderer.invoke('desktop:update-state'),

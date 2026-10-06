@@ -84,3 +84,20 @@ python -m unittest discover -s gsheet_dashboard -p 'test_*.py'
 ```
 
 For the Python suite, make the repository root, `gsheet_dashboard`, and installed backend dependencies available on `PYTHONPATH`. The PostgreSQL harness provides test-only Auth roles; it verifies database permissions and transactions, not Supabase's hosted JWT gateway or Auth service. Hosted acceptance remains mandatory.
+
+## Hosted setup and desktop authentication checkpoint — 2026-10-06
+
+The owner selected an always-on office PC. The supplied Supabase project was inspected before setup; its application schema was empty. Migrations `202610060001_shared_backend.sql` and `202610060002_owner_worker.sql` were applied successfully through the dashboard SQL editor. They were **not** applied through the CLI migration ledger: reconcile that ledger before running a future CLI push to avoid replaying the initial schema. No production rows have been imported and no workspace has been activated by this checkpoint.
+
+The second migration exposes owner-scoped worker wrappers. Authenticated editors, viewers and unrelated users cannot claim or finish worker jobs. The office worker uses its owner's existing Auth session through these wrappers; it does not require a project-wide service-role key. Owners are trusted to process their own workspace, so owner membership must not be granted to ordinary client operators.
+
+Desktop integration now includes:
+
+- Main-process password sign-in, serialized rotating-session refresh, current-device sign-out and Windows-encrypted session storage. Passwords are not retained and tokens are never returned to the renderer.
+- A Shared workspace settings tab for sign-in, verified memberships, idempotent first-workspace creation and owner-only validation controls. A separate development profile protects the installed production profile during acceptance.
+- Authenticated loopback routes for inspecting canonical data, submitting verified saved captures through the durable outbox, draining uploads and running one shadow worker step. These are validation routes; the normal capture and retry workflows still use the existing Sheets implementation.
+- Packaging paths for the shared Python worker and desktop authentication module.
+
+Verification: 13 PostgreSQL acceptance tests, 283 Python regression tests, 36 desktop tests and 10 focused UI tests passed; shared-backend lint and frontend build passed. Hosted anonymous checks confirmed Auth reachability, rejection of anonymous workspace/worker access and absence of private-schema exposure. UI checks cover sign-in failure, owner validation controls, viewer restrictions, the minimum desktop window, onboarding and updater regressions. These results do not establish authenticated hosted processing or four physical PC acceptance.
+
+Authenticated live testing requires the owner to sign in in the isolated validation app. Remaining implementation gates are central Sheets publication and its verified receipt, baseline reconciliation, activation and client routing, sustained office-worker operation/recovery, cloud backup/retention, and final installer/update acceptance. No public release is warranted yet.
