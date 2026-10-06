@@ -32,7 +32,7 @@ PyInstaller.__main__.run(arguments)
 
 extractor = ROOT / '.desktop-build' / 'extractor'
 extractor.mkdir(parents=True, exist_ok=True)
-for filename in ('scrape_datatrace.js', 'browser_options.cjs', 'sync_config.json'):
+for filename in ('scrape_datatrace.js', 'browser_options.cjs', 'capture_validation.cjs', 'sync_config.json'):
     shutil.copy2(ROOT / 'gsheet_dashboard' / filename, extractor / filename)
 for filename in ('package.json', 'package-lock.json'):
     shutil.copy2(ROOT / 'desktop' / 'extractor' / filename, extractor / filename)

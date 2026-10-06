@@ -8,6 +8,7 @@ Raw capture history remains immutable; sorting applies to production records.
 from collections import Counter
 from datetime import datetime, timedelta
 from io import BytesIO
+from functools import lru_cache
 import hashlib
 import json
 import re
@@ -55,8 +56,15 @@ def local_datetime(value):
     if isinstance(value, datetime):
         return value.replace(tzinfo=None)
     raw = re.sub(r'\s+', ' ', str(value or '')).strip()
-    if not raw:
+    if not raw or len(raw) > 128:
         return None
+    return _parse_wall_clock(raw)
+
+
+@lru_cache(maxsize=8192)
+def _parse_wall_clock(raw):
+    # The same timestamps occur in multiple dashboard/report calculations. Cache
+    # only bounded date strings; parsed datetimes are immutable and retain rules.
     if re.fullmatch(r'\d{5}(?:\.\d+)?', raw) and 20000 <= float(raw) < 100000:
         return datetime(1899, 12, 30) + timedelta(days=float(raw))
     try:

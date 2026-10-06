@@ -54,6 +54,11 @@ class ConnectionTests(unittest.TestCase):
         self.assertEqual(PreviewStore(self.root / 'previews').list(), [])
 
     def test_shutdown_rejects_active_work_and_blocks_new_work_after_accepting(self):
+        # Capture now checks designated-writer authority before invoking the portal.
+        from unittest.mock import Mock
+        writer = patch('server.target_worksheet', return_value=(Mock(), None))
+        writer.start()
+        self.addCleanup(writer.stop)
         entered, release = threading.Event(), threading.Event()
         def runner(on_progress):
             entered.set()

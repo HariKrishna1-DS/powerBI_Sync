@@ -1,0 +1,36 @@
+.report-source{border:1px solid var(--line);border-radius:var(--radius-card);padding:16px 20px;background:var(--surface);margin:0 0 24px;min-width:0}
+.report-source-controls,.capacity-targets,.report-detail-toolbar{display:flex;align-items:end;flex-wrap:wrap;gap:14px}
+.report-source-controls label{min-width:180px;max-width:420px;flex:1}
+.report-source-controls select{width:100%;min-width:0;text-overflow:ellipsis}
+.report-source .field-help{margin:10px 0 0}
+.storage-controls{margin-top:12px;font-size:12px}.storage-controls summary{cursor:pointer;color:var(--muted);padding:6px 0}.storage-controls p{line-height:1.6}
+.report-import-dialog{width:min(720px,calc(100vw - 32px))}
+.report-import-body{padding:24px;display:grid;gap:18px;overflow-wrap:anywhere}
+.report-import-body input[type=file]{max-width:100%}
+.import-summary{padding:18px;background:var(--accent-soft);border-radius:12px}
+.report-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin:22px 0}
+.report-metric{background:var(--surface);border:1px solid var(--line);border-top:3px solid var(--accent);border-radius:12px;padding:17px 20px;display:grid;gap:10px;min-width:0}
+.report-metric span{font-size:12px;color:var(--muted);font-weight:600}
+.report-metric strong{font-size:26px;color:var(--ink)}
+.report-metric[data-tone="1"],.report-metric[data-tone="6"]{border-top-color:var(--positive)}
+.report-metric[data-tone="2"]{border-top-color:var(--summary-purple)}
+.report-metric[data-tone="3"],.report-metric[data-tone="7"]{border-top-color:var(--danger)}
+.report-metric[data-tone="4"]{border-top-color:var(--warning)}
+.report-metric[data-tone="5"]{border-top-color:var(--chart-blue)}
+.report-chart{overflow:auto;margin:24px 0;padding:18px;background:var(--surface);border:1px solid var(--line);border-radius:14px;min-width:0}
+.capacity-targets{padding:20px;background:var(--surface);border:1px solid var(--line);border-radius:14px}
+.capacity-targets label{flex:1;min-width:150px}
+.capacity-targets input,.capacity-targets select{width:100%}
+.report-detail-toolbar{justify-content:space-between;margin:22px 0}
+.selected-report-day{background:var(--accent-soft)}
+.report-summary-table table{width:100%;min-width:920px;table-layout:fixed}
+.report-summary-table th,.report-summary-table td{padding:14px 16px;text-align:right;white-space:normal;vertical-align:middle}
+.report-summary-table th{font-size:11px;font-weight:650;line-height:1.5;color:var(--muted)}
+.report-summary-table th:first-child,.report-summary-table td:first-child{text-align:left;width:126px}
+.report-summary-table td{font-variant-numeric:tabular-nums}
+.report-summary-table .report-total{background:var(--accent-soft);font-weight:700}
+.capacity-report h3{margin-top:28px}
+.production-daily-report,.capacity-report{min-width:0;max-width:100%}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+@media(max-width:1100px){.report-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:520px){.report-source{padding:14px}.report-metric{padding:14px}.report-source-controls>*{width:100%;max-width:none!important}.capacity-targets>*{width:100%}}

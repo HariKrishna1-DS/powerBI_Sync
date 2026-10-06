@@ -39,3 +39,6 @@ gsheet_dashboard/frontend/playwright-report/
 # OS generated files
 .DS_Store
 Thumbs.db
+*.tvbackup
+*.tvcloud
+cloud-archives/

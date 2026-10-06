@@ -31,6 +31,7 @@ class PreviewStore:
             db.execute('CREATE TABLE IF NOT EXISTS sync_failures (preview_id INTEGER PRIMARY KEY, error TEXT NOT NULL, created TEXT NOT NULL)')
             # Upgrade v2.0 without re-uploading already committed snapshots.
             db.execute("INSERT OR IGNORE INTO sync_jobs SELECT preview_id, 'synced' FROM sync_receipts")
+            db.execute('CREATE TABLE IF NOT EXISTS capture_metadata (preview_id INTEGER PRIMARY KEY, metadata_json TEXT NOT NULL)')
 
 
     @contextmanager
@@ -46,7 +47,7 @@ class PreviewStore:
     def decode(value):
         return json.loads(value) if isinstance(value, str) else value
 
-    def save(self, frame, source='DataTrace'):
+    def save(self, frame, source='DataTrace', metadata=None):
         from datatrace_sync import export_to_excel_and_csv
         frame = frame.copy().fillna('')
         frame.columns = [str(c).strip() for c in frame.columns]
@@ -58,6 +59,8 @@ class PreviewStore:
             cursor = db.execute('INSERT INTO previews(created,source,columns_json,rows_json) VALUES(?,?,?,?)',
                                 (created, source, json.dumps(list(frame.columns)), json.dumps(rows)))
             number = cursor.lastrowid
+            if metadata is not None:
+                db.execute('INSERT INTO capture_metadata VALUES(?,?)', (number, json.dumps(metadata)))
             export_to_excel_and_csv(frame, self.root / f'preview{number}')
         return self.get(number)
 
@@ -83,8 +86,13 @@ class PreviewStore:
             record = db.execute(query, (number,)).fetchone()
         if not record:
             raise KeyError('Preview not found.')
-        return {'id': number, 'name': f'preview{number}', 'created': record[0], 'source': record[1],
-                'columns': self.decode(record[2]), 'rows': self.decode(record[3])}
+        result = {'id': number, 'name': f'preview{number}', 'created': record[0], 'source': record[1],
+                  'columns': self.decode(record[2]), 'rows': self.decode(record[3])}
+        with self.connect() as db:
+            meta = db.execute('SELECT metadata_json FROM capture_metadata WHERE preview_id=?', (number,)).fetchone()
+        if meta:
+            result['metadata'] = json.loads(meta[0])
+        return result
 
     def history(self, include_sla_corrections=False):
         """Read complete history in one transaction for reporting."""
@@ -101,7 +109,7 @@ class PreviewStore:
     def delete(self, number):
         with self.connect() as db:
             cursor = db.execute('DELETE FROM previews WHERE id=' + '?', (number,))
-            for table in ('sync_jobs', 'sync_reports', 'sync_failures', 'sync_receipts'):
+            for table in ('sync_jobs', 'sync_reports', 'sync_failures', 'sync_receipts', 'capture_metadata'):
                 db.execute(f'DELETE FROM {table} WHERE preview_id=?', (number,))
         if not cursor.rowcount:
             raise KeyError('Preview not found.')

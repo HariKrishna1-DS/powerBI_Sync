@@ -129,9 +129,16 @@ const outputPath = process.env.DATATRACE_OUTPUT_JSON || path.join(__dirname, 'qu
 
         // Locate the queue by its headers, not the first layout table in the panel.
         let tableData = [];
+        const {advertisedCount, captureEvidence} = require('./capture_validation.cjs');
+        let expectedRows = null;
         const seenPages = new Set();
         for (let pageNumber = 0; ; pageNumber++) {
         if (pageNumber >= 1000) throw new Error('Queue pagination exceeded safety limit.');
+        const advertised = advertisedCount(await page.$eval(GRID_SELECTOR, el => [...el.querySelectorAll('.rgInfoPart')].map(node => node.textContent).join(' ')));
+        if (advertised !== null) {
+            if (expectedRows !== null && expectedRows !== advertised) throw new Error('Queue totals changed during extraction. Retry a fresh capture.');
+            expectedRows = advertised;
+        }
         const pageData = await page.evaluate((selector) => {
             const gridContainer = document.querySelector(selector);
 
@@ -229,7 +236,9 @@ const outputPath = process.env.DATATRACE_OUTPUT_JSON || path.join(__dirname, 'qu
                 return newRow;
             });
 
+            const evidence = captureEvidence(cleanedData, expectedRows, seenPages.size);
             fs.writeFileSync(outputPath, JSON.stringify(cleanedData), 'utf8');
+            if (process.env.DATATRACE_OUTPUT_META) fs.writeFileSync(process.env.DATATRACE_OUTPUT_META, JSON.stringify(evidence), 'utf8');
             console.log(`[+] Queue extracted. Python pipeline exports CSV/Excel and syncs spreadsheet ${config.spreadsheet_id}.`);
         } else {
             throw new Error("No queue records extracted.");

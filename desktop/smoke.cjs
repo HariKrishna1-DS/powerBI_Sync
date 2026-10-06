@@ -6,6 +6,7 @@ const path = require('node:path');
 const os = require('node:os');
 const {spawn} = require('node:child_process');
 const {once} = require('node:events');
+const {processTreeMetrics} = require('./process-metrics.cjs');
 
 (async()=>{
   const root=path.resolve(__dirname,'..');
@@ -80,7 +81,7 @@ const {once} = require('node:events');
     await page.evaluate(()=>window.desktop.savePreferences({orderViews:[{name:'Saved locally',search:'DESKTOP',group:'all',product:'all',filters:{}}],tableLayout:{mode:'custom',hidden:['County'],widths:{'Order Number':240},pinIdentifier:true,wrap:true}}));
     const backupFile=path.join(profile,'workspace-backup.zip');
     await app.evaluate(({dialog},file)=>{dialog.showSaveDialog=async()=>({canceled:false,filePath:file});},backupFile);
-    const backup=await page.evaluate(()=>window.desktop.backup());
+    const backup=await page.evaluate(()=>window.desktop.backup('Fixture-only password 2026!'));
     assert.equal(backup.saved,true);
     assert.ok(fs.statSync(backupFile).size>100);
     fs.writeFileSync(file,'Order Number,Task Status,Product\nDESKTOP-002,Available,Full Title\n');
@@ -88,7 +89,7 @@ const {once} = require('node:events');
     await page.getByText('preview2',{exact:true}).first().waitFor();
     await app.evaluate(({dialog},file)=>{dialog.showOpenDialog=async()=>({canceled:false,filePaths:[file]});dialog.showMessageBox=async()=>({response:1});},backupFile);
     const restoredPage=page.waitForEvent('load',{timeout:30000});
-    const restored=await page.evaluate(()=>window.desktop.restoreBackup());
+    const restored=await page.evaluate(()=>window.desktop.restoreBackup('Fixture-only password 2026!'));
     assert.equal(restored.restored,true);
     await restoredPage;
     await page.getByRole('button',{name:'Captures',exact:true}).click();
@@ -98,6 +99,12 @@ const {once} = require('node:events');
     await Promise.race([once(child,'exit'),new Promise((_,reject)=>setTimeout(()=>reject(Error('Second instance did not exit')),15000))]);
     assert.equal(await app.evaluate(({BrowserWindow})=>BrowserWindow.getAllWindows().length),1);
     const metrics=await app.evaluate(async({app})=>({processes:app.getAppMetrics().length,workingSetMB:Math.round(app.getAppMetrics().reduce((sum,item)=>sum+(item.memory?.workingSetSize||0),0)/1024)}));
+    metrics.processTree = processTreeMetrics(app.process().pid);
+    if (metrics.processTree.available) {
+      assert.equal(metrics.processTree.includesPython, true, 'Performance sample must include the Python engine');
+      assert.ok(metrics.processTree.totalWorkingSetMB < 1600, 'Fixture process tree must remain below the 1.6 GB regression ceiling');
+    }
+    assert.ok(startupMs < 30000, 'First launch must complete within the 30 second cold-start ceiling');
     await page.screenshot({path:path.join(output,'desktop-capture.png')});
     assert.deepEqual(errors,[],'renderer must not have uncaught errors');
     let closing=app.waitForEvent('close',{timeout:15000});

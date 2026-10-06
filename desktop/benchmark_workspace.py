@@ -7,7 +7,7 @@ import statistics
 import sys
 import tempfile
 import time
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / '.desktop-build' / 'deps'), str(ROOT / 'gsheet_dashboard')]
@@ -45,6 +45,11 @@ def run():
         first = cache.get(loader)
         reports = lambda: sheet_reports({FULL: rows, REMAINING: []}, {})
         report = reports()
+        from monthly_production import _parse_wall_clock
+        cached_reporting = measure(reports, 3)
+        with patch('monthly_production._parse_wall_clock', _parse_wall_clock.__wrapped__):
+            uncached_reporting = measure(reports, 3)
+            assert reports() == report, 'Date-cache optimization changed report results'
         return {'dataset': {'orders': len(rows), 'captures': 35, 'rows_per_capture': 350},
                 'local_app_creation_ms': round(startup, 2),
                 'status_poll': measure(lambda: client.get('/api/state')),
@@ -53,7 +58,9 @@ def run():
                 'unchanged_cache': measure(lambda: cache.get(loader, known_revision=first.get('revision'))),
                 'cache_full_bytes': len(json.dumps(cache.get(loader)).encode()),
                 'cache_unchanged_bytes': len(json.dumps(cache.get(loader, known_revision=first.get('revision'))).encode()),
-                'reporting': measure(reports, 3),
+                'reporting': cached_reporting,
+                'reporting_without_date_cache': uncached_reporting,
+                'date_cache_entries': _parse_wall_clock.cache_info().currsize,
                 'report_sha256': hashlib.sha256(json.dumps(report, sort_keys=True).encode()).hexdigest()}
 
 
@@ -61,7 +68,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
-    result = json.dumps(run(), indent=2)
+    measured = run()
+    assert measured['cache_unchanged_bytes'] < 1024, 'Unchanged response budget exceeded'
+    assert measured['status_poll']['median_ms'] < 250, 'Status polling regression'
+    assert measured['reporting']['median_ms'] < 5000, '7,000-order reporting regression'
+    result = json.dumps(measured, indent=2)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(result, encoding='utf-8')

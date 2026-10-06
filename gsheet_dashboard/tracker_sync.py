@@ -26,7 +26,7 @@ TRACKERS = (FULL, REMAINING)
 HEADERS = ['No', 'Date', 'Order Number', 'TraceQ Id', 'State', 'County', 'Client',
            'Online/Ground', 'Product', 'Status', 'ETA', 'Comments', 'Assignee',
            'Searcher', 'Clarification Requested', 'Shift', 'Process date', 'Review/QC',
-           'Expense', 'In-Time', 'Out Time', 'SLA Expiration', 'Free Site', 'review']
+           'Expense', 'In-Time', 'Out Time', 'SLA Expiration', 'Free Site', 'review', 'Completion Evidence']
 ALIASES = {'received date': 'Date', 'arrival date': 'Date', 'order number': 'Order Number',
            'traceq id': 'TraceQ Id', 'online/gorund': 'Online/Ground',
            'online/ ground': 'Online/Ground', 'processed date': 'Process date',
@@ -235,6 +235,9 @@ def merge_trackers(trackers, incoming, previous, anchor, completion_history=None
                 row['Out Time'] = text(completed_time)
         if text(row.get('Status')).casefold() == 'completed and delivered' and not text(row.get('Out Time')) and precise_timestamp(raw.get('Completed Time')):
             row['Out Time'] = text(raw['Completed Time'])
+        if text(row.get('Status')).casefold() == 'completed and delivered' and (
+                precise_timestamp(raw.get('Out Time')) or precise_timestamp(raw.get('Completed Time'))):
+            row['Completion Evidence'] = 'Recorded completion timestamp'
         if text(row.get('Out Time')) and not precise_timestamp(row.get('Out Time')):
             report['ambiguous'].append({'Order Number': row['Order Number'], 'Reason': 'Out Time lacks a valid completion date and time; retained for review'})
         for column in EMPTY_COLUMNS:
@@ -417,6 +420,7 @@ def sheet_reports(trackers, audit=None):
     from sla_comments import sla_entry, sla_status
     from monthly_production import arrival_sort, tab_identity, local_datetime
     from production_timing import sla_eligible
+    from report_metrics import completion_inferred
     rows = [dict(row, _sheet=row.get('_sheet', title), _tracker=(tab_identity(title) or (title, ''))[0],
                  _month=row.get('_month') or (tab_identity(title) or ('', ''))[1])
             for title, items in trackers.items() for row in items if key(row)]
@@ -448,7 +452,7 @@ def sheet_reports(trackers, audit=None):
             unchanged = [r['Order Number'] for r in items if key(r) not in added | updated | missing]
             sla_items = completed_months.get(period, []) if kind == 'monthly' else items
             sla = [sla_entry(r, sla_status(r.get('Free Site'))) for r in sla_items
-                   if sla_eligible(r) and sla_status(r.get('Free Site'))]
+                   if sla_eligible(r) and not completion_inferred(r) and sla_status(r.get('Free Site'))]
             reports[kind].append({'Date': period, 'Month': period, 'MonthLabel': period,
                 'Previews': [(audit or {}).get('preview_name', '')], 'Days': [],
                 'Today Orders': len(items), 'Month Orders': len(items), 'Completed Orders': len(completed),
@@ -458,7 +462,8 @@ def sheet_reports(trackers, audit=None):
                 'SLA Missed': sum(r['Free Site'] == 'Missing' for r in sla), 'sla_rows': sla,
                 'rows': items, 'columns': list(dict.fromkeys(HEADERS + [c for r in items for c in r if not c.startswith('_')])), 'missing_ids': absent, 'completed_ids': completed,
                 'new_ids': new_ids, 'unchanged_ids': unchanged})
-    return reports
+    from report_metrics import enrich_reports
+    return enrich_reports(reports)
 
 
 def sync_trackers(frame=None, on_progress=None, book=None):

@@ -70,10 +70,15 @@ def refresh_monthly_views(book):
         if rows != trackers[title]:
             original = decode(before[title]['values'])
             for wanted, saved in zip(rows, original):
-                for column in ('Status', 'Out Time', 'SLA Expiration', 'Free Site'):
+                for column in ('Status', 'Out Time', 'SLA Expiration', 'Free Site', 'Completion Evidence'):
                     saved[column] = wanted.get(column, '')
-            plan['writes'][title] = encode(original, before[title]['values'][0])
+            headers = list(before[title]['values'][0])
+            if any(row.get('Completion Evidence') for row in original) and 'Completion Evidence' not in headers:
+                headers.append('Completion Evidence')
+            plan['writes'][title] = encode(original, headers)
     schema = next((values[0] for base, _, values in sources if base == FULL and values), None)
+    if schema and any(row.get('Completion Evidence') for rows in repaired.values() for row in rows) and 'Completion Evidence' not in schema:
+        schema = [*schema, 'Completion Evidence']
     writes = monthly_view_values(repaired, headers=schema)
     if changes:
         from collections import Counter

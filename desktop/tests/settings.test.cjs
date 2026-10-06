@@ -53,6 +53,17 @@ test('service-account imports reject alternate token servers and public settings
   assert.throws(() => validateServiceAccount(JSON.stringify({...key, token_uri: 'https://evil.example/token'})));
   assert.throws(() => validateServiceAccount('{not-json}'));
 });
+test('existing service-account keys survive unrelated settings changes without rotation', () => {
+  const account = validateServiceAccount(JSON.stringify({type: 'service_account', project_id: 'fixture',
+    client_email: 'fixture@fixture.iam.gserviceaccount.com', private_key_id: 'older-fixture-key-id',
+    private_key: '-----BEGIN PRIVATE KEY-----\nfixture\n-----END PRIVATE KEY-----',
+    token_uri: 'https://oauth2.googleapis.com/token'}));
+  const previous = {...DEFAULTS, serviceAccount: account, spreadsheetId: '1234567890123456789012345'};
+  const updated = validateSettings({closeToTray: false, password: ''}, previous);
+  assert.equal(updated.serviceAccount, account);
+  assert.equal(publicSettings(updated).googleConfigured, true);
+  assert.equal(validateSettings({serviceAccount: 'untrusted replacement'}, previous).serviceAccount, account);
+});
 test('vault uses encryption, round-trips, and fails closed on a corrupt file', () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'datatrace-vault-'));
   const file = path.join(directory, 'settings.vault');

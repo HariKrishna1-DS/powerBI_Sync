@@ -5,6 +5,12 @@ on:
   pull_request:
     branches: [tv-tracker]
   workflow_dispatch:
+    inputs:
+      publish_release:
+        description: 'Publish after live acceptance and upgrade/recovery checks have passed'
+        required: true
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -33,6 +39,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: Reject recognizable credentials in release source
+        shell: pwsh
+        run: |
+          python desktop/secret_scan.py
+          if ($LASTEXITCODE -ne 0) { throw 'Source credential scan failed' }
       - name: Build self-contained Windows application
         shell: pwsh
         env:
@@ -44,7 +55,7 @@ jobs:
         run: |
           npm --prefix desktop test
           if ($LASTEXITCODE -ne 0) { throw 'Desktop tests failed' }
-          node --test gsheet_dashboard/test_browser_options.cjs gsheet_dashboard/test_scraper.cjs
+          node --test gsheet_dashboard/test_browser_options.cjs gsheet_dashboard/test_scraper.cjs gsheet_dashboard/test_capture_validation.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Extractor fixture tests failed' }
           Push-Location gsheet_dashboard/frontend
           npx playwright test --config playwright.desktop.config.js
@@ -53,6 +64,14 @@ jobs:
           $env:PYTHONPATH = "$pwd/.desktop-build/deps;$pwd/gsheet_dashboard"
           python -m unittest discover -s gsheet_dashboard -p 'test_*.py'
           if ($LASTEXITCODE -ne 0) { throw 'Engine tests failed' }
+      - name: Enforce lint and dependency security gates
+        shell: pwsh
+        run: ./desktop/quality-gates.ps1 -Python python
+      - name: Enforce representative performance budgets
+        shell: pwsh
+        run: |
+          python desktop/benchmark_workspace.py --output .desktop-build/performance.json
+          if ($LASTEXITCODE -ne 0) { throw 'Performance budget failed' }
       - name: Verify packaged lifecycle and connection recovery
         timeout-minutes: 5
         shell: pwsh
@@ -61,6 +80,8 @@ jobs:
           $env:DESKTOP_EXE = "$pwd/release/$version/win-unpacked/Tv Tracker.exe"
           node desktop/smoke.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Packaged lifecycle tests failed' }
+          node desktop/report-smoke.cjs
+          if ($LASTEXITCODE -ne 0) { throw 'Packaged report tests failed' }
           node desktop/recovery-smoke.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Packaged connection recovery tests failed' }
           node desktop/shutdown-smoke.cjs
@@ -85,9 +106,10 @@ jobs:
 
   publish:
     needs: build
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/tv-tracker'
+    # A passing fixture suite alone is not live deployment acceptance.
+    if: github.event_name == 'workflow_dispatch' && inputs.publish_release && github.ref == 'refs/heads/tv-tracker'
     runs-on: windows-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     permissions:
       contents: write
     steps:
@@ -124,19 +146,28 @@ jobs:
           $folder = "release/$version"
           $assets = @("$folder/Tv-Tracker-$version-x64.exe", "$folder/Tv-Tracker-$version-x64.exe.blockmap", "$folder/latest.yml", "$folder/Tv-Tracker-$version-x64.zip", "$folder/Tv-Tracker-$version-source.zip")
           $installer = "$folder/Tv-Tracker-$version-x64.exe"
-          # One-version exception requested by the owner: distribute 2.6.0 like unsigned 2.5.3.
-          # All future versions retain the existing signing requirement.
           $signature = Get-AuthenticodeSignature -LiteralPath $installer
-          $allowUnsigned260 = $version -eq '2.6.0' -and $signature.Status -eq 'NotSigned'
-          if ($signature.Status -ne 'Valid' -and -not $allowUnsigned260) {
-            throw "Public release requires a valid signing certificate. Installer signature status: $($signature.Status). The unsigned exception applies only to version 2.6.0."
-          }
-          $signingNote = if ($signature.Status -eq 'Valid') { 'The Windows installer is digitally signed.' } else { 'The Windows installer is unsigned, following the v2.5.3 distribution policy. Windows may show an unknown-publisher warning.' }
+          $signingNote = node desktop/distribution-policy.cjs "$($signature.Status)" "$env:GITHUB_REPOSITORY"
+          if ($LASTEXITCODE -ne 0) { throw 'Installer distribution policy failed' }
           foreach ($asset in $assets) { if (!(Test-Path -LiteralPath $asset)) { throw "Missing release asset: $asset" } }
+          $hashes = foreach ($asset in $assets) { "$( (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash.ToLowerInvariant() )  $(Split-Path -Leaf $asset)" }
+          $hashes | Set-Content -Encoding utf8NoBOM "$folder/SHA256SUMS.txt"
+          $assets += "$folder/SHA256SUMS.txt"
           @("Tv Tracker $version", '', 'Install the Windows .exe once if upgrading from 2.1.0 or earlier.', 'Afterward use Connections & settings > Updates.', 'Local captures and encrypted connections are retained.', '', $signingNote, 'Installer SHA-512 is verified against latest.yml during build and update download.', '', "Source commit: $env:GITHUB_SHA") | Set-Content release-notes.txt
           gh release create "v$version" --target "$env:GITHUB_SHA" --title "Tv Tracker $version" --draft --notes-file release-notes.txt
           if ($LASTEXITCODE -ne 0) { throw 'Draft creation failed' }
           gh release upload "v$version" @assets
           if ($LASTEXITCODE -ne 0) { throw 'Upload failed; draft left unpublished for inspection' }
+          # Verify the hosted bytes, not merely a successful upload response.
+          $download = Join-Path $env:RUNNER_TEMP "tv-tracker-release-$version-$env:GITHUB_RUN_ID"
+          New-Item -ItemType Directory -Path $download -ErrorAction Stop | Out-Null
+          gh release download "v$version" --dir "$download"
+          if ($LASTEXITCODE -ne 0) { throw 'Draft download verification failed; release remains unpublished' }
+          foreach ($asset in $assets) {
+            $remote = Join-Path $download (Split-Path -Leaf $asset)
+            if (!(Test-Path -LiteralPath $remote) -or (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $remote -Algorithm SHA256).Hash) {
+              throw 'Hosted release asset differs from the validated build; release remains unpublished'
+            }
+          }
           gh release edit "v$version" --draft=false --latest
           if ($LASTEXITCODE -ne 0) { throw 'Release publication failed' }

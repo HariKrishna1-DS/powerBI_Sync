@@ -1,6 +1,6 @@
 {
   "name": "tv-tracker",
-  "version": "2.6.0",
+  "version": "2.7.0",
   "description": "Private desktop workspace for title production and Google Sheets synchronization",
   "author": "Tv Tracker",
   "private": true,
@@ -25,7 +25,10 @@
       "settings.cjs",
       "assets/**",
       "package.json",
-      "updater.cjs"
+      "updater.cjs",
+      "redaction.cjs",
+      "verified-file.cjs",
+      "backup-crypto.cjs"
     ],
     "extraResources": [
       {

@@ -73,6 +73,9 @@ def target_worksheet():
         client = gspread.authorize(credentials)
         client.set_timeout((10, 90))
         book = client.open_by_key(SPREADSHEET_ID)
+        if os.environ.get('DATATRACE_DESKTOP') == '1':
+            from sheets_writer import GuardedBook, device_identity
+            book = GuardedBook(book, device_identity(BASE_DIR))
         return book, book.get_worksheet_by_id(WORKSHEET_GID)
     except RefreshError as exc:
         details = next((arg for arg in exc.args if isinstance(arg, dict)), {})
@@ -401,15 +404,17 @@ def sheet_cell(value, background=None):
 
 
 def status_row_format_request(df, sheet_id):
+    from tracker_formatting import foreground
     column = next((name for name in ('Task Status', 'Status') if name in df.columns), None)
-    if column is None:
+    if column is None or df.empty:
         return None
     return {'updateCells': {
         'range': {'sheetId': sheet_id, 'startRowIndex': 1,
                   'startColumnIndex': 0, 'endColumnIndex': len(df.columns)},
-        'rows': [{'values': [{'userEnteredFormat': {'backgroundColor': sheet_color(status_color(value))}}
+        'rows': [{'values': [{'userEnteredFormat': {'backgroundColor': sheet_color(status_color(value)),
+                                                  'textFormat': {'foregroundColor': sheet_color(foreground(status_color(value)))}}}
                             for _ in df.columns]} for value in df[column].fillna('')],
-        'fields': 'userEnteredFormat.backgroundColor'}}
+        'fields': 'userEnteredFormat.backgroundColor,userEnteredFormat.textFormat.foregroundColor'}}
 
 
 def write_sheet_batch(book, sheet, requests, on_progress=None, verify_commit=None):
@@ -540,7 +545,8 @@ def run_sync(on_progress=None, auto_sync=True):
         # Per-run output prevents old exports from being uploaded after a failed scrape.
         with tempfile.TemporaryDirectory(prefix='datatrace-') as folder:
             output = Path(folder) / 'queue.json'
-            env = dict(os.environ, DATATRACE_OUTPUT_JSON=str(output))
+            metadata_path = Path(folder) / 'capture-metadata.json'
+            env = dict(os.environ, DATATRACE_OUTPUT_JSON=str(output), DATATRACE_OUTPUT_META=str(metadata_path))
             extractor = Path(os.environ.get('DATATRACE_EXTRACTOR_DIR', str(ASSET_DIR)))
             node = os.environ.get('DATATRACE_NODE_EXECUTABLE', 'node')
             env.pop('GOOGLE_SERVICE_ACCOUNT_JSON', None)
@@ -561,12 +567,13 @@ def run_sync(on_progress=None, auto_sync=True):
                         reason = reason.replace(secret, '[redacted]')
                 raise RuntimeError(f'DataTrace extraction failed: {reason[:600]}')
             df = pd.DataFrame(json.loads(output.read_text(encoding='utf-8')))
+            metadata = json.loads(metadata_path.read_text(encoding='utf-8')) if metadata_path.exists() else {'kind': 'portal', 'complete': False}
         validate_queue(df)
         status.update(scrape='success', rows=len(df))
         df = powerbi_table(df, status['started_at'])
         progress('Saving preview')
         store = PreviewStore(BASE_DIR / 'previews')
-        preview = store.save(df)
+        preview = store.save(df, metadata=metadata)
         status['preview_id'] = preview['id']
         status['preview_name'] = preview['name']
         export_to_excel_and_csv(df)

@@ -5,15 +5,16 @@ import json
 import os
 from pathlib import Path
 import zipfile
+from desktop.secret_scan import check_bytes
 
 ROOT = Path(__file__).resolve().parent
 VERSION = json.loads((ROOT / 'desktop' / 'package.json').read_text(encoding='utf-8'))['version']
 OUTPUT = ROOT / 'release' / VERSION / f'Tv-Tracker-{VERSION}-source.zip'
 EXCLUDE_DIRS = {'.git', '.venv', 'venv', 'env', 'ENV', 'node_modules', '__pycache__', '.pytest_cache',
                 '.test-deps', '.desktop-build', '.codex', '.agents', 'release', 'test-results',
-                'playwright-report', 'test-output', 'previews', 'dist', 'logs', 'backups', 'connection-backups'}
-EXCLUDE_SUFFIXES = {'.zip', '.log', '.pyc', '.pyo', '.xlsx', '.csv', '.sqlite', '.sqlite3', '.db', '.pem', '.key'}
-EXCLUDE_NAMES = {'secrets.toml', 'sync_schedule.json', 'sync_status.json', 'production-cache.json', 'desktop-ui-results.json'}
+                'playwright-report', 'test-output', 'previews', 'dist', 'logs', 'backups', 'connection-backups', 'cloud-archives'}
+EXCLUDE_SUFFIXES = {'.zip', '.log', '.pyc', '.pyo', '.xlsx', '.csv', '.sqlite', '.sqlite3', '.db', '.pem', '.key', '.tvbackup', '.tvcloud'}
+EXCLUDE_NAMES = {'secrets.toml', 'sync_schedule.json', 'sync_status.json', 'production-cache.json', 'desktop-ui-results.json', 'writer-device.id'}
 
 
 def main():
@@ -34,6 +35,7 @@ def main():
                     continue
                 relative = file.relative_to(ROOT).as_posix()
                 data = file.read_bytes()
+                check_bytes(relative, data)
                 hashes[relative] = hashlib.sha256(data).hexdigest()
                 archive.writestr(f'Tv-Tracker/{relative}', data)
         archive.writestr('Tv-Tracker/SOURCE_MANIFEST.json', json.dumps({

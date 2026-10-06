@@ -7,7 +7,8 @@ from datetime import datetime
 def valid_queue(rows):
     from tracker_sync import key
     keys = [key(row) for row in rows]
-    return bool(keys) and all(keys) and len(keys) == len(set(keys))
+    trusted = all(str(row.get('Capture Verified', '')).strip().casefold() not in ('false', '0', 'unverified') for row in rows)
+    return trusted and bool(keys) and all(keys) and len(keys) == len(set(keys))
 
 
 def missing_completion(row, out, previous=None):
@@ -23,6 +24,9 @@ def missing_completion(row, out, previous=None):
     result['Status'] = 'Completed and Delivered'
     if not precise_timestamp(row.get('Out Time')):
         result['Out Time'] = out.strftime('%m/%d/%Y %I:%M:%S %p')
+        result['Completion Evidence'] = 'Inferred from queue absence'
+    elif precise_timestamp(row.get('Out Time')) == out and not row.get('Completion Evidence'):
+        result['Completion Evidence'] = 'Inferred from queue absence'
     # A countdown is relative to the last preview that actually contained the order.
     from tracker_sync import deadline, value
     if previous and not precise_timestamp(result.get('SLA Expiration')):
@@ -101,6 +105,7 @@ def reconcile_completions(trackers, history):
                     from tracker_sync import mapped_status
                     changed['Status'] = mapped_status(present[identity], new=True)
                     changed['Out Time'] = ''
+                    changed['Completion Evidence'] = ''
             sla, _ = sla_result(changed)
             if sla or 'Free Site' in changed:
                 changed['Free Site'] = sla

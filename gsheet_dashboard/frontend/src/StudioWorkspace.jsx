@@ -5,7 +5,7 @@ import {useWorkspacePreference} from './useWorkspacePreference';
 import {TableLayoutControls,useTableLayout} from './TableLayout';
 import {api, csvDownload, str, normalized, badgeClass, IconButton} from './workspaceUtils';
 
-export const VIEW_TITLES={overview:'Overview',sheets:'Data Sheets',captures:'Capture library',changes:'Changes',daily:'Daily Orders',monthly:'Monthly report',audit:'Activity'};
+export const VIEW_TITLES={overview:'Overview',sheets:'Data Sheets',captures:'Capture library',changes:'Changes',daily:'Daily Orders',capacity:'Capacity Report',monthly:'Monthly report',audit:'Activity'};
 const orderCollator=new Intl.Collator(undefined,{numeric:true,sensitivity:'base'});
 const relativeTime=value=>value?new Date(value).toLocaleString(): 'Not available';
 const attention=row=>/clarification|hold|suspend|review|missing|rejected/i.test(str(row.Status));

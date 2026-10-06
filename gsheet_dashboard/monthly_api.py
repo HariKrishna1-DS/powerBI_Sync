@@ -112,6 +112,19 @@ def register_monthly_routes(app, store, gate, maintenance, production_cache, loa
             return jsonify(error='Wait for the current operation before exporting.'), 409
         try:
             month = month_key(request.args.get('month', ''))
+            report_workspace = app.extensions.get('report_workspace')
+            if report_workspace and report_workspace.preferences()['source'] == 'import':
+                from report_publishing import export_reports
+                value = report_workspace.imported_snapshot()
+                value['reports']['daily'] = [r for r in value['reports']['daily'] if r['Date'].startswith(month)]
+                value['reports']['monthly'] = [r for r in value['reports']['monthly'] if r['Month'] == month]
+                rows = [r for report in value['reports']['monthly'] for r in report['rows']]
+                if not rows:
+                    return jsonify(error=f'No imported orders are available for {month}.'), 404
+                for label in ('Overview', 'All Products'):
+                    value['sheets'][label]['rows'] = rows
+                return send_file(export_reports(value, report_workspace.capacity(value)), as_attachment=True,
+                                 download_name=f'Tv-Tracker-Imported-{month}.xlsx')
             # One live read supplies both detail and totals; no stale-summary/live-detail mix.
             book, _ = get_book()
             sources = tracker_sources(book)

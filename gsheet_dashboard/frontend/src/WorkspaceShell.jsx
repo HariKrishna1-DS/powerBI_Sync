@@ -1,10 +1,10 @@
 import React, {useDeferredValue, useMemo, useState} from 'react';
-import {Activity, ArrowLeftRight, CalendarDays, Check, Clock3, Database, ExternalLink, RefreshCw, FileSpreadsheet, HardDrive, Home, PanelLeftClose, PanelLeftOpen, Search, Settings2, Table2, Trash2, X} from 'lucide-react';
+import {Activity, ArrowLeftRight, CalendarDays, ChartNoAxesCombined, Check, Clock3, Database, ExternalLink, RefreshCw, FileSpreadsheet, HardDrive, Home, PanelLeftClose, PanelLeftOpen, Search, Settings2, Table2, Trash2, X} from 'lucide-react';
 import {ThemeControl} from './StudioWorkspace';
 import {IconButton} from './workspaceUtils';
 import {useWorkspacePreference} from './useWorkspacePreference';
 
-const destinations=[['overview','Overview',Home],['sheets','Data Sheets',Table2],['daily','Daily Orders',CalendarDays],['monthly','Monthly report',FileSpreadsheet],['changes','Changes',ArrowLeftRight]];
+const destinations=[['overview','Overview',Home],['sheets','Data Sheets',Table2],['daily','Daily Orders',CalendarDays],['capacity','Capacity Report',ChartNoAxesCombined],['monthly','Monthly report',FileSpreadsheet],['changes','Changes',ArrowLeftRight]];
 const dateLabel=value=>value?new Date(value).toLocaleDateString(undefined,{day:'numeric',month:'short'}):'Date unavailable';
 
 export function WorkspaceSidebar({state,selected,view,onNavigate,onSelect,onDelete,busy,snapshot,collapsed,onToggle}) {
@@ -24,7 +24,7 @@ export function WorkspaceSidebar({state,selected,view,onNavigate,onSelect,onDele
         <IconButton title={`Delete ${p.name}`} disabled={busy} onClick={event=>onDelete(event,p.id)}><Trash2 size={13}/></IconButton>
       </div>)}{!captures.length&&<p className="no-previews">{query?'No captures match your search.':'Your captures will appear here after an extraction or import.'}</p>}</div>
     </section>
-    <div className="sidebar-footer">{nav('settings','Settings',Settings2)}<div className="sidebar-preferences"><ThemeControl/><span className={`connection-status ${snapshot?.offline?'offline':''}`}><i/>{snapshot?.offline?'Saved offline copy':snapshot?'Google Sheets connected':'Local workspace'}</span>{state.sheet_url&&<a href={state.sheet_url} target="_blank" rel="noreferrer">Open Google Sheet ↗</a>}</div></div>
+    <div className="sidebar-footer">{nav('settings','Settings',Settings2)}<div className="sidebar-preferences"><ThemeControl/><span className={`connection-status ${snapshot?.offline?'offline':''}`}><i/>{snapshot?.offline?'Saved offline copy':snapshot?.source_mode==='import'?'Imported Excel reports':snapshot?'Google Sheets connected':'Local workspace'}</span>{state.sheet_url&&<a href={state.sheet_url} target="_blank" rel="noreferrer">Open Google Sheet ↗</a>}</div></div>
   </aside>;
 }
 
@@ -33,8 +33,8 @@ export function useSidebarState(){
 }
 
 export function WorkspaceContext({production,view,preview,snapshot,running,stage,pending,selected,sheetUrl,onRefresh,refreshing}) {
-  const report=['daily','monthly'].includes(view);
-  const source=production?(snapshot?.offline?'Saved Google Sheets copy':snapshot?'Live Google Sheets':'Google Sheets unavailable'):report?'Production report':view==='audit'?'Local activity log':'Saved capture';
+  const report=['daily','monthly','capacity'].includes(view);
+  const source=production?(snapshot?.source_mode==='import'?'Imported Excel':snapshot?.offline?'Saved Google Sheets copy':snapshot?'Live Google Sheets':'Google Sheets unavailable'):report?'Production report':view==='audit'?'Local activity log':'Saved capture';
   const updated=report||view==='audit'?null:production?snapshot?.updated_at:preview?.created;
   let productionUrl;
   try{const url=new URL(sheetUrl);if(url.protocol==='https:'&&url.hostname==='docs.google.com'&&url.pathname.startsWith('/spreadsheets/d/')&&!url.username&&!url.password)productionUrl=url.href;}catch{}

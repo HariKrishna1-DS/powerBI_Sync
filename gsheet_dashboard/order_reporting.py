@@ -7,6 +7,10 @@ AUTOMATIC_RULES = [{'source': 'WorkflowSuspended = True', 'target': 'Awaiting fo
 
 def automatic_sync_frame(latest, previous=None, keys=None, ignore=None, store=None, reports=None):
     frame = pd.DataFrame(latest['rows'], columns=latest['columns']).fillna('')
+    # Explicitly unverified imports/portal reads must never infer delivery by absence.
+    if 'metadata' in latest and not latest['metadata'].get('complete', False):
+        frame['Capture Verified'] = 'False'
+        latest = dict(latest, columns=list(frame.columns), rows=frame.to_dict('records'))
     frame.attrs.update(preview_name=latest['name'], preview_id=latest['id'],
                        preview_created=latest['created'],
                        original_capture=dict(latest))

@@ -17,8 +17,8 @@ contextBridge.exposeInMainWorld('desktop', Object.freeze({
   importServiceAccount: () => ipcRenderer.invoke('desktop:import-account'),
   chooseBrowser: () => ipcRenderer.invoke('desktop:choose-browser'),
   openDataFolder: () => ipcRenderer.invoke('desktop:open-data'),
-  backup: () => ipcRenderer.invoke('desktop:backup'),
-  restoreBackup: () => ipcRenderer.invoke('desktop:restore'),
+  backup: password => ipcRenderer.invoke('desktop:backup', password),
+  restoreBackup: password => ipcRenderer.invoke('desktop:restore', password),
   onCommand: callback => {
     const listener = (_, command) => callback(command);
     ipcRenderer.on('desktop:command', listener);

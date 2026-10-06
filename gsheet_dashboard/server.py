@@ -109,6 +109,8 @@ def workbook(frame, name):
 
 def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_source=None):
     app = Flask(__name__, static_folder=None)
+    from redaction import protect_logs
+    protect_logs(app.logger)
     metrics = RequestMetrics()
 
     @app.before_request
@@ -199,7 +201,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
         if maintenance.is_set() and request.path not in ('/api/health', '/api/desktop/shutdown'):
             return jsonify(error='The local workspace is being restored. Try again in a moment.'), 503
         if request.path == '/api/desktop/restore':
-            request.max_content_length = 100 * 1024 * 1024
+            request.max_content_length = 101 * 1024 * 1024
 
     @app.after_request
     def response_security(response):
@@ -231,13 +233,8 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
             maintenance.set()
         if options.get('backup'):
             try:
-                from workspace_backup import make_backup
-                stamp = datetime.now().strftime('%Y%m%d-%H%M%S-%f')
-                destination = store.root.parent / 'backups' / f'before-update-{stamp}.zip'
-                destination.parent.mkdir(exist_ok=True)
-                temporary = destination.with_suffix('.tmp')
-                temporary.write_bytes(make_backup(store).getvalue())
-                temporary.replace(destination)
+                from workspace_backup import save_safety_backup
+                save_safety_backup(store, 'before-update')
             except Exception:
                 maintenance.clear()
                 gate.release()
@@ -483,6 +480,8 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
                 store.mark_synced(number, frame.attrs.get('pass_report', {}))
                 invalidate_snapshot()
                 production_cache.invalidate()
+                if syncer is sync_workbook:
+                    app.extensions['publish_reports']()
                 return worksheets
             except Exception as exc:
                 # Validation/conflict errors need intervention, not automatic retries.
@@ -514,6 +513,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
             operation_id = None
             try:
                 operation_id = journal.begin('scheduled_capture')
+                require_writer()
                 recover_latest_preview(required=True)
                 prior_ids = {item['id'] for item in store.list()}
                 def progress(result):
@@ -601,12 +601,13 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
 
     @app.get('/api/state')
     def get_state():
-        recover_latest_preview()
+        if app.extensions['report_workspace'].preferences()['source'] == 'tracker':
+            recover_latest_preview()
         previews, _, daily_reports = reporting_snapshot()
         with state_lock:
             job = dict(state)
         with queue_lock:
-            job['running'] = job['running'] or bool(queued_ids)
+            job['running'] = job['running'] or bool(queued_ids) or app.extensions['report_workspace'].preferences()['publish_status'] == 'publishing'
         with schedule_lock:
             schedule = load_schedule()
         schedule.update(journal.scheduled_summary())
@@ -624,7 +625,8 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
                        remaining_products=remaining_products,
                        daily_completed_ids=daily_completed_ids,
                        pending_sync=store.pending_count(),
-                       capabilities={'status_rules': True, 'automatic_statuses': True, 'desktop': desktop_mode,
+                       report_preferences=app.extensions['report_workspace'].preferences(),
+                       capabilities={'report_sources': True, 'status_rules': True, 'automatic_statuses': True, 'desktop': desktop_mode,
                                      'google_configured': bool(SPREADSHEET_ID and os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON'))})
 
     @app.get('/api/remaining-products')
@@ -650,7 +652,12 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
     def get_daily_orders():
         try:
             snapshot = production_snapshot()
+            prefs = app.extensions['report_workspace'].preferences()
+            published = prefs.get('published') or {}
+            links = {date: f'https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/edit#gid={published["daily_gid"]}&range=A{index+2}:I{index+2}'
+                     for index, date in enumerate(published.get('daily_dates', []))} if prefs['publish_status'] == 'published' else {}
             return jsonify(rows=snapshot['reports']['daily'], selected_date=None,
+                           sheet_links=links,
                            **{key: snapshot.get(key) for key in ('source', 'offline', 'updated_at')})
         except Exception as exc:
             return jsonify(error=f'Could not read Google Sheets daily orders: {exc}'), 502
@@ -673,6 +680,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
         try:
             snapshot = production_snapshot()
             return jsonify(rows=snapshot['reports']['monthly'], sla_error=None,
+                           source_mode=snapshot.get('source_mode', 'tracker'),
                            **{key: snapshot.get(key) for key in ('source', 'offline', 'updated_at')})
         except Exception as exc:
             return jsonify(error=f'Could not read Google Sheets monthly orders: {exc}'), 502
@@ -680,6 +688,8 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
     @app.post('/api/sla-comments')
     @app.post('/api/sla-comments/bulk')
     def update_sla_comment():
+        if app.extensions['report_workspace'].preferences()['source'] == 'import':
+            raise ValueError('Correct the imported workbook and import it again. Imported reports cannot change tracker SLA values.')
         body = request.get_json(silent=True)
         if not isinstance(body, dict):
             raise ValueError('An SLA update is required.')
@@ -789,7 +799,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
         finally:
             gate.release()
 
-    def production_snapshot(force=False, known_revision=None):
+    def tracker_snapshot(force=False, known_revision=None):
         def load():
             book, _ = target_worksheet()
             sheets, trackers, groups = {}, {}, {}
@@ -824,11 +834,25 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
         if 'reports' not in result:
             trackers = {title: result['sheets'][label]['rows'] for title, label in zip(TRACKERS, ('Full Title', 'Remaining Products'))}
             result['reports'] = sheet_reports(trackers, store.latest_sync_report())
+        from report_metrics import enrich_reports
+        enrich_reports(result['reports'])
         return result
+
+    from report_routes import register_report_routes
+    production_snapshot = register_report_routes(app, store, gate, maintenance, tracker_snapshot,
+                                                 lambda: target_worksheet(), SPREADSHEET_ID)
+
+    def require_writer():
+        if desktop_mode and syncer is sync_workbook:
+            book, _ = target_worksheet()
+            guard = getattr(book, 'writer_guard', None)
+            if guard is not None:
+                guard.ensure()
 
     @app.get('/api/live-sheets')
     def get_live_sheets():
-        recover_latest_preview()
+        if app.extensions['report_workspace'].preferences()['source'] == 'tracker':
+            recover_latest_preview()
         try:
             return jsonify(production_snapshot(force=request.args.get('refresh') == '1', known_revision=request.args.get('revision')))
         except RuntimeError as exc:
@@ -875,6 +899,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
             operation_id = None
             try:
                 operation_id = journal.begin('capture')
+                require_writer()
                 recover_latest_preview(required=True)
                 prior_ids = {item['id'] for item in store.list()}
                 with import_lock:
@@ -953,6 +978,8 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
         now = indian_clock.now()
         if enabled and now is None:
             return jsonify(error='Indian time is still synchronizing. Try saving the schedule again shortly.'), 503
+        if enabled:
+            require_writer()
         with schedule_lock:
             current = load_schedule()
             changed = current['enabled'] != enabled or current.get('times') != validated_times
@@ -1016,7 +1043,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
             can_sync = not desktop_mode or bool(SPREADSHEET_ID and os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON'))
             if can_sync:
                 recover_latest_preview(required=True)
-            saved = store.save(frame, source=Path(upload.filename).name)
+            saved = store.save(frame, source=Path(upload.filename).name, metadata={'kind': 'import', 'complete': False})
             invalidate_snapshot()
         finally:
             if owns_gate:

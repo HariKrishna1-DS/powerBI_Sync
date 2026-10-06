@@ -5,6 +5,9 @@ const crypto = require('node:crypto');
 const {spawn, execFile} = require('node:child_process');
 const {createVault, publicSettings, validateSettings, validateServiceAccount, validateUiPreferences, allowedExternal} = require('./settings.cjs');
 const {createUpdater, scheduleUpdateChecks} = require('./updater.cjs');
+const {redact} = require('./redaction.cjs');
+const {writeVerifiedFile} = require('./verified-file.cjs');
+const {encryptBackup, decryptBackup, validatePassword} = require('./backup-crypto.cjs');
 
 app.setName('Tv Tracker');
 app.setAppUserModelId('com.datatrace.studio');
@@ -31,9 +34,7 @@ function detectBrowser() {
   ].find(file => file && fs.existsSync(file)) || '';
 }
 function safeError(error) {
-  let message = String(error?.message || error);
-  for (const secret of [token, settings?.password, settings?.serviceAccount]) if (secret) message = message.split(secret).join('[redacted]');
-  return message.slice(0, 2000);
+  return redact(error, [token, settings?.password, settings?.serviceAccount]).slice(0, 2000);
 }
 function publicState() {
   const connectionRecovery = vault.status() || (settings.connectionRepairPending ? {status: 'incomplete', message: 'Complete your Google Sheets and TitleVision connection details, then save to resume scheduled work. Your saved captures are available.'} : null);
@@ -206,21 +207,26 @@ function registerIpc() {
     return publicState();
   });
   handle('desktop:open-data', () => shell.openPath(dataPath));
-  handle('desktop:backup', async () => {
-    const result = await dialog.showSaveDialog(window, {title: 'Back up local workspace', defaultPath: `Tv-Tracker-backup-${new Date().toISOString().slice(0, 10)}.zip`, filters: [{name: 'Workspace backup', extensions: ['zip']}]});
+  handle('desktop:backup', async password => {
+    validatePassword(password);
+    const result = await dialog.showSaveDialog(window, {title: 'Save encrypted workspace backup', defaultPath: `Tv-Tracker-backup-${new Date().toISOString().slice(0, 10)}.tvbackup`, filters: [{name: 'Encrypted workspace backup', extensions: ['tvbackup']}]});
     if (result.canceled) return {cancelled: true};
     const response = await engineRequest('/api/desktop/backup');
-    fs.writeFileSync(result.filePath, Buffer.from(await response.arrayBuffer()));
+    const raw = Buffer.from(await response.arrayBuffer());
+    const encrypted = await encryptBackup(raw, password);
+    if (!(await decryptBackup(encrypted, password)).equals(raw)) throw Error('Encrypted backup verification failed.');
+    writeVerifiedFile(result.filePath, encrypted);
     return {saved: true, path: result.filePath};
   });
-  handle('desktop:restore', async () => {
-    const choice = await dialog.showOpenDialog(window, {title: 'Restore a Tv Tracker backup', properties: ['openFile'], filters: [{name: 'Workspace backup', extensions: ['zip']}]});
+  handle('desktop:restore', async password => {
+    const choice = await dialog.showOpenDialog(window, {title: 'Restore a Tv Tracker backup', properties: ['openFile'], filters: [{name: 'Workspace backup', extensions: ['tvbackup', 'zip']}]});
     if (choice.canceled) return {cancelled: true};
     const confirmation = await dialog.showMessageBox(window, {type: 'warning', message: 'Replace the local workspace with this backup?', detail: 'Google Sheets and encrypted credentials are unchanged. A safety copy of the current local workspace will be retained.', buttons: ['Cancel', 'Restore backup'], defaultId: 0, cancelId: 0});
     if (confirmation.response !== 1) return {cancelled: true};
     const file = choice.filePaths[0];
-    if (fs.statSync(file).size > 100 * 1024 * 1024) throw Error('Backups are limited to 100 MB.');
-    const response = await engineRequest('/api/desktop/restore', {method: 'POST', headers: {'Content-Type': 'application/zip'}, body: fs.readFileSync(file)});
+    if (fs.statSync(file).size > 101 * 1024 * 1024) throw Error('Backups are limited to 100 MB plus encryption headers.');
+    const raw = await decryptBackup(fs.readFileSync(file), password);
+    const response = await engineRequest('/api/desktop/restore', {method: 'POST', headers: {'Content-Type': 'application/octet-stream'}, body: raw});
     setTimeout(() => window?.reload(), 250);
     return response.json();
   });

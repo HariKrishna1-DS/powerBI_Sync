@@ -34,9 +34,11 @@ class SyncTests(unittest.TestCase):
         self.assertEqual(color_update['range']['startColumnIndex'], 0)
         self.assertEqual(color_update['range']['endColumnIndex'], len(df.columns))
         self.assertEqual(color_update['range']['startRowIndex'], 1)
-        self.assertEqual(color_update['fields'], 'userEnteredFormat.backgroundColor')
+        self.assertEqual(set(color_update['fields'].split(',')), {
+            'userEnteredFormat.backgroundColor', 'userEnteredFormat.textFormat.foregroundColor'})
         self.assertEqual(color_update['rows'][0]['values'][0], color_update['rows'][0]['values'][1])
         self.assertEqual(color_update['rows'][0]['values'][0]['userEnteredFormat']['backgroundColor'], sync.sheet_color('#a66bd3'))
+        self.assertEqual(color_update['rows'][0]['values'][0]['userEnteredFormat']['textFormat']['foregroundColor'], sync.sheet_color('#ffffff'))
         self.assertEqual(requests[-1]['setBasicFilter']['filter']['range']['endRowIndex'], 3)
 
     def frame(self):
