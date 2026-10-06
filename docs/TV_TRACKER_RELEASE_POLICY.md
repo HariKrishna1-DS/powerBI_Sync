@@ -15,10 +15,11 @@ pre-install backup. No certificate-validation override was added to the client.
 
 ## Publication
 
-Pushing `tv-tracker` builds and tests the candidate without publishing it.
-After live acceptance, run **Tv Tracker desktop release** on `tv-tracker` with
-`publish_release` enabled. This deliberately separates automatic tests from
-the maintainer's decision that the candidate is suitable for clients.
+Pushing `tv-tracker` builds and tests the candidate, then publishes a new version
+only after all gates pass, including actual 2.6.0 installation, in-app updater
+handoff to the candidate, profile preservation and pre-update backup recovery on
+a disposable Windows runner. Pull requests never publish. A manual workflow run
+can build without publishing, or publish with `publish_release` enabled.
 
 The workflow creates a draft, uploads the installer, blockmap, feed, portable
 ZIP, source ZIP and SHA256SUMS.txt, downloads the hosted assets and compares
@@ -81,4 +82,5 @@ not reach the portal. The 2.6.0 updater downloaded the exact 2.7.0 installer ove
 an isolated loopback feed with matching SHA-512. Simulated installer handoff
 failure recovered the engine, and 2.7.0 reopened the profile with captures,
 encrypted connections and preferences preserved. Actual NSIS upgrade and hosted-asset verification remain
-release gates. Pushing this source candidate does not activate client updates.
+release gates. The pipeline now performs these checks before enabling a client update;
+a failed check leaves the previously published release available.

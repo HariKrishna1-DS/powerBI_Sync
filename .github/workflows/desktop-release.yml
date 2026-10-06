@@ -86,6 +86,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Packaged connection recovery tests failed' }
           node desktop/shutdown-smoke.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Packaged unresponsive-engine shutdown tests failed' }
+      - name: Verify actual installed 2.6.0 upgrade and recovery
+        timeout-minutes: 8
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./desktop/installer-acceptance.ps1
       - name: Verify source archive and update integrity
         shell: pwsh
         run: |
@@ -106,8 +112,8 @@ jobs:
 
   publish:
     needs: build
-    # A passing fixture suite alone is not live deployment acceptance.
-    if: github.event_name == 'workflow_dispatch' && inputs.publish_release && github.ref == 'refs/heads/tv-tracker'
+    # Publication follows all build gates, including actual NSIS upgrade/recovery.
+    if: github.ref == 'refs/heads/tv-tracker' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish_release))
     runs-on: windows-latest
     timeout-minutes: 30
     permissions:
