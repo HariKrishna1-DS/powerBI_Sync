@@ -25,6 +25,9 @@ def archive_history(store, active_import=None, keep_captures=50, keep_imports=10
         raise ValueError('Keep at least two captures and one import.')
     with store.connect() as db:
         candidates = [r[0] for r in db.execute("SELECT p.id FROM previews p JOIN sync_jobs j ON j.preview_id=p.id WHERE j.state='synced' AND p.id NOT IN (SELECT id FROM previews ORDER BY id DESC LIMIT ?)", (keep_captures,))]
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='cloud_outbox'").fetchone():
+            unresolved = {r[0] for r in db.execute("SELECT preview_id FROM cloud_outbox WHERE state!='accepted'")}
+            candidates = [number for number in candidates if number not in unresolved]
         imports = [r[0] for r in db.execute('SELECT id FROM report_imports ORDER BY created DESC').fetchall()[keep_imports:] if r[0] != active_import]
     if not candidates and not imports:
         return {'archived_captures': 0, 'archived_imports': 0, 'backup': None}
@@ -39,6 +42,10 @@ def archive_history(store, active_import=None, keep_captures=50, keep_imports=10
             raise ValueError('Archive integrity check failed; active history was retained.')
     write_verified_backup(destination, protect(raw))
     with store.connect() as db:
+        db.execute('BEGIN IMMEDIATE')
+        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='cloud_outbox'").fetchone():
+            unresolved = {r[0] for r in db.execute("SELECT preview_id FROM cloud_outbox WHERE state!='accepted'")}
+            candidates = [number for number in candidates if number not in unresolved]
         for number in candidates:
             db.execute('DELETE FROM previews WHERE id=?', (number,))
             for table in ('sync_jobs', 'sync_reports', 'sync_failures', 'sync_receipts', 'capture_metadata', 'sync_retry'):

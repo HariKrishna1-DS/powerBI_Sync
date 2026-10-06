@@ -14,7 +14,7 @@ import re
 from backup_protection import protect, unprotect, suffix
 
 SETTINGS = ('remaining_products.json', 'sync_schedule.json', 'production-cache.json')
-TABLES = {'previews', 'sla_corrections', 'sync_receipts', 'sync_jobs', 'sync_reports', 'sync_failures', 'sync_retry', 'operation_history', 'monthly_operations', 'sqlite_sequence', 'report_imports', 'report_preferences', 'capacity_targets', 'capture_metadata'}
+TABLES = {'previews', 'sla_corrections', 'sync_receipts', 'sync_jobs', 'sync_reports', 'sync_failures', 'sync_retry', 'operation_history', 'monthly_operations', 'sqlite_sequence', 'report_imports', 'report_preferences', 'capacity_targets', 'capture_metadata', 'cloud_outbox'}
 MAX_EXPANDED_BYTES = 256 * 1024 * 1024
 MAX_ARCHIVE_BYTES = 100 * 1024 * 1024
 CLOUD_FILE = re.compile(r'^cloud-archives/cloud-history-[a-f0-9]{32}\.tvcloud$')
@@ -134,6 +134,9 @@ def restore_backup(store, raw):
                     raise ValueError('Backup capture count does not match its manifest.')
                 if ('table', 'sync_receipts') in schema:
                     connection.execute('SELECT preview_id,report_json FROM sync_receipts LIMIT 1')
+                if ('table', 'cloud_outbox') in schema:
+                    from shared_backend import CloudOutbox
+                    CloudOutbox.validate_database(connection)
                 connection.execute('SELECT order_number,completion_date,status,updated FROM sla_corrections LIMIT 1')
                 invalid = connection.execute("SELECT COUNT(*) FROM previews WHERE NOT json_valid(rows_json) OR NOT json_valid(columns_json)").fetchone()[0]
                 if invalid:

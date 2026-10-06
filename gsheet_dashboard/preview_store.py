@@ -134,6 +134,10 @@ class PreviewStore:
 
     def delete(self, number):
         with self.connect() as db:
+            db.execute('BEGIN IMMEDIATE')
+            if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='cloud_outbox'").fetchone():
+                if db.execute("SELECT 1 FROM cloud_outbox WHERE preview_id=? AND state!='accepted'", (number,)).fetchone():
+                    raise ValueError('This capture has an unresolved shared upload. Resolve it before deleting the capture.')
             cursor = db.execute('DELETE FROM previews WHERE id=' + '?', (number,))
             for table in ('sync_jobs', 'sync_reports', 'sync_failures', 'sync_receipts', 'capture_metadata', 'sync_retry'):
                 db.execute(f'DELETE FROM {table} WHERE preview_id=?', (number,))
