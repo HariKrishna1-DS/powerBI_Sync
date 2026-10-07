@@ -71,7 +71,7 @@ async function startBackend() {
     DATATRACE_FULL_TRACKER: settings.fullTrackerTitle, DATATRACE_REMAINING_TRACKER: settings.remainingTrackerTitle,
     DATATRACE_USERNAME: settings.username, DATATRACE_PASSWORD: settings.password,
     DATATRACE_CONNECTION_RECOVERY: vault.status()?.status === 'locked' || settings.connectionRepairPending ? '1' : '0',
-    GOOGLE_SERVICE_ACCOUNT_JSON: settings.serviceAccount, DATATRACE_HEADLESS: 'true',
+    GOOGLE_SERVICE_ACCOUNT_JSON: settings.serviceAccount, DATATRACE_HEADLESS: 'false',
     DATATRACE_NODE_EXECUTABLE: process.execPath,
     DATATRACE_EXTRACTOR_DIR: app.isPackaged ? path.join(process.resourcesPath, 'extractor') : path.join(root, '.desktop-build', 'extractor'),
     PUPPETEER_EXECUTABLE_PATH: detectBrowser(),
