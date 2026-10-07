@@ -1,6 +1,6 @@
 {
   "name": "tv-tracker",
-  "version": "2.6.0",
+  "version": "1.0.1",
   "description": "Private desktop workspace for title production and Google Sheets synchronization",
   "author": "Tv Tracker",
   "private": true,

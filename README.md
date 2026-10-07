@@ -1,15 +1,17 @@
-# Tv Tracker — Windows desktop
+# Tv Tracker 1.0.1 — Windows desktop
 
 Tv Tracker is a local desktop workspace for TitleVision extraction, Google Sheets production tracking, saved captures, comparisons, and Power BI exports. Its Python and Node runtimes are bundled. No Render hosting or PostgreSQL service is required.
 
+The current project version is **1.0.1** on `tv-tracker-updates`. Desktop and web app package manifests and lockfiles use this version. See [the 1.0.1 release notes](docs/TV_TRACKER_1_0_1_RELEASE.md) for the included changes and installation details.
+
 ## Desktop branch
 
-**`tv-tracker`** is the dedicated desktop development branch. `main` remains the upstream browser/sync project. Desktop work belongs here; review upstream changes before merging them so native settings, local storage, and packaging remain compatible.
+**`tv-tracker-updates`** contains this project's 1.0.1 source, based on the earlier 2.6.0 code. `tv-tracker` continues the separate desktop development history, and `main` remains the upstream browser/sync project. Review branch differences before merging them so native settings, local storage, and packaging remain compatible.
 
 ```powershell
 git fetch origin
-git switch tv-tracker
-git pull --ff-only origin tv-tracker
+git switch tv-tracker-updates
+git pull --ff-only origin tv-tracker-updates
 ```
 
 The 2.1.0 integration incorporates upstream `db0c274` plus the existing desktop implementation. See [analysis, mapping, changes and validation](docs/DESKTOP_UPSTREAM_ALIGNMENT.md).
