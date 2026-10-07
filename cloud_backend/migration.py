@@ -13,11 +13,12 @@ from workspace_backup import write_verified_backup
 
 
 class Migration:
-    def __init__(self, rpc, book, directory, queue_scope):
+    def __init__(self, rpc, book, directory, queue_scope, local_store=None):
         if not enabled():
             raise ValueError('Open the Windows desktop app to protect the migration snapshot.')
         self.rpc, self.book = rpc, book
         self.root, self.scope = Path(directory), queue_scope
+        self.local_store = local_store
 
     def _path(self, plan):
         return self.root / (str(uuid.UUID(plan)) + '.tvmigration')
@@ -91,7 +92,20 @@ class Migration:
         sequence_values = list(tables.values())
         if ledger:
             sequence_values.append(read_values(self.book, [ledger])[0])
-        sequence = 1
+        sequence = self.local_store.next_number() if self.local_store is not None else 1
+        from sheets_writer import SHARED_TITLE
+        control = next((s for s in sheets if s.title == SHARED_TITLE), None)
+        if control:
+            marker = read_values(self.book, [control])[0]
+            if len(marker) > 1 and marker[1][:1] == ['tv-tracker-shared-v2'] and (len(marker[0]) > 2 or len(marker[1]) > 2):
+                try:
+                    position = marker[0].index('Next preview')
+                    reserved = str(marker[1][position])
+                    if not re.fullmatch(r'[1-9]\d*', reserved):
+                        raise ValueError('Invalid sequence')
+                    sequence = max(sequence, int(reserved))
+                except (ValueError, IndexError) as error:
+                    raise ValueError('The shared preview counter is invalid. Reconcile it before migration.') from error
         for table in sequence_values:
             if not table:
                 continue

@@ -77,7 +77,13 @@ def target_worksheet():
         if os.environ.get('DATATRACE_DESKTOP') == '1':
             from sheets_writer import GuardedBook, device_identity
             book = GuardedBook(book, device_identity(BASE_DIR), shared=True, key=SPREADSHEET_ID)
-        return book, book.get_worksheet_by_id(WORKSHEET_GID)
+        try:
+            primary = book.get_worksheet_by_id(WORKSHEET_GID)
+        except gspread.exceptions.WorksheetNotFound:
+            # A copied/recreated workbook gets new IDs. The raw capture tab's
+            # known name is authoritative; never choose an arbitrary report tab.
+            primary = book.worksheet('Sheet1')
+        return book, primary
     except RefreshError as exc:
         details = next((arg for arg in exc.args if isinstance(arg, dict)), {})
         description = str(details.get('error_description', '')).casefold()

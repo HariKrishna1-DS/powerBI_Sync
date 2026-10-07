@@ -74,6 +74,8 @@ class AtomicBook:
                 find(info['rule']['ranges'][0]['sheetId']).conditional_formats.insert(info['index'], info['rule'])
             elif 'updateCells' in request:
                 info = request['updateCells']
+                if 'userEnteredValue' not in info.get('fields', ''):
+                    continue
                 region = info.get('range',info.get('start'))
                 target = find(region['sheetId'])
                 start=region.get('rowIndex',0)

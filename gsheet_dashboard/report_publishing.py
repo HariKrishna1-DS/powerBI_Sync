@@ -102,7 +102,10 @@ def publish_reports(book, snapshot, capacity):
             {'setBasicFilter': {'filter': {'range': {'sheetId': identity, 'startRowIndex': start, 'endRowIndex': start + 1 + len(capacity['daily']), 'endColumnIndex': 9}}}}])
     # Owned implementation tabs are hidden, never deleted. Unknown user tabs stay visible.
     owned = set(TRACKERS) | {OLD_FULL, OLD_REMAINING, 'Sheet1', 'Full Title', 'Remaining Products', 'Overview', 'Monthly report', 'Changes', 'Needs review', 'Preview History', 'Default import details'}
+    visible_ids = {batch.sheets[title].id for title in tables}
     for title in existing - set(tables):
+        if batch.sheets[title].id in visible_ids:
+            continue
         if title in owned or title.startswith(('__DataTrace_', '__TvTracker_')) or tab_identity(title) or view_identity(title):
             batch.requests.append({'updateSheetProperties': {'properties': {'sheetId': batch.sheets[title].id, 'hidden': True}, 'fields': 'hidden'}})
     receipt_sheet = batch.sheet(RECEIPT)
@@ -111,11 +114,14 @@ def publish_reports(book, snapshot, capacity):
     batch.requests.append({'updateSheetProperties': {'properties': {'sheetId': receipt_sheet.id, 'hidden': True}, 'fields': 'hidden'}})
 
     def committed():
+        from gspread.exceptions import WorksheetNotFound
         try:
             values = book.worksheet(RECEIPT).get_all_values()
             return len(values) > 1 and len(values[1]) > 3 and values[1][0] == digest and values[1][3] == publication
-        except Exception:
+        except WorksheetNotFound:
             return False
+        except Exception as error:
+            raise ValueError('The publication receipt could not be read. Publishing is paused because the write may have completed. Restore the connection before retrying; saved captures are retained.') from error
 
     write_sheet_batch(book, receipt_sheet, batch.requests, verify_commit=committed)
     if not committed():

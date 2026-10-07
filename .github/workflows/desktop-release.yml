@@ -89,7 +89,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Packaged connection recovery tests failed' }
           node desktop/shutdown-smoke.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Packaged unresponsive-engine shutdown tests failed' }
-      - name: Verify actual installed 2.7.2 upgrade and recovery
+      - name: Verify actual installed 2.8.0 upgrade and recovery
         timeout-minutes: 8
         shell: pwsh
         env:

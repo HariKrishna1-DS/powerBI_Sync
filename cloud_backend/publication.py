@@ -271,7 +271,15 @@ class SheetsPublisher:
         # preserving canonical/historical tracker tabs and unrelated worksheets.
         from monthly_views import view_identity
         from monthly_production import tab_identity
-        tables = dict(tables)
+        from sheet_titles import existing_title
+        existing = {sheet.title for sheet in self.book.worksheets()}
+        resolved = {}
+        for title, values in tables.items():
+            actual = existing_title(existing, title) or title
+            if actual in resolved and resolved[actual] != values:
+                raise CloudError('Two reports target the same worksheet. Publishing was stopped.', 'conflict')
+            resolved[actual] = values
+        tables = resolved
         for title in previous_tables.keys()-tables.keys():
             if view_identity(title) or tab_identity(title):
                 tables[title] = [previous_tables[title][0]] if previous_tables[title] else [['Order Number']]

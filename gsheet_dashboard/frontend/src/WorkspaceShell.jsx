@@ -44,7 +44,7 @@ export function WorkspaceContext({production,view,preview,snapshot,running,stage
     <span className="context-preview"><FileSpreadsheet size={14}/>{selected?(preview.name||`preview${selected}`):'No capture selected'}</span>
     <span className="context-freshness"><Clock3 size={14}/>{updated?`${production?'Refreshed':'Captured'} ${new Date(updated).toLocaleString(undefined,{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}`:report?'Reporting period below':view==='audit'?'Saved on this computer':'Freshness unavailable'}</span>
     {production&&<button className="text-button context-refresh" onClick={onRefresh} disabled={refreshing||running} aria-label="Refresh production data"><RefreshCw size={14} className={refreshing?'spin':''}/>{refreshing?'Refreshing…':'Refresh'}</button>}
-    <span className={`context-job ${running?'is-running':''}`} role="status">{running?<i className="job-pulse"/>:<Check size={14}/>}<span>{running?stage||'Working…':pending?`${pending} awaiting sync`:'Ready'}</span></span>
+    <span className={`context-job ${running?'is-running':pending?'is-pending':''}`} role="status">{running?<i className="job-pulse"/>:pending?<Clock3 size={14}/>:<Check size={14}/>}<span>{running?stage||'Working…':pending?`${pending} awaiting sync`:'Ready'}</span></span>
   </div>;
 }
 

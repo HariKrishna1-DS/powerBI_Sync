@@ -113,6 +113,24 @@ class PublicationTests(unittest.TestCase):
             self.publisher.publish(2, self.tables)
         self.assertEqual(len(self.book.batches), count)
 
+    def test_monthly_aliases_reuse_reviewed_ids_without_clearing_data(self):
+        old = {'Full_Search_OCT_2026': [['Order Number'], ['001']],
+               'Remaining_Search_OCT_2026': [['Order Number'], ['002']]}
+        self.publisher.publish(1, old)
+        identities = {s.title: s.id for s in self.book.sheets if s.title in old}
+        result = self.publisher.publish(2, {'Full_search_OCT_2026': [['Order Number'], ['003']],
+                                          'Remaining_OCT_2026': [['Order Number'], ['004']]})
+        self.assertEqual(result['tabs'], sorted(old))
+        self.assertEqual(self.book.get_worksheet_by_id(identities['Full_Search_OCT_2026']).values[1], ['003'])
+        self.assertEqual(self.book.get_worksheet_by_id(identities['Remaining_Search_OCT_2026']).values[1], ['004'])
+        self.assertEqual(len([s for s in self.book.sheets if s.title in old]), 2)
+
+    def test_case_alias_cannot_replace_an_unreviewed_sheet(self):
+        self.book.sheets.append(Sheet('Full_Search_OCT_2026', 103, [['Keep']]))
+        with self.assertRaisesRegex(CloudError, 'unreviewed'):
+            self.publisher.publish(1, {'Full_search_OCT_2026': [['Order Number']]})
+        self.assertEqual(self.book.batches, [])
+
     def test_wrong_binding_stale_revision_and_unreviewed_tab_are_rejected(self):
         with self.assertRaises(CloudError):
             SheetsPublisher(self.book, self.workspace, 'another-book')

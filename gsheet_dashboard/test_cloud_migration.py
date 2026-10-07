@@ -77,6 +77,20 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(list(self.root.glob('*.tvmigration')), [])
         self.assertFalse(any(name == 'tv_seed_workspace' for name, _ in self.calls))
 
+    def test_reserved_and_local_sequences_are_preserved_and_rechecked(self):
+        self.book.sheets.append(Sheet(SHARED_TITLE, SHARED_ID,
+            [['Protocol', 'Enabled', 'Next preview'], ['tv-tracker-shared-v2', 'stamp', '52']]))
+        local = Mock()
+        local.next_number.return_value = 50
+        self.migration.local_store = local
+        plan = self.migration.preview(self.workspace)
+        self.assertEqual(plan['next_sequence'], 52)
+        local.next_number.return_value = 54
+        with self.assertRaisesRegex(CloudError, 'changed after review'):
+            self.migration.activate(self.workspace, plan['id'], self.worker, True, True)
+        self.assertFalse(any(name == 'tv_seed_workspace' for name, _ in self.calls))
+        self.assertEqual(self.migration.preview(self.workspace)['next_sequence'], 54)
+
     def test_duplicate_orders_and_queue_mismatch_are_rejected(self):
         self.book.sheets[1].values.append(['001', 'Update', 'Available', '', 'preview44'])
         with self.assertRaisesRegex(ValueError, 'multiple'):

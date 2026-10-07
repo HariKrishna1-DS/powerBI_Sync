@@ -196,6 +196,33 @@ class ReportWorkspaceTests(unittest.TestCase):
         self.assertEqual(exported['A6'].value, '2026-10-01')
         self.assertIn('$B$6', exported._charts[0].series[0].val.numRef.f)
 
+    def test_monthly_case_aliases_publish_without_duplicate_tabs(self):
+        saved = self.workspace.save_import([('one.xlsx', workbook([order('1')]))])
+        value = self.workspace.imported_snapshot(saved['id'])
+        book = AtomicBook()
+        full = book.add('Full_Search_OCT_2026', [order('old')])
+        remaining = book.add('Remaining_Search_OCT_2026')
+        publish_reports(book, value, self.workspace.capacity(value))
+        self.assertEqual(book.worksheet(full.title).id, full.id)
+        self.assertEqual(book.worksheet(remaining.title).id, remaining.id)
+        names = [s.title for s in book.sheets]
+        self.assertNotIn('Full_search_OCT_2026', names)
+        self.assertNotIn('Remaining_OCT_2026', names)
+        matrix = book.worksheet(full.title).values
+        index = matrix[0].index('Order Number')
+        self.assertIn('1', [row[index] for row in matrix[1:] if len(row) > index])
+
+    def test_unreadable_receipt_after_lost_reply_does_not_replay_write(self):
+        from requests.exceptions import Timeout, ConnectionError
+        saved = self.workspace.save_import([('one.xlsx', workbook([order('1')]))])
+        value = self.workspace.imported_snapshot(saved['id'])
+        book = AtomicBook()
+        with patch.object(book, 'batch_update', side_effect=Timeout('lost reply')) as write, \
+                patch.object(book, 'worksheet', side_effect=ConnectionError('receipt unavailable')):
+            with self.assertRaisesRegex(ValueError, 'receipt could not be read'):
+                publish_reports(book, value, self.workspace.capacity(value))
+        self.assertEqual(write.call_count, 1)
+
     def test_backup_does_not_create_an_unrestorable_oversize_archive(self):
         with patch('workspace_backup.MAX_EXPANDED_BYTES', 1):
             with self.assertRaisesRegex(ValueError, 'recovery size'):

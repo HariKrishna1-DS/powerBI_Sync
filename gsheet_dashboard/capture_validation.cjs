@@ -1,6 +1,15 @@
 function advertisedCount(text) {
-  const match = String(text || '').match(/\b([\d,]+)\s+(?:items?|records?)\b/i);
+  const value = String(text || '');
+  const match = value.match(/\b(?:items?|records?)\s+[\d,]+\s+(?:to|-)\s+[\d,]+\s+of\s+([\d,]+)\b/i)
+    || value.match(/\b([\d,]+)\s+(?:items?|records?)\b/i);
   return match ? Number(match[1].replaceAll(',', '')) : null;
+}
+
+function clientCount(evidence) {
+  if (!evidence || !Number.isSafeInteger(evidence.total) || evidence.total < 1
+      || !Number.isSafeInteger(evidence.pages) || evidence.pages < 1
+      || !Number.isSafeInteger(evidence.index) || evidence.index < 0 || evidence.index >= evidence.pages) return null;
+  return evidence.total;
 }
 
 function captureEvidence(rows, expected, pages) {
@@ -11,4 +20,4 @@ function captureEvidence(rows, expected, pages) {
   if (identitiesPresent && new Set(keys).size !== keys.length) throw Error('Duplicate order numbers in the extracted queue. Existing production was retained.');
   return {kind: 'portal', complete: expected !== null && identitiesPresent, expected_rows: expected, actual_rows: rows.length, pages};
 }
-module.exports = {advertisedCount, captureEvidence};
+module.exports = {advertisedCount, clientCount, captureEvidence};

@@ -395,6 +395,15 @@ def apply_plan(book, plan, check=True):
         schema = next((plan['writes'].get(title, sheet['values'])[0] for title, sheet in before.items()
             if title == BASES[0] or (tab_identity(title) and tab_identity(title)[0] == BASES[0])), None)
         plan['writes'].update(monthly_view_values(after, headers=schema))
+    from sheet_titles import existing_title
+    # Keep the reviewed worksheet identity, including legacy spelling/case.
+    resolved_writes = {}
+    for title, values in plan['writes'].items():
+        actual = existing_title(sheets, title) or title
+        if actual in resolved_writes and resolved_writes[actual] != values:
+            raise ValueError('Conflicting writes target the same worksheet.')
+        resolved_writes[actual] = values
+    plan = dict(plan, writes=resolved_writes)
     used = {s.id for s in sheets.values()}
     def new_id():
         number = secrets.randbelow(2**30)

@@ -81,12 +81,18 @@ class Batch:
 
     def sheet(self, title, aliases=()):
         if title not in self.sheets:
-            old = next((name for name in aliases if name in self.sheets), None)
+            from sheet_titles import existing_title
+            old = existing_title(self.sheets, title, aliases)
             if old:
-                sheet = self.sheets.pop(old)
-                self.values[title] = self.values.pop(old) if old in self.values else sheet.get_all_values()
+                sheet = self.sheets[old]
+                self.values[title] = self.values[old] if old in self.values else sheet.get_all_values()
                 self.sheets[title] = sheet
-                self.requests.append({'updateSheetProperties': {'properties': {'sheetId': sheet.id, 'title': title}, 'fields': 'title'}})
+                if old in aliases and old.casefold() != title.casefold():
+                    # Explicit tracker migrations retain the existing rename
+                    # contract. Monthly projection aliases only reuse the ID.
+                    self.sheets.pop(old)
+                    self.requests.append({'updateSheetProperties': {
+                        'properties': {'sheetId': sheet.id, 'title': title}, 'fields': 'title'}})
             else:
                 from types import SimpleNamespace
                 sheet = SimpleNamespace(id=self.next_id, title=title, row_count=1, col_count=1)

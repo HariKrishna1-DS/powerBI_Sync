@@ -26,7 +26,7 @@ test('quota pause preserves orders, explains automatic retry, and recovers witho
   busy=false;
   await page.clock.fastForward(31000);
   await expect(page.getByText('Automatic retry queued')).toHaveCount(0);
-  await expect(page.getByRole('status').filter({hasText:'Google Sheets connected'})).toBeVisible();
+  await expect(page.getByRole('status').filter({hasText:'Reports read from Google Sheets'})).toBeVisible();
 });
 
 test('background refresh keeps cached rows usable and reports refresh completion', async ({page}) => {

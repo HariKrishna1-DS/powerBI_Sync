@@ -40,7 +40,10 @@ function safeError(error) {
     settings?.cloudSession?.access_token, settings?.cloudSession?.refresh_token]).slice(0, 2000);
 }
 function publicState() {
-  const connectionRecovery = vault.status() || (settings.connectionRepairPending ? {status: 'incomplete', message: 'Complete your Google Sheets and TitleVision connection details, then save to resume scheduled work. Your saved captures are available.'} : null);
+  const configured = settings.username && settings.password && settings.serviceAccount;
+  const connectionRecovery = vault.status() || (settings.connectionRepairPending ? {status: 'incomplete', message: configured
+    ? 'Your saved connections are available. Automatic jobs are paused for setup review. Review the publishing workspace before saving to resume scheduled work.'
+    : 'Complete your Google Sheets and TitleVision connection details, then save to resume scheduled work. Your saved captures are available.'} : null);
   return {...publicSettings(settings), connectionRecovery, version: app.getVersion(), dataPath, browserDetected: !!detectBrowser(), packaged: app.isPackaged};
 }
 function configureStartup(preserveDisabled = false) {

@@ -27,7 +27,7 @@ async function mockProduction(page, offline = false) {
 test('production views use retained Sheet orders and Sync activity reads local receipts', async ({page}) => {
   await mockProduction(page);
   await page.goto('/');
-  await expect(page.getByRole('status').filter({hasText: 'Google Sheets connected'})).toBeVisible();
+  await expect(page.getByRole('status').filter({hasText: 'Reports read from Google Sheets'})).toBeVisible();
   const metric = page.locator('.metric').filter({hasText: 'Visible orders'});
   await expect(metric.locator('strong')).toHaveText('2');
   await page.getByRole('button', {name: 'Data Sheets', exact: true}).click();

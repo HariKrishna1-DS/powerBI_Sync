@@ -29,7 +29,7 @@ async function setup(page,{viewer=false}={}){
 test('each notification dismisses independently and returns after the next sync',async({page})=>{
   await setup(page);
   await expect(page.getByRole('button',{name:'Dismiss notification',exact:true})).toHaveCount(4);
-  const connected=page.locator('.dismissible-notice').filter({hasText:'Google Sheets connected'});
+  const connected=page.locator('.dismissible-notice').filter({hasText:'Reports read from Google Sheets'});
   await connected.getByRole('button',{name:'Dismiss notification'}).focus();
   await page.keyboard.press('Enter');
   await expect(page.getByRole('button',{name:'Dismiss notification',exact:true})).toHaveCount(3);

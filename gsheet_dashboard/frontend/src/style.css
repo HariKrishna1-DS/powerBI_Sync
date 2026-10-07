@@ -4947,3 +4947,5 @@ tr:hover td {
   .workspace:not(.sidebar-collapsed) .sidebar .nav-subsection { display:contents; }
   .workspace:not(.sidebar-collapsed) .sidebar .nav-item { font-size:11px; gap:6px; padding-inline:6px; }
 }
+
+.context-job.is-pending { color: var(--warning); }

@@ -129,12 +129,27 @@ const outputPath = process.env.DATATRACE_OUTPUT_JSON || path.join(__dirname, 'qu
 
         // Locate the queue by its headers, not the first layout table in the panel.
         let tableData = [];
-        const {advertisedCount, captureEvidence} = require('./capture_validation.cjs');
+        const {advertisedCount, clientCount, captureEvidence} = require('./capture_validation.cjs');
         let expectedRows = null;
+        let expectedPages = null;
         const seenPages = new Set();
         for (let pageNumber = 0; ; pageNumber++) {
         if (pageNumber >= 1000) throw new Error('Queue pagination exceeded safety limit.');
-        const advertised = advertisedCount(await page.$eval(GRID_SELECTOR, el => [...el.querySelectorAll('.rgInfoPart')].map(node => node.textContent).join(' ')));
+        const gridEvidence = await page.$eval(GRID_SELECTOR, el => {
+            const root = el.querySelector('.RadGrid');
+            const grid = root && typeof window.$find === 'function' ? window.$find(root.id) : null;
+            const view = grid?.get_masterTableView?.();
+            return {text: [...el.querySelectorAll('.rgInfoPart')].map(node => node.textContent).join(' '),
+                client: view ? {total:view.get_virtualItemCount?.(), pages:view.get_pageCount?.(), index:view.get_currentPageIndex?.()} : null};
+        });
+        const textCount = advertisedCount(gridEvidence.text);
+        const controlCount = clientCount(gridEvidence.client);
+        if (textCount !== null && controlCount !== null && textCount !== controlCount) throw new Error('Queue counters disagree. Retry a fresh capture.');
+        const advertised = textCount ?? controlCount;
+        if (controlCount !== null) {
+            if (gridEvidence.client.index !== pageNumber || (expectedPages !== null && expectedPages !== gridEvidence.client.pages)) throw new Error('Queue pagination changed during extraction. Retry a fresh capture.');
+            expectedPages = gridEvidence.client.pages;
+        }
         if (advertised !== null) {
             if (expectedRows !== null && expectedRows !== advertised) throw new Error('Queue totals changed during extraction. Retry a fresh capture.');
             expectedRows = advertised;
@@ -236,6 +251,7 @@ const outputPath = process.env.DATATRACE_OUTPUT_JSON || path.join(__dirname, 'qu
                 return newRow;
             });
 
+            if (expectedPages !== null && seenPages.size !== expectedPages) throw new Error('Incomplete queue pagination. Existing production was retained.');
             const evidence = captureEvidence(cleanedData, expectedRows, seenPages.size);
             fs.writeFileSync(outputPath, JSON.stringify(cleanedData), 'utf8');
             if (process.env.DATATRACE_OUTPUT_META) fs.writeFileSync(process.env.DATATRACE_OUTPUT_META, JSON.stringify(evidence), 'utf8');

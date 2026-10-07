@@ -11,7 +11,7 @@ def view_name(full, month):
 
 def view_identity(title):
     from monthly_production import MONTHS
-    match = re.fullmatch(r'(Full_search|Remaining)_([A-Za-z]{3})_(\d{4})', title, re.I)
+    match = re.fullmatch(r'(Full_search|Remaining(?:_Search)?)_([A-Za-z]{3})_(\d{4})', title, re.I)
     months = [month.upper() for month in MONTHS]
     if match and match[2].upper() in months:
         return match[1].casefold() == 'full_search', f'{match[3]}-{months.index(match[2].upper())+1:02}'
@@ -110,6 +110,8 @@ def refresh_monthly_views(book):
             result.append(cells)
         return result
     for title, values in writes.items():
+        from sheet_titles import existing_title
+        title = existing_title(sheets, title) or title
         prior = sheets[title].get_all_values(value_render_option='UNFORMATTED_VALUE') if title in sheets else []
         values = keep_view_headers(values, prior)
         if normalized(prior) != normalized(values):

@@ -44,7 +44,7 @@ def register_shared_routes(app, store, gate, maintenance):
                 if not SPREADSHEET_ID:
                     return jsonify(error='Save the Google spreadsheet connection before reviewing migration.'), 422
                 migration = Migration(rpc, open_worker_book(SPREADSHEET_ID),
-                    store.root.parent / 'migration-snapshots', member['queue_scope'])
+                    store.root.parent / 'migration-snapshots', member['queue_scope'], local_store=store)
                 if action == 'review':
                     return jsonify(migration.preview(workspace))
                 if action == 'migration-status':

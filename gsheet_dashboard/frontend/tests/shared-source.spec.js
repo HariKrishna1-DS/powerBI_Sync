@@ -26,7 +26,7 @@ test('shared client distinguishes database acceptance from verified Sheets publi
   await expect(page.getByRole('button',{name:'Sync to Sheets',exact:true})).toBeEnabled();
   await expect(page.getByRole('button',{name:'Import Excel reports',exact:true})).toBeEnabled();
   await expect(page.getByRole('button',{name:'Publish reports',exact:true})).toBeEnabled();
-  await expect(page.getByText('Shared workspace connected',{exact:false}).first()).toBeVisible();
+  await expect(page.getByText('Reports read from Shared workspace',{exact:false}).first()).toBeVisible();
   await expect(page.getByText('Accepted by the shared workspace; awaiting verified publication.',{exact:false})).toBeVisible();
   await expect(page.getByText('Google Sheets connected',{exact:false})).toHaveCount(0);
   await expect(page.getByText('Google Sheets tabs updated',{exact:false})).toHaveCount(0);
