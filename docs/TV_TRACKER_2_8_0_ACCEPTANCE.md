@@ -43,16 +43,16 @@
 | Packaged reporting | Passed: multi-workbook import, source isolation, SLA deadline equality, Excel export and reload persistence |
 | Packaged connection recovery | Passed: unreadable-vault startup, accessible update controls, encrypted backup restoration and restart |
 | Packaged stalled-engine shutdown | Passed: bounded quit, engine termination and preserved capture after restart |
-| Representative performance | Passed on 7,000 orders / 35 captures: status median 47.53 ms, warm cache 124.09 ms, unchanged response 276 bytes; reporting median 1,145.14 ms |
+| Representative performance | Passed on 7,000 orders / 35 captures: clean-environment status median 35.13 ms, warm cache 125.54 ms, unchanged response 276 bytes; reporting median 1,215.29 ms |
 | Lint and production dependency audit | Passed; no known vulnerabilities reported by the configured audits |
 | Source credential-format scan | Passed; supplements credential rotation, not a substitute for it |
-| Hosted migrations | 001–009 applied; 010 prepared and awaiting fresh-database verification/application; 005–009 received explicit owner approval |
+| Hosted migrations | 001–009 applied; 010 passed fresh-database/restore verification and awaits application; 005–009 received explicit owner approval |
 | Hosted synthetic feature acceptance | Shared import retry, source isolation, simultaneous capacity conflicts, monthly import/setup/rollover, stale SLA rejection and manual-field preservation passed |
 | Hosted publication | Synthetic workspace reached published revision 12; unrelated notes retained; production workbook unchanged |
 | Real packaged shared client | Existing encrypted sign-in, owner controls, two canonical QA orders, monthly reports and Excel export passed without Google credentials or office-worker authority on the client |
-| PostgreSQL dump/restore contract | Migrations 001–009 passed 25 tests, synthetic database restored into a second database with identical records/functions/grants/RLS, then all 25 tests passed again |
+| PostgreSQL dump/restore contract | Migrations 001–010 passed 27 tests, including full manager access and competing admin removals; synthetic database restored into a second database with identical records/functions/grants/RLS, then all 27 tests passed again |
 
-The four concurrent save sessions used one owner account on one physical PC. This proves the API conflict behavior, not four-machine operational acceptance. The fresh PostgreSQL and synthetic restore checks passed in GitHub run 37576642049. This validates the database recovery mechanism; it does not establish or rehearse the hosted production project's backup service.
+The four concurrent save sessions used one owner account on one physical PC. This proves the API conflict behavior, not four-machine operational acceptance. The fresh PostgreSQL and synthetic restore checks passed in GitHub run 37578929223. This validates the database recovery mechanism; it does not establish or rehearse the hosted production project's backup service.
 
 ## Remaining release/rollout gates
 
