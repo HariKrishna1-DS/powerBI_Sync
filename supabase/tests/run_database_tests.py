@@ -1,4 +1,5 @@
 """Apply all migrations to a fresh database in the isolated QA container."""
+import json
 import os
 from pathlib import Path
 import re
@@ -30,11 +31,14 @@ if result.returncode:
 manifest_query = """
 select jsonb_build_object(
   'tables', (select jsonb_agg(jsonb_build_array(c.relname,c.relrowsecurity,
-      coalesce(c.relacl::text,'')) order by c.relname)
+      (select jsonb_agg(a::text order by a::text) from unnest(
+        coalesce(c.relacl,pg_catalog.acldefault('r',c.relowner))) a)) order by c.relname)
     from pg_catalog.pg_class c join pg_catalog.pg_namespace n on n.oid=c.relnamespace
     where n.nspname='tv_tracker' and c.relkind='r'),
   'functions', (select jsonb_agg(jsonb_build_array(p.proname,
-      pg_catalog.pg_get_functiondef(p.oid),coalesce(p.proacl::text,'')) order by p.proname,p.oid::regprocedure::text)
+      pg_catalog.pg_get_functiondef(p.oid),
+      (select jsonb_agg(a::text order by a::text) from unnest(
+        coalesce(p.proacl,pg_catalog.acldefault('f',p.proowner))) a)) order by p.proname,p.oid::regprocedure::text)
     from pg_catalog.pg_proc p join pg_catalog.pg_namespace n on n.oid=p.pronamespace
     where n.nspname='tv_tracker' or (n.nspname='public' and p.proname like 'tv_%'))
 );
@@ -69,7 +73,19 @@ restored = 'qa_restore_' + uuid.uuid4().hex
 subprocess.run(command, input=f'create database {restored};', text=True, check=True, timeout=30)
 subprocess.run(['docker', 'exec', '-i', container, 'pg_restore', '--exit-on-error', '-U', 'postgres', '-d', restored],
     input=backup, check=True, timeout=60)
-if before != manifest(restored):
+after = manifest(restored)
+if before != after:
+    # Only QA object names and changed field positions are reported. ACL item
+    # ordering is normalized because pg_restore can emit grants in a new order.
+    first, second = json.loads(before[0]), json.loads(after[0])
+    for category in ('tables', 'functions'):
+        old, new = {item[0]: item for item in first[category]}, {item[0]: item for item in second[category]}
+        for name in sorted(set(old) | set(new)):
+            if old.get(name) != new.get(name):
+                print(f'QA restore difference: {category}/{name}', flush=True)
+    for table, digest in before[1]:
+        if dict(after[1]).get(table) != digest:
+            print(f'QA restore record difference: {table}', flush=True)
     raise RuntimeError('Restored QA records, RPC definitions or access controls differ')
 print('PASS: synthetic PostgreSQL backup restored all shared records, RPCs and table permissions.', flush=True)
 restored_tests = subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s', 'supabase/tests', '-p', 'test_*.py'],
