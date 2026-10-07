@@ -6,6 +6,13 @@ const str = value => value == null ? '' : String(value);
 const label = value => str(value) || '(Blank)';
 const normalized = value => str(value).trim().toLowerCase();
 const badgeClass = value => normalized(value).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+const isSharedReport = snapshot => snapshot?.report_preferences?.shared === true || snapshot?.source === 'Shared workspace';
+const productionSource = snapshot => isSharedReport(snapshot) ? 'Shared workspace' : snapshot?.source_mode === 'import' ? 'Imported Excel reports' : 'Google Sheets production';
+function captureResultMessage(result, shared) {
+  const rows = Number.isInteger(result.rows) ? ` · ${result.rows.toLocaleString()} rows` : '';
+  if (shared) return `${result.preview_name}${rows} · ${result.cloud_state === 'accepted' ? 'Accepted by the shared workspace; awaiting verified publication.' : 'Saved locally; shared upload pending.'}`;
+  return result.action === 'sync' ? `${result.preview_name} synced${rows} · ${result.worksheets?.length || 0} Google Sheets tabs updated` : `${result.preview_name} saved locally${rows} · Google Sheets sync pending`;
+}
 import STATUS_COLORS from '../../status_colors.json';
 
 function statusColor(value) {
@@ -59,4 +66,4 @@ function matches(row, filters, except) {
 function IconButton({title, children, ...props}) { return <button className="icon-button" title={title} aria-label={title} {...props}>{children}</button>; }
 
 
-export {EMPTY, DEFAULT_IGNORE, colors, str, label, normalized, badgeClass, STATUS_COLORS, statusColor, textColorForBg, api, saveBlob, csvDownload, matches, IconButton};
+export {EMPTY, DEFAULT_IGNORE, colors, str, label, normalized, badgeClass, isSharedReport, productionSource, captureResultMessage, STATUS_COLORS, statusColor, textColorForBg, api, saveBlob, csvDownload, matches, IconButton};

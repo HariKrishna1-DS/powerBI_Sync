@@ -18,6 +18,7 @@ arguments = [
     f'--workpath={ROOT / ".desktop-build" / "pyinstaller"}',
     f'--specpath={ROOT / ".desktop-build"}',
     f'--paths={ROOT / "gsheet_dashboard"}',
+    f'--paths={ROOT}',
     f'--paths={DEPS}',
     f'--add-data={ROOT / "gsheet_dashboard" / "sync_config.json"};.',
     f'--add-data={ROOT / "gsheet_dashboard" / "remaining_products.json"};.',

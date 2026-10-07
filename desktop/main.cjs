@@ -8,6 +8,7 @@ const {createUpdater, scheduleUpdateChecks} = require('./updater.cjs');
 const {redact} = require('./redaction.cjs');
 const {writeVerifiedFile} = require('./verified-file.cjs');
 const {encryptBackup, decryptBackup, validatePassword} = require('./backup-crypto.cjs');
+const {createCloudAuth} = require('./cloud-auth.cjs');
 
 app.setName('Tv Tracker');
 app.setAppUserModelId('com.datatrace.studio');
@@ -16,7 +17,8 @@ app.setPath('userData', process.env.DATATRACE_TEST_USER_DATA || path.join(app.ge
 const root = path.resolve(__dirname, '..');
 let window, tray, backend, backendUrl = '', settings, vault, pendingAccount;
 let quitting = false, restarting = false, quitRequested = false;
-let updates, stopUpdateChecks;
+let updates, stopUpdateChecks, cloudAuth;
+let sharedPulseTimer, sharedPulseRunning=false, sharedPulseError='';
 const token = crypto.randomBytes(32).toString('hex');
 const icon = path.join(__dirname, 'assets', 'icon.png');
 const dataPath = path.join(app.getPath('userData'), 'workspace');
@@ -34,7 +36,8 @@ function detectBrowser() {
   ].find(file => file && fs.existsSync(file)) || '';
 }
 function safeError(error) {
-  return redact(error, [token, settings?.password, settings?.serviceAccount]).slice(0, 2000);
+  return redact(error, [token, settings?.password, settings?.serviceAccount,
+    settings?.cloudSession?.access_token, settings?.cloudSession?.refresh_token]).slice(0, 2000);
 }
 function publicState() {
   const connectionRecovery = vault.status() || (settings.connectionRepairPending ? {status: 'incomplete', message: 'Complete your Google Sheets and TitleVision connection details, then save to resume scheduled work. Your saved captures are available.'} : null);
@@ -56,6 +59,21 @@ async function engineRequest(route, options = {}, timeoutMs = 30000) {
   }
   return response;
 }
+async function pulseShared() {
+  if (!settings?.cloudWorkspace || sharedPulseRunning || quitting || restarting || !backendUrl) return;
+  sharedPulseRunning=true;
+  try {
+    let access='';
+    try { access=await cloudAuth.accessToken(); } catch { /* The engine pauses upload but keeps local captures. */ }
+    await engineRequest('/api/desktop/shared/pulse',{method:'POST',headers:{'X-TV-Cloud-Access':access}},120000);
+    sharedPulseError='';
+  } catch(error) {const message=safeError(error);if(message!==sharedPulseError)log(message);sharedPulseError=message;}
+  finally { sharedPulseRunning=false; }
+}
+function startSharedPump() {
+  clearInterval(sharedPulseTimer);
+  if(settings.cloudWorkspace){sharedPulseTimer=setInterval(pulseShared,15000);sharedPulseTimer.unref();void pulseShared();}
+}
 function log(message) {
   fs.appendFileSync(path.join(logPath, 'desktop.log'), `${new Date().toISOString()} ${safeError(message)}\n`);
 }
@@ -73,6 +91,7 @@ async function startBackend() {
     DATATRACE_USERNAME: settings.username, DATATRACE_PASSWORD: settings.password,
     DATATRACE_CONNECTION_RECOVERY: vault.status()?.status === 'locked' || settings.connectionRepairPending ? '1' : '0',
     GOOGLE_SERVICE_ACCOUNT_JSON: settings.serviceAccount, DATATRACE_HEADLESS: 'true',
+    DATATRACE_SHARED_WORKSPACE: settings.cloudWorkspace ? JSON.stringify({...settings.cloudWorkspace,...settings.cloudConfig}) : '',
     DATATRACE_NODE_EXECUTABLE: process.execPath,
     DATATRACE_EXTRACTOR_DIR: app.isPackaged ? path.join(process.resourcesPath, 'extractor') : path.join(root, '.desktop-build', 'extractor'),
     PUPPETEER_EXECUTABLE_PATH: detectBrowser(),
@@ -104,6 +123,7 @@ async function startBackend() {
     child.stderr.on('data', chunk => log(chunk.toString()));
   });
   await engineRequest('/api/health');
+  startSharedPump();
 }
 async function stopBackend(force = false) {
   const child = backend;
@@ -161,6 +181,50 @@ function registerIpc() {
     try { return await handler(payload); } catch (error) { throw Error(safeError(error)); }
   });
   handle('desktop:settings', () => publicState());
+  handle('desktop:cloud-state', () => cloudAuth.status());
+  handle('desktop:cloud-configure', async input => {
+    if(settings.cloudWorkspace)throw Error('Disconnect the shared workspace before changing its project connection.');
+    return cloudAuth.configure(input);
+  });
+  handle('desktop:cloud-sign-in', input => cloudAuth.signIn(input));
+  handle('desktop:cloud-sign-out', () => cloudAuth.signOut());
+  handle('desktop:cloud-workspaces', () => cloudAuth.listWorkspaces());
+  handle('desktop:cloud-worker-identity', () => cloudAuth.workerIdentity());
+  handle('desktop:cloud-member', input => cloudAuth.setMember(input));
+  handle('desktop:cloud-join', async input => {
+    const health=await (await engineRequest('/api/health')).json();
+    if(health.running)throw Error('Wait for the current workspace operation before changing connections.');
+    const selected=await cloudAuth.joinWorkspace(input);
+    restarting=true;
+    try { await stopBackend();await startBackend();configureSession();await window.loadURL(backendUrl); }
+    finally { restarting=false;void pulseShared(); }
+    return selected;
+  });
+  handle('desktop:cloud-disconnect', async () => {
+    const health=await (await engineRequest('/api/health')).json();
+    if(health.running)throw Error('Wait for the current workspace operation before disconnecting.');
+    await cloudAuth.disconnectWorkspace();
+    restarting=true;
+    try {await stopBackend();await startBackend();configureSession();await window.loadURL(backendUrl);}
+    finally {restarting=false;}
+    return {disconnected:true};
+  });
+  handle('desktop:cloud-create-workspace', () => cloudAuth.createWorkspace({name:'Tv Tracker',queueScope:settings.queueUrl}));
+  handle('desktop:cloud-action', async input => {
+    if (!input || !['inspect','submit','drain','worker','review','activate','migration-status','recover-worker'].includes(input.action) ||
+        typeof input.workspace !== 'string' || !/^[0-9a-f-]{36}$/i.test(input.workspace)) throw Error('Choose a shared workspace and action.');
+    const access = await cloudAuth.accessToken();
+    const response = await engineRequest('/api/desktop/shared/action', {method:'POST',
+      headers:{'Content-Type':'application/json','X-TV-Cloud-Access':access},
+      body:JSON.stringify({action:input.action, workspace:input.workspace, preview_id:input.preview_id,
+        plan:input.plan,reviewed:input.reviewed===true,legacy_stopped:input.legacy_stopped===true,
+        worker:input.action==='activate'?await cloudAuth.workerIdentity():undefined,config:settings.cloudConfig})},120000);
+    const result=await response.json();
+    if(input.action==='recover-worker') {
+      await cloudAuth.adoptWorkerIdentity({id:input.workspace,worker:result.worker,stopped:input.legacy_stopped===true});
+    }
+    return result;
+  });
   handle('desktop:preferences', () => settings.uiPreferences || {theme:'system', orderViews:[]});
   handle('desktop:save-preferences', input => {
     const uiPreferences = validateUiPreferences(input, settings.uiPreferences);
@@ -233,10 +297,14 @@ function registerIpc() {
 }
 async function launch() {
   vault = createVault(settingsPath, safeStorage); settings = vault.readRecoverably();
+  cloudAuth = createCloudAuth({read: () => settings, write: next => {vault.write(next); settings = next;}});
   if (vault.status()?.status !== 'locked') configureStartup(true);
   await startBackend();
   window = new BrowserWindow({title: 'Tv Tracker', width: 1440, height: 960, minWidth: 980, minHeight: 680, backgroundColor: '#f5f6fa', show: false, icon,
     webPreferences: {preload: path.join(__dirname, 'preload.cjs'), nodeIntegration: false, contextIsolation: true, sandbox: true, webSecurity: true, spellcheck: false}});
+  if (!app.isPackaged && process.env.DATATRACE_CLOUD_PILOT === '1') {
+    window.on('page-title-updated', event => {event.preventDefault(); window.setTitle('Tv Tracker · Supabase validation');});
+  }
   updates = createUpdater({updater: require('electron-updater').autoUpdater,
     enabled: app.isPackaged && process.platform === 'win32', version: app.getVersion(),
     notify: state => { if (window && !window.isDestroyed()) window.webContents.send('desktop:update-state', state); },
@@ -278,14 +346,14 @@ async function launch() {
   tray.setToolTip('Tv Tracker · running locally');
   tray.setContextMenu(Menu.buildFromTemplate([{label: 'Open Tv Tracker', click: focusWindow}, {label: 'Connections & settings', click: () => sendCommand('settings')}, {type: 'separator'}, {label: 'Quit', click: requestQuit}]));
   tray.on('double-click', focusWindow);
-  await window.loadURL(backendUrl);
+  await window.loadURL(!app.isPackaged && process.env.DATATRACE_CLOUD_PILOT==='1' ? `${backendUrl}/?setup=shared` : backendUrl);
   if (app.isPackaged) stopUpdateChecks = scheduleUpdateChecks(updates);
 }
 app.on('second-instance', focusWindow);
 app.on('activate', focusWindow);
 app.on('before-quit', event => { if (!quitting) { event.preventDefault(); requestQuit(); } });
 app.on('window-all-closed', () => { if (quitting) app.quit(); });
-app.on('will-quit', () => stopUpdateChecks?.());
+app.on('will-quit', () => {stopUpdateChecks?.();clearInterval(sharedPulseTimer);});
 if (gotLock) app.whenReady().then(launch).catch(async error => {
   quitting = true;
   await stopBackend(true);

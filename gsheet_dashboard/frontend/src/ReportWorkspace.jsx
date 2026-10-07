@@ -35,9 +35,9 @@ export function ReportSourceControls({running, preferences, onChanged}) {
   }
   function activate(source, importId) {
     return api('/api/reporting/source', {method: 'POST', headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({source, import_id: importId})});
+      body: JSON.stringify({source, import_id: importId, revision:prefs?.revision})});
   }
-  const blocked = busy || running || prefs?.publish_status === 'publishing';
+  const blocked = busy || running || prefs?.publish_status === 'publishing' || prefs?.can_edit===false || (prefs?.shared&&typeof prefs.revision!=='number');
   return <section className="report-source" aria-label="Report source controls">
     <div className="report-source-controls">
       <label>Report source<select aria-label="Report source" value={prefs?.source || 'tracker'} disabled={blocked} onChange={e => {
@@ -49,12 +49,12 @@ export function ReportSourceControls({running, preferences, onChanged}) {
       {prefs?.source === 'import' && <label>Saved import<select aria-label="Saved Excel import" value={prefs.import_id || ''} disabled={blocked}
         onChange={e => action(() => activate('import', e.target.value))}>{data?.imports.map(item => <option key={item.id} value={item.id}>{item.files.map(file => file.name).join(', ')} · {number(item.count)} orders</option>)}</select></label>}
       <button className="secondary" disabled={blocked} onClick={() => { setPreview(null); setFiles([]); setConflicts(null); setChoices({}); setError(''); setOpen(true); }}><Upload size={16}/>Import Excel reports</button>
-      <button className="secondary" disabled={blocked} onClick={() => action(() => api('/api/reporting/publish', {method: 'POST'}))}><RefreshCw size={16}/>Publish reports</button>
+      <button className="secondary" disabled={blocked} onClick={() => action(() => api('/api/reporting/publish', {method: 'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision:prefs?.revision})}))}><RefreshCw size={16}/>Publish reports</button>
     </div>
-    <p className="field-help" role="status">{prefs?.publish_status === 'publishing' ? 'Publishing the selected source to Google Sheets…' : prefs?.publish_status === 'published' ? 'This source is published to Google Sheets.' : prefs?.publish_status === 'failed' ? prefs.publish_error : 'Choose a report source. Source changes also publish its reports to Google Sheets.'}</p>
-    <p className="field-help">All updated PCs can capture and publish. Google Sheets publishing runs one job at a time; other PCs wait safely. Update every PC and stop older sync jobs before first publishing. Queue captures remain separate from imported reports.</p>
+    <p className="field-help" role="status">{prefs?.publish_status === 'publishing' ? 'Publishing the selected source to Google Sheets…' : prefs?.shared&&prefs.publish_status==='pending' ? 'Saved in the shared workspace. Waiting for the office worker to publish Google Sheets.' : prefs?.publish_status === 'published' ? 'This source is published to Google Sheets.' : prefs?.publish_status === 'failed' ? prefs.publish_error : 'Choose a report source. Source changes also publish its reports to Google Sheets.'}</p>
+    <p className="field-help">{prefs?.shared ? 'Permitted PCs submit captures and report changes to Supabase. The registered office PC processes them and publishes Google Sheets reports. Keep the office PC awake and connected.' : 'All updated PCs can capture and publish. Google Sheets publishing runs one job at a time; other PCs wait safely. Update every PC and stop older sync jobs before first publishing.'} Queue captures remain separate from imported reports.</p>
     {error && <p role="alert" className="notice error">{error}</p>}
-    <StorageControls blocked={blocked} onChanged={onChanged}/>
+    <StorageControls blocked={blocked} shared={prefs?.shared===true} onChanged={onChanged}/>
     {open && <Dialog title="Import Excel reports" onClose={() => { if (!busy) setOpen(false); }} className="report-import-dialog">
       <div className="report-import-body">
         <p>Select multiple production workbooks. Each order table needs Order Number, Product, Status and Date or In-Time. Use a values-only copy for formula workbooks.</p>
@@ -96,7 +96,7 @@ export function ReportSourceControls({running, preferences, onChanged}) {
 }
 
 
-function StorageControls({blocked, onChanged}) {
+function StorageControls({blocked, shared=false, onChanged}) {
   const [data, setData] = useState(null), [result, setResult] = useState(null), [error, setError] = useState(''), [busy, setBusy] = useState(false);
   async function refresh() { setData(await api('/api/reporting/storage')); }
   async function archive() {
@@ -112,18 +112,18 @@ function StorageControls({blocked, onChanged}) {
     <button className="secondary" disabled={blocked || busy || !data} onClick={archive}>{busy ? 'Archiving…' : 'Archive older local history'}</button>
     {result && <p role="status">{result.archived_captures} captures and {result.archived_imports} imports archived. {result.backup && <><a href={`/api/reporting/archive/${encodeURIComponent(result.backup)}`} download>Download recovery archive</a><br/>{result.recovery}</>}</p>}
     {error && <p role="alert" className="notice error">{error}</p>}
-    <CloudHistoryControls blocked={blocked || busy}/>
-    <SharedJobControls blocked={blocked || busy}/>
+    {shared?<section aria-label="Cloud history recovery"><h4>Shared history and recovery</h4><p className="field-help">The office publisher cleans up its temporary Sheets uploads after verification. The project owner manages database backups and history retention. Export a protected workspace backup before replacing the office PC.</p></section>:<CloudHistoryControls blocked={blocked || busy}/>}
+    <SharedJobControls blocked={blocked || busy} shared={shared}/>
   </details>;
 }
-function SharedJobControls({blocked}) {
+function SharedJobControls({blocked, shared=false}) {
   const [data,setData]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[confirmed,setConfirmed]=useState(false),[message,setMessage]=useState('');
   async function refresh(){setData(await api('/api/reporting/shared-job'));setConfirmed(false);}
   async function act(work){setBusy(true);setError('');setMessage('');try{await work();}catch(e){setError(e.message);}finally{setBusy(false);}}
   return <section aria-label="Shared publishing recovery"><h4>Shared publishing</h4>
-    <p className="field-help">Publishing jobs release their slot when finished. If a PC crashed or lost its connection, first stop Tv Tracker on that PC. Then review and release its interrupted slot. Never release a running job.</p>
+    <p className="field-help">{shared ? 'The registered office worker retains interrupted job ownership. Restart the same office PC to resume. Replacing that PC requires a protected worker backup and owner verification in Shared workspace settings.' : 'Publishing jobs release their slot when finished. If a PC crashed or lost its connection, first stop Tv Tracker on that PC. Then review and release its interrupted slot. Never release a running job.'}</p>
     <button className="secondary" disabled={busy} onClick={()=>act(refresh)}>Check shared publishing</button>
-    {data && (data.job ? <><p role="status">{data.job.computer} · {data.job.label} · Started {new Date(data.job.started).toLocaleString()}</p>
+    {data?.shared?<p role="status">{data.cloud_job?`Office worker job: ${data.cloud_job.kind}.`:'Office worker has no claimed job.'} {data.pending_captures||0} captures queued · Published revision {data.published_revision} of {data.revision}. Restart the same office PC to resume interrupted work; its protected backup retains job ownership.</p>:data && (data.job ? <><p role="status">{data.job.computer} · {data.job.label} · Started {new Date(data.job.started).toLocaleString()}</p>
       <label className="shared-job-confirm"><input type="checkbox" checked={confirmed} disabled={busy||blocked} onChange={e=>setConfirmed(e.target.checked)}/>I have stopped Tv Tracker on the computer running this job.</label>
       <button className="secondary" disabled={blocked||busy||!confirmed} onClick={()=>act(async()=>{await api('/api/reporting/shared-job/recover',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({token:data.job.token,confirmed:true})});await refresh();setMessage('Interrupted slot released. You can retry publishing.');})}>Release interrupted publishing slot</button>
     </> : <p role="status">No shared publishing job is active.</p>)}
@@ -197,7 +197,7 @@ export function CapacityReport({revision, running, onChanged}) {
   }, [data, date]);
   async function save(event) {
     event.preventDefault(); setBusy(true); setError('');
-    try { await api('/api/reporting/capacity', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({date, capacity: capacity === '' ? null : Number(capacity), extended: extended === '' ? null : Number(extended)})}); onChanged(); }
+    try { await api('/api/reporting/capacity', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({date, capacity: capacity === '' ? null : Number(capacity), extended: extended === '' ? null : Number(extended), revision:data?.preferences.revision})}); onChanged(); }
     catch (e) { setError(e.message); } finally { setBusy(false); }
   }
   return <section className="capacity-report"><OfflineNotice snapshot={data}/>
@@ -206,7 +206,7 @@ export function CapacityReport({revision, running, onChanged}) {
     <form className="capacity-targets" onSubmit={save}><label>Target applies to<select aria-label="Capacity target date" value={date} onChange={e => setDate(e.target.value)}><option value="default">Default reporting day</option>{data?.daily.map(row => <option key={row.Date}>{row.Date}</option>)}</select></label>
       <label>Capacity<input aria-label="Capacity" type="number" min="0" max="1000000" step="1" value={capacity} onChange={e => setCapacity(e.target.value)}/></label>
       <label>Extended capacity<input aria-label="Extended capacity" type="number" min="0" max="1000000" step="1" value={extended} onChange={e => setExtended(e.target.value)}/></label>
-      <button className="primary" disabled={busy || running || !data || data?.preferences.publish_status === 'publishing'}>{busy ? 'Saving…' : 'Save targets and publish'}</button>
+      <button className="primary" disabled={busy || running || !data || data?.preferences.can_edit===false || data?.preferences.publish_status === 'publishing'}>{busy ? 'Saving…' : 'Save targets and publish'}</button>
     </form>
     <p className="field-help">Targets are planning values, not measured output. Default targets apply to represented reporting days unless overridden. Monthly and calendar-year totals exclude days with no orders in this source.</p>
     <ReportChart rows={[...(data?.daily || [])].reverse().slice(-31)} capacity/>

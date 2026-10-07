@@ -1,6 +1,6 @@
 import {test,expect} from '@playwright/test';
 
-async function setup(page){
+async function setup(page,{viewer=false}={}){
   await page.clock.install({time:new Date('2026-10-05T10:00:00+05:30')});
   const calls={applies:[],exports:[]};let run=1;
   const rows=[{'No':1,'Order Number':'A','Product':'Full Title','Status':'Search In Progress','In-Time':'10/2/2026 1:00 AM'}];
@@ -12,7 +12,8 @@ async function setup(page){
     if(url.pathname==='/api/sync'){run++;body={started:true};}
     if(url.pathname==='/api/previews/1')body={...preview,columns,rows};
     if(url.pathname==='/api/live-sheets')body={sheets:{Overview:{columns,rows}},offline:false};
-    if(url.pathname==='/api/monthly-orders')body={rows:[report('2026-11'),report('2026-10'),report('2026-09')],offline:false};
+    if(url.pathname==='/api/monthly-orders')body={rows:[report('2026-11'),report('2026-10'),report('2026-09')],offline:false,
+      ...(viewer?{report_preferences:{shared:true,can_edit:false}}:{})};
     if(url.pathname==='/api/monthly-maintenance')body={operations:[]};
     if(url.pathname==='/api/monthly-maintenance/preview')body={id:'preview-token',kind:request.postDataJSON().kind,counts:[{source:'TV_Search_Production_Report_Full_Search_Oct_2026',target:'TV_Search_Production_Report_Full_Search_Nov_2026',moved:107},{source:'TV_Search_Production_Report_C-O_and_Update_Oct_2026',target:'TV_Search_Production_Report_C-O_and_Update_Nov_2026',moved:255}],reviews:[],moves:[]};
     if(url.pathname==='/api/monthly-maintenance/apply'){calls.applies.push(request.postDataJSON());body={applied:true,moves:[]};}
@@ -76,5 +77,16 @@ test('failed Excel download shows a clear error and can be retried',async({page}
   await page.getByRole('button',{name:'Monthly report',exact:true}).click();
   await page.getByRole('button',{name:'Download Excel',exact:true}).click();
   await expect(page.getByRole('alert')).toContainText('No production orders');
+  await expect(page.getByRole('button',{name:'Download Excel',exact:true})).toBeEnabled();
+});
+
+test('shared viewer can export but monthly write controls are disabled',async({page})=>{
+  await setup(page,{viewer:true});
+  await page.getByRole('button',{name:'Monthly report',exact:true}).click();
+  await page.getByText('Monthly setup, import and rollover',{exact:true}).click();
+  await expect(page.getByText('Your workspace role allows viewing reports.',{exact:false})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Set up monthly tabs',exact:true})).toBeDisabled();
+  await expect(page.getByRole('button',{name:'Run month rollover',exact:true})).toBeDisabled();
+  await expect(page.getByLabel('Full Search workbook',{exact:true})).toBeDisabled();
   await expect(page.getByRole('button',{name:'Download Excel',exact:true})).toBeEnabled();
 });

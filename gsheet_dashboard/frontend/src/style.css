@@ -1919,6 +1919,21 @@ nav {
   color: var(--muted);
   margin-bottom: 4px;
 }
+.settings-section .migration-counts {
+  width: 100%;
+  table-layout: fixed;
+  margin: 12px 0;
+}
+.migration-counts th,.migration-counts td {
+  white-space: normal;
+  overflow-wrap: anywhere;
+  padding: 9px;
+}
+.migration-counts th:last-child,.migration-counts td:last-child {
+  width: 90px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
 .settings-section .check-row:first-of-type {
   margin-top: 15px;
 }

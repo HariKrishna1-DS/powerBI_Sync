@@ -7,9 +7,16 @@ from report_workspace import ReportWorkspace
 
 def register_report_routes(app, store, gate, maintenance, tracker_snapshot, get_book, spreadsheet_id):
     workspace = ReportWorkspace(store)
+    runtime = app.extensions.get('shared_runtime')
+    shared = runtime is not None and runtime.enabled
+    if shared:
+        from shared_reporting import SharedReportWorkspace
+        workspace = SharedReportWorkspace(runtime)
     publish_lock = threading.Lock()
 
     def snapshot(force=False, known_revision=None, background=False):
+        if shared:
+            return tracker_snapshot(force=force,known_revision=known_revision,background=background)
         prefs = workspace.preferences()
         if prefs['source'] == 'import':
             result = workspace.imported_snapshot()
@@ -23,6 +30,8 @@ def register_report_routes(app, store, gate, maintenance, tracker_snapshot, get_
         return result
 
     def publish_current():
+        if shared:
+            return runtime.report_change('publish',{},runtime.report_state()['revision'])
         from sheets_writer import shared_job
         try:
             book, _ = get_book()
@@ -75,10 +84,17 @@ def register_report_routes(app, store, gate, maintenance, tracker_snapshot, get_
 
     @app.get('/api/reporting')
     def settings():
+        if shared:
+            context = runtime.report_state()
+            return jsonify(preferences=runtime.report_preferences(context),imports=context['imports'])
         return jsonify(preferences=workspace.preferences(), imports=workspace.imports())
 
     @app.get('/api/reporting/shared-job')
     def shared_status():
+        if shared:
+            status = runtime.rpc.call('tv_workspace_status',{'p_workspace':runtime.selection['id']})
+            return jsonify(job=None,shared=True,cloud_job=status.get('job'),pending_captures=status.get('pending_captures'),
+                revision=status.get('revision'),published_revision=status.get('published_revision'),worker=runtime.status())
         from sheets_writer import SharedWriterGuard
         book, _ = get_book()
         guard = getattr(book, 'writer_guard', None)
@@ -86,6 +102,8 @@ def register_report_routes(app, store, gate, maintenance, tracker_snapshot, get_
 
     @app.post('/api/reporting/shared-job/recover')
     def recover_shared_job():
+        if shared:
+            return jsonify(error='Shared worker jobs retain their durable ownership. Recover on the office PC; legacy slot recovery cannot release them.'),409
         from sheets_writer import SharedWriterGuard, JOB_ID
         body = json_body()
         if body.get('confirmed') is not True or not isinstance(body.get('token'), str):
@@ -119,8 +137,9 @@ def register_report_routes(app, store, gate, maintenance, tracker_snapshot, get_
         if maintenance.is_set() or not gate.acquire(blocking=False):
             return jsonify(error='Wait for the current operation before archiving.'), 409
         try:
-            result = archive_history(store, workspace.preferences().get('import_id'))
-            workspace.update()
+            result = archive_history(store, None if shared else workspace.preferences().get('import_id'))
+            if not shared:
+                workspace.update()
             return jsonify(result)
         finally:
             gate.release()
@@ -139,6 +158,10 @@ def register_report_routes(app, store, gate, maintenance, tracker_snapshot, get_
 
     @app.get('/api/reporting/cloud-history')
     def cloud_history():
+        if shared:
+            return jsonify(shared=True,tabs=[],archives=[],policy='Shared Sheets is a derived report. '
+                'The office publisher removes its temporary staging after verified publication. '
+                'Database history and backups are managed by the project owner.')
         from cloud_retention import plan, FILE
         book, _ = get_book()
         result = plan(book)
@@ -147,6 +170,9 @@ def register_report_routes(app, store, gate, maintenance, tracker_snapshot, get_
 
     @app.post('/api/reporting/cloud-history')
     def archive_cloud_history():
+        if shared:
+            return jsonify(error='Shared report history is managed by the office publisher and project owner. '
+                'Direct client changes to Sheets are disabled.'),409
         from cloud_retention import archive
         body = json_body()
         if not isinstance(body.get('fingerprint'), str):
@@ -161,6 +187,9 @@ def register_report_routes(app, store, gate, maintenance, tracker_snapshot, get_
 
     @app.post('/api/reporting/cloud-history/restore')
     def restore_cloud_history():
+        if shared:
+            return jsonify(error='Shared report recovery requires the registered office worker. '
+                'Restore its protected workspace backup before resuming publication.'),409
         from cloud_retention import restore, FILE
         name = json_body().get('archive')
         if not isinstance(name, str) or not FILE.fullmatch(name):
@@ -211,6 +240,9 @@ def register_report_routes(app, store, gate, maintenance, tracker_snapshot, get_
             mode = body.get('source')
             if mode not in ('tracker', 'import'):
                 raise ValueError('Choose Tracker report or Import Excel report.')
+            if shared:
+                runtime.report_change('source',{'source':mode,'import_id':body.get('import_id')},body.get('revision'))
+                return jsonify(preferences=runtime.report_preferences(runtime.report_state())),202
             if mode == 'import':
                 if not isinstance(body.get('import_id'), str) or not body['import_id']:
                     raise ValueError('Select a validated Excel import.')
@@ -225,6 +257,15 @@ def register_report_routes(app, store, gate, maintenance, tracker_snapshot, get_
 
     @app.post('/api/reporting/publish')
     def publish():
+        if shared:
+            if maintenance.is_set() or not gate.acquire(blocking=False):
+                return jsonify(error='Wait for the current operation before publishing.'),409
+            try:
+                body = json_body()
+                runtime.report_change('publish',{},body.get('revision'))
+                return jsonify(preferences=runtime.report_preferences(runtime.report_state())),202
+            finally:
+                gate.release()
         queue_publish()
         return jsonify(preferences=workspace.preferences()), 202
 
@@ -241,6 +282,9 @@ def register_report_routes(app, store, gate, maintenance, tracker_snapshot, get_
         handed_off = False
         try:
             body = json_body()
+            if shared:
+                workspace.set_targets(body.get('date',''),body.get('capacity'),body.get('extended'),body.get('revision'))
+                return jsonify(saved=True),202
             workspace.set_targets(body.get('date', ''), body.get('capacity'), body.get('extended'))
             queue_publish(gate_owned=True)
             handed_off = True
@@ -251,6 +295,21 @@ def register_report_routes(app, store, gate, maintenance, tracker_snapshot, get_
 
     @app.get('/api/reporting/day-link')
     def day_link():
+        if shared:
+            from urllib.parse import urlencode
+            value = snapshot(force=True)
+            date = request.args.get('date')
+            if value.get('offline') or value['shared_revision']>value['published_revision']:
+                raise ValueError('Wait for the office worker to publish this report before opening the date.')
+            days = [row['Date'] for row in value['reports']['daily']]
+            if date not in days:
+                raise ValueError('This date is not in the selected shared report.')
+            # Named-sheet/range links avoid a Google metadata read on every client.
+            status = runtime.rpc.call('tv_workspace_status',{'p_workspace':runtime.selection['id']})
+            if not status.get('spreadsheet'):
+                raise ValueError('The shared workbook is not configured.')
+            row = days.index(date)+2
+            return jsonify(url=f'https://docs.google.com/spreadsheets/d/{status["spreadsheet"]}/edit?'+urlencode({'range':f"'Daily Orders'!A{row}:I{row}"}))
         prefs = workspace.preferences()
         published = prefs.get('published') or {}
         date = request.args.get('date')

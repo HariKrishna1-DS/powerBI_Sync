@@ -14,7 +14,7 @@ import re
 from backup_protection import protect, unprotect, suffix
 
 SETTINGS = ('remaining_products.json', 'sync_schedule.json', 'production-cache.json')
-TABLES = {'previews', 'sla_corrections', 'sync_receipts', 'sync_jobs', 'sync_reports', 'sync_failures', 'sync_retry', 'operation_history', 'monthly_operations', 'sqlite_sequence', 'report_imports', 'report_preferences', 'capacity_targets', 'capture_metadata'}
+TABLES = {'previews', 'sla_corrections', 'sync_receipts', 'sync_jobs', 'sync_reports', 'sync_failures', 'sync_retry', 'operation_history', 'monthly_operations', 'sqlite_sequence', 'report_imports', 'report_preferences', 'capacity_targets', 'capture_metadata', 'cloud_outbox', 'cloud_requests'}
 MAX_EXPANDED_BYTES = 256 * 1024 * 1024
 MAX_ARCHIVE_BYTES = 100 * 1024 * 1024
 CLOUD_FILE = re.compile(r'^cloud-archives/cloud-history-[a-f0-9]{32}\.tvcloud$')
@@ -63,6 +63,10 @@ def make_backup(store):
         # Remove the source Windows binding inside the portable container. The
         # desktop encrypts the entire export with the user's backup password.
         payloads.update({name: unprotect(file.read_bytes()) for name, file in cloud_files.items()})
+        from shared_recovery import collect
+        payloads.update(collect(store.root.parent))
+        if sum(len(raw) for raw in payloads.values())>MAX_EXPANDED_BYTES-65536:
+            raise ValueError('Workspace and shared recovery material exceed the supported 256 MB recovery size.')
         with closing(sqlite3.connect(database)) as saved:
             count = saved.execute('SELECT COUNT(*) FROM previews').fetchone()[0]
             if saved.execute('PRAGMA integrity_check').fetchone()[0] != 'ok':
@@ -90,7 +94,9 @@ def restore_backup(store, raw):
         members = archive.infolist()
         names = {item.filename for item in members}
         cloud_names = {name for name in names if CLOUD_FILE.fullmatch(name)}
-        if len(names) != len(members) or not {'manifest.json', 'previews.sqlite'} <= names or names - {'manifest.json', 'previews.sqlite', *SETTINGS} - cloud_names:
+        from shared_recovery import recognized, check_destination, install
+        shared_names={name for name in names if recognized(name)}
+        if len(names) != len(members) or not {'manifest.json', 'previews.sqlite'} <= names or names - {'manifest.json', 'previews.sqlite', *SETTINGS} - cloud_names - shared_names:
             raise ValueError('Unexpected backup contents.')
         if sum(item.file_size for item in members) > MAX_EXPANDED_BYTES:
             raise ValueError('Expanded backup exceeds 256 MB.')
@@ -117,6 +123,8 @@ def restore_backup(store, raw):
             target = store.root.parent / name
             if target.exists() and unprotect(target.read_bytes()) != archive.read(name):
                 raise ValueError('A cloud recovery archive with this name already exists and differs.')
+        for name in shared_names:
+            check_destination(store.root.parent,name,archive.read(name))
     except (zipfile.BadZipFile, KeyError, ValueError) as exc:
         raise ValueError(f'Invalid DataTrace backup: {exc}') from exc
     with tempfile.TemporaryDirectory(dir=store.root.parent, prefix='restore-') as folder:
@@ -134,6 +142,12 @@ def restore_backup(store, raw):
                     raise ValueError('Backup capture count does not match its manifest.')
                 if ('table', 'sync_receipts') in schema:
                     connection.execute('SELECT preview_id,report_json FROM sync_receipts LIMIT 1')
+                if ('table', 'cloud_outbox') in schema:
+                    from shared_backend import CloudOutbox
+                    CloudOutbox.validate_database(connection)
+                if ('table', 'cloud_requests') in schema:
+                    from shared_requests import SharedRequests
+                    SharedRequests.validate_database(connection)
                 connection.execute('SELECT order_number,completion_date,status,updated FROM sla_corrections LIMIT 1')
                 invalid = connection.execute("SELECT COUNT(*) FROM previews WHERE NOT json_valid(rows_json) OR NOT json_valid(columns_json)").fetchone()[0]
                 if invalid:
@@ -179,6 +193,10 @@ def restore_backup(store, raw):
                 target = store.root.parent / name
                 if not target.exists():
                     write_verified_backup(target, protect(archive.read(name)))
+                    added_cloud.append(target)
+            for name in shared_names:
+                target=install(store.root.parent,name,archive.read(name))
+                if target is not None:
                     added_cloud.append(target)
         except Exception:
             for target in added_cloud:

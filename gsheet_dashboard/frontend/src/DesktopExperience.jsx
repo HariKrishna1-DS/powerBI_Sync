@@ -1,5 +1,6 @@
 import React, {useEffect, useLayoutEffect, useRef, useState} from 'react';
-import {saveBlob} from './workspaceUtils';
+import {saveBlob, isSharedReport} from './workspaceUtils';
+import SharedWorkspace from './SharedWorkspace';
 import {ArrowRight, Check, Command, Database, Download, FolderOpen, HardDrive, KeyRound, LoaderCircle, Monitor, Plug, Settings2, ShieldCheck, Upload, WifiOff, X} from 'lucide-react';
 
 export class WorkspaceBoundary extends React.Component {
@@ -12,8 +13,8 @@ export class WorkspaceBoundary extends React.Component {
 }
 
 export function OfflineNotice({snapshot}) {
-  if(snapshot?.refreshing)return <div className="offline-notice" role="status"><LoaderCircle className="spin" size={17}/><div><strong>Refreshing Google Sheets reports</strong><span>{snapshot.updated_at?`Showing the saved copy from ${new Date(snapshot.updated_at).toLocaleString()}. `:''}You can keep working while reports refresh.</span></div></div>;
-  return snapshot?.offline ? <div className="offline-notice" role="status"><WifiOff size={17}/><div><strong>Viewing a saved Google Sheets copy</strong><span>Last refreshed {new Date(snapshot.updated_at).toLocaleString()}. {snapshot.sync_error||'Reconnect to sync changes.'}</span></div></div> : null;
+  if(snapshot?.refreshing)return <div className="offline-notice" role="status"><LoaderCircle className="spin" size={17}/><div><strong>{isSharedReport(snapshot)?'Refreshing shared workspace reports':'Refreshing Google Sheets reports'}</strong><span>{snapshot.updated_at?`Showing the saved copy from ${new Date(snapshot.updated_at).toLocaleString()}. `:''}You can keep working while reports refresh.</span></div></div>;
+  return snapshot?.offline ? <div className="offline-notice" role="status"><WifiOff size={17}/><div><strong>{isSharedReport(snapshot)?'Viewing a saved shared workspace copy':'Viewing a saved Google Sheets copy'}</strong><span>Last refreshed {new Date(snapshot.updated_at).toLocaleString()}. {snapshot.sync_error||'Reconnect to sync changes.'}</span></div></div> : null;
 }
 
 export function Dialog({title, children, onClose, className='', initialFocus=''}) {
@@ -62,11 +63,11 @@ function Connections({onClose,running,initialTab='connections'}) {
   async function checkConnection() {await action(async()=>{const response=await fetch('/api/desktop/check-connection',{method:'POST',signal:AbortSignal.timeout(120000)});const value=await response.json();if(!response.ok)throw Error(value.error);setMessage(`Connected. ${value.orders.toLocaleString()} production orders are available. Next capture: preview${value.next_preview}.`);});}
   return <Dialog title="Connections & settings" onClose={()=>{if(!busy)onClose();}} className="settings-dialog">
     {!window.desktop?<div className="settings-body"><div className="settings-callout"><Monitor size={22}/><div><h3>Open Tv Tracker for desktop settings</h3><p>The installed application includes secure credential storage, local backups, and background scheduling. This browser window is the development interface.</p></div></div><p className="muted">For web development, use the project’s .env.example and sync_config.json. Saved passwords and keys are never displayed here.</p></div>:!form?<div className="settings-body">{error?<p role="alert">{error}</p>:<p className="loading"><LoaderCircle className="spin"/>Loading settings…</p>}</div>:<form onSubmit={save}>
-      <div className="settings-tabs" role="tablist" aria-label="Settings sections"><button type="button" role="tab" aria-selected={tab==='connections'} onClick={()=>setTab('connections')}><Plug size={16}/>Connections</button><button type="button" role="tab" aria-selected={tab==='workspace'} onClick={()=>setTab('workspace')}><HardDrive size={16}/>Workspace</button><button type="button" role="tab" aria-selected={tab==='updates'} onClick={()=>setTab('updates')}><Download size={16}/>Updates</button></div>
+      <div className="settings-tabs" role="tablist" aria-label="Settings sections"><button type="button" role="tab" aria-selected={tab==='connections'} onClick={()=>setTab('connections')}><Plug size={16}/>Connections</button><button type="button" role="tab" aria-selected={tab==='shared'} onClick={()=>setTab('shared')}><Database size={16}/>Shared workspace</button><button type="button" role="tab" aria-selected={tab==='workspace'} onClick={()=>setTab('workspace')}><HardDrive size={16}/>Workspace</button><button type="button" role="tab" aria-selected={tab==='updates'} onClick={()=>setTab('updates')}><Download size={16}/>Updates</button></div>
       <div className="settings-body" role="tabpanel">
       {form.connectionRecovery&&<div className="notice warning" role="alert">{form.connectionRecovery.message}</div>}
-      {tab==='connections'?<>
-        <div className="settings-section"><div className="settings-section-heading"><div className="settings-section-icon"><Database size={20}/></div><div><h3>Google Sheets</h3><p>Your production source of truth</p></div><span className={`connection-pill ${form.googleConfigured?'ready':''}`}>{form.googleConfigured?'Configured':'Setup needed'}</span></div>
+      {tab==='shared'?<SharedWorkspace running={running}/>:tab==='connections'?<>
+        <div className="settings-section"><div className="settings-section-heading"><div className="settings-section-icon"><Database size={20}/></div><div><h3>Google Sheets</h3><p>{form.cloudWorkspace?'Derived reports · key needed only on the office PC':'Your production source of truth'}</p></div><span className={`connection-pill ${form.googleConfigured?'ready':''}`}>{form.googleConfigured?'Configured':form.cloudWorkspace&&!form.cloudWorkspace.officeWorker?'Office PC only':'Setup needed'}</span></div>
           <label>Spreadsheet URL or ID<input autoFocus value={form.spreadsheetId} onChange={e=>update('spreadsheetId',e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/…" autoComplete="off"/></label>
           <div className="form-grid"><label>Full Title tracker tab<input value={form.fullTrackerTitle} onChange={e=>update('fullTrackerTitle',e.target.value)} required maxLength={100}/></label><label>Remaining Products tracker tab<input value={form.remainingTrackerTitle} onChange={e=>update('remainingTrackerTitle',e.target.value)} required maxLength={100}/></label></div>
           <div className="credential-row"><div><strong>Service-account key</strong><p>{form.serviceAccountEmail||'Import the JSON key from your Google Cloud project.'}</p></div><button type="button" className="secondary" disabled={busy} onClick={()=>action(async()=>{const value=await window.desktop.importServiceAccount();if(value){update('serviceAccountEmail',value.email);setMessage('Key selected. Save settings to apply it.');}})}><KeyRound size={16}/>{form.serviceAccountEmail?'Replace key':'Import key'}</button></div>
@@ -94,8 +95,9 @@ function Connections({onClose,running,initialTab='connections'}) {
 }
 
 const PAGES=[['overview','Overview'],['sheets','Data Sheets'],['captures','Saved captures'],['daily','Daily Orders'],['capacity','Capacity Report'],['monthly','Monthly report'],['audit','Sync activity'],['changes','Changes between captures']];
-export function DesktopTools({onNavigate,onImport,running}) {
-  const [settings,setSettings]=useState(false),[commands,setCommands]=useState(false),[query,setQuery]=useState(''),[settingsTab,setSettingsTab]=useState('connections');
+export function DesktopTools({onNavigate,onImport,running,readOnly=false}) {
+  const sharedSetup=new URLSearchParams(location.search).get('setup')==='shared';
+  const [settings,setSettings]=useState(sharedSetup),[commands,setCommands]=useState(false),[query,setQuery]=useState(''),[settingsTab,setSettingsTab]=useState(sharedSetup?'shared':'connections');
   const [updateState,setUpdateState]=useState(null),[connectionRecovery,setConnectionRecovery]=useState(null);
   useEffect(()=>{
     let active=true;
@@ -112,7 +114,7 @@ export function DesktopTools({onNavigate,onImport,running}) {
     window.addEventListener('datatrace:settings',open);window.addEventListener('keydown',keyboard);
     return()=>{unsubscribe?.();window.removeEventListener('datatrace:settings',open);window.removeEventListener('keydown',keyboard);};
   },[]);
-  const options=[...PAGES.map(([id,label])=>({label,action:()=>onNavigate(id)})),{label:'Import Excel or CSV',action:onImport},{label:'Connections & settings',action:()=>setSettings(true)}].filter(item=>item.label.toLowerCase().includes(query.toLowerCase()));
+  const options=[...PAGES.map(([id,label])=>({label,action:()=>onNavigate(id)})),...(!readOnly?[{label:'Import Excel or CSV',action:onImport}]:[]),{label:'Connections & settings',action:()=>setSettings(true)}].filter(item=>item.label.toLowerCase().includes(query.toLowerCase()));
   return <>{connectionRecovery&&<button className="secondary" onClick={()=>{setSettingsTab('connections');setSettings(true);}}>Review connections</button>}{['available','downloaded'].includes(updateState?.status)&&<button className="secondary" onClick={()=>{setSettingsTab('updates');setSettings(true);}}><Download size={15}/>{updateState.status==='downloaded'?'Update ready':'Update available'}</button>}<button className="quick-command" aria-label="Quick actions" onClick={()=>{setQuery('');setCommands(true);}}><Command size={15}/><span>Quick actions</span><kbd>Ctrl K</kbd></button>
     {settings&&<Connections onClose={()=>setSettings(false)} running={running} initialTab={settingsTab}/>}
     {commands&&<Dialog title="Quick actions" onClose={()=>setCommands(false)} className="command-dialog" initialFocus=".command-search input"><div className="command-search"><Command size={19}/><input aria-label="Find an action" autoFocus placeholder="Where would you like to go?" value={query} onChange={e=>setQuery(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&options[0]){e.preventDefault();setCommands(false);options[0].action();}}}/></div><div className="command-results">{options.map(item=><button key={item.label} onClick={()=>{setCommands(false);item.action();}}>{item.label}<ArrowRight size={15}/></button>)}{!options.length&&<p className="muted">No matching actions</p>}</div><div className="command-hint">Tab to move · Enter to open · Esc to close</div></Dialog>}

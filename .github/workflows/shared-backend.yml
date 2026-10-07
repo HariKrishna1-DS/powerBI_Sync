@@ -1,0 +1,53 @@
+name: Shared backend database checks
+on:
+  pull_request:
+    branches: [tv-tracker]
+    paths:
+      - 'supabase/**'
+      - 'cloud_backend/**'
+      - '.github/workflows/shared-backend.yml'
+  push:
+    branches: [codex/supabase-backend]
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  postgres-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Start isolated PostgreSQL
+        shell: bash
+        run: |
+          mkdir -p .desktop-build
+          qa_container="tvtracker-db-qa-$(python -c 'import uuid; print(uuid.uuid4().hex[:10])')"
+          qa_password="$(python -c 'import secrets; print(secrets.token_hex(32))')"
+          echo "::add-mask::$qa_password"
+          printf '%s' "$qa_container" > .desktop-build/supabase-qa-container.txt
+          docker run -d --name "$qa_container" --label app=tvtracker-supabase-qa -e POSTGRES_PASSWORD="$qa_password" postgres:17-alpine
+          for attempt in $(seq 1 30); do
+            # The image's temporary initialization server accepts Unix-socket
+            # probes before restarting. TCP is enabled only on the final server.
+            if docker exec "$qa_container" pg_isready -h 127.0.0.1 -U postgres; then exit 0; fi
+            sleep 1
+          done
+          exit 1
+      - name: Verify migration, membership, concurrency and recovery
+        run: python supabase/tests/run_database_tests.py
+      - name: Stop test container
+        if: always()
+        shell: bash
+        run: |
+          if test -f .desktop-build/supabase-qa-container.txt; then
+            qa_container="$(cat .desktop-build/supabase-qa-container.txt)"
+            if [[ "$qa_container" =~ ^tvtracker-db-qa-[a-f0-9]{10}$ ]]; then
+              docker rm -f "$qa_container"
+            fi
+          fi

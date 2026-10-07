@@ -1,7 +1,7 @@
 {
   "name": "tv-tracker",
-  "version": "2.7.2",
-  "description": "Private desktop workspace for title production and Google Sheets synchronization",
+  "version": "2.8.0",
+  "description": "Desktop title-production workspace with coordinated shared data and Google Sheets reports",
   "author": "Tv Tracker",
   "private": true,
   "main": "main.cjs",
@@ -23,6 +23,7 @@
       "main.cjs",
       "preload.cjs",
       "settings.cjs",
+      "cloud-auth.cjs",
       "assets/**",
       "package.json",
       "updater.cjs",

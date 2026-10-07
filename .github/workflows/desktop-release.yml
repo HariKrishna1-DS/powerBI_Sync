@@ -19,6 +19,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  shared-database:
+    uses: ./.github/workflows/shared-backend.yml
+
   build:
     runs-on: windows-latest
     timeout-minutes: 60
@@ -86,7 +89,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Packaged connection recovery tests failed' }
           node desktop/shutdown-smoke.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Packaged unresponsive-engine shutdown tests failed' }
-      - name: Verify actual installed 2.7.1 upgrade and recovery
+      - name: Verify actual installed 2.7.2 upgrade and recovery
         timeout-minutes: 8
         shell: pwsh
         env:
@@ -111,7 +114,7 @@ jobs:
           retention-days: 14
 
   publish:
-    needs: build
+    needs: [build, shared-database]
     # Publication follows all build gates, including actual NSIS upgrade/recovery.
     if: github.ref == 'refs/heads/tv-tracker' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish_release))
     runs-on: windows-latest
@@ -159,7 +162,7 @@ jobs:
           $hashes = foreach ($asset in $assets) { "$( (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash.ToLowerInvariant() )  $(Split-Path -Leaf $asset)" }
           $hashes | Set-Content -Encoding utf8NoBOM "$folder/SHA256SUMS.txt"
           $assets += "$folder/SHA256SUMS.txt"
-          @("Tv Tracker $version", '', 'Install the Windows .exe once if upgrading from 2.1.0 or earlier.', 'Afterward use Connections & settings > Updates.', 'Local captures and encrypted connections are retained.', '', 'For shared workbooks: stop old capture/sync jobs and update every PC before publishing. Updated PCs take turns automatically. Interrupted publishing slots can be reviewed in Storage and recovery.', 'Excel imports now support explicit duplicate-order review. SLA timing review explains missing or invalid evidence.', '', $signingNote, 'Installer SHA-512 is verified against latest.yml during build and update download.', '', "Source commit: $env:GITHUB_SHA") | Set-Content release-notes.txt
+          @("Tv Tracker $version", '', 'Install the Windows .exe once if upgrading from 2.1.0 or earlier.', 'Afterward use Settings > Updates.', 'Local captures and encrypted connections are retained.', '', 'Shared Supabase mode requires owner setup and reviewed activation. Permitted PCs submit to one shared workspace; one registered office PC processes captures and publishes Google Sheets. See the multi-PC deployment guide before switching. Existing direct Sheets workflows remain available outside shared mode.', 'Excel imports support explicit duplicate-order review. SLA timing review explains missing or invalid evidence.', '', $signingNote, 'Installer SHA-512 is verified against latest.yml during build and update download.', '', "Source commit: $env:GITHUB_SHA") | Set-Content release-notes.txt
           $details = "docs/TV_TRACKER_$($version.Replace('.', '_'))_RELEASE.md"
           if (Test-Path -LiteralPath $details) { Get-Content -LiteralPath $details | Add-Content release-notes.txt }
           gh release create "v$version" --target "$env:GITHUB_SHA" --title "Tv Tracker $version" --draft --notes-file release-notes.txt

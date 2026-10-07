@@ -17,6 +17,7 @@ __pycache__/
 .desktop-build/
 release/
 desktop/test-output/
+test-results/
 !desktop/package-lock.json
 !desktop/extractor/package-lock.json
 !gsheet_dashboard/frontend/package-lock.json
