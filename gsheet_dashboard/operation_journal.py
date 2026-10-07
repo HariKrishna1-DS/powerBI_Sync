@@ -48,7 +48,7 @@ class OperationJournal:
         code = failure_kind(result.get('error'))
         with self.store.connect() as db:
             db.execute('UPDATE operation_history SET status=?, finished=?, preview_id=?, error_code=? WHERE id=?',
-                       ('failed' if code else 'completed', self.now(), result.get('preview_id'), code, job_id))
+                       ('cancelled' if result.get('cancelled') else 'failed' if code else 'completed', self.now(), result.get('preview_id'), code, job_id))
 
     def list(self):
         with self.store.connect() as db:

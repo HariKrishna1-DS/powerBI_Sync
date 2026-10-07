@@ -376,7 +376,7 @@ def apply_plan(book, plan, check=True):
         values = sheets[title].get_all_values(value_render_option='UNFORMATTED_VALUE') if title in sheets else []
         if fingerprint(values) != expected:
             raise ValueError('Capture history changed during sync. Retry after reviewing its latest contents.')
-    if plan['kind'] != 'monthly_views':
+    if plan['kind'] != 'monthly_views' and not plan.get('preserve_report_views'):
         from monthly_views import monthly_view_values
         after = {plan['renames'].get(title, title): decode(sheet['values']) for title, sheet in before.items()}
         after.update({title: decode(values) for title, values in plan['writes'].items() if tab_identity(title) or title in BASES})
@@ -394,6 +394,8 @@ def apply_plan(book, plan, check=True):
     affected = set(plan['renames']) | (set(plan['writes']) & set(before))
     affected.update(title for title in ('All Products', 'Sheet1') if title in plan['writes'] and title in sheets and title not in plan.get('append_from', {}))
     affected.update(title for title in plan['writes'] if view_identity(title) and title in sheets)
+    affected.update(name for title in plan['writes'] if view_identity(title)
+                    for name in sheets if view_identity(name) == view_identity(title))
     for index, title in enumerate(sorted(affected)):
         backup = f'__DataTrace_Backup_{plan["id"][:12]}_{index}'
         backups.append(backup)
@@ -411,6 +413,12 @@ def apply_plan(book, plan, check=True):
         append_from[LEDGER] = len(old_ledger)
     metadata = book.fetch_sheet_metadata(params={'fields': 'sheets(properties,conditionalFormats)'})
     for title, values in writes.items():
+        if title not in ids and view_identity(title):
+            alias = next((name for name in list(ids) if view_identity(name) == view_identity(title)), None)
+            if alias:
+                ids[title] = ids.pop(alias)
+                sheets[title] = sheets.pop(alias)
+                requests.append({'updateSheetProperties': {'properties': {'sheetId': ids[title], 'title': title}, 'fields': 'title'}})
         if view_identity(title) and title in sheets:
             values = keep_view_headers(values, sheets[title].get_all_values())
         if title not in ids:

@@ -442,6 +442,7 @@ def sheet_reports(trackers, audit=None):
         reports[kind] = []
         for period, items in sorted(buckets.items(), reverse=True):
             items = arrival_sort(items)
+            status = [text(r.get('Status') or r.get('Task Status')).casefold() for r in items]
             completed = [r['Order Number'] for r in items if text(r.get('Status')).casefold() == 'completed and delivered']
             absent = [r['Order Number'] for r in items if key(r) in missing]
             new_ids = [r['Order Number'] for r in items if key(r) in added]
@@ -452,10 +453,18 @@ def sheet_reports(trackers, audit=None):
             reports[kind].append({'Date': period, 'Month': period, 'MonthLabel': period,
                 'Previews': [(audit or {}).get('preview_name', '')], 'Days': [],
                 'Today Orders': len(items), 'Month Orders': len(items), 'Completed Orders': len(completed),
+                'Received': len(items), 'Completed': len(completed),
+                'Clarification': sum(s == 'awaiting for clarification' for s in status),
+                'Cancelled': sum(s == 'cancelled' for s in status),
+                'Vendor Pending': sum(s == 'assign to abs' for s in status),
+                'In-House Pending': sum(s not in ('completed and delivered', 'cancelled',
+                    'awaiting for clarification', 'assign to abs') for s in status),
                 'Not in latest preview': len(absent), 'Newly Orders': len(new_ids), 'Unchanged': len(unchanged),
                 'Awaiting for Clarification': sum(text(r.get('Status')).casefold() == 'awaiting for clarification' for r in items),
                 'SLA On Time': sum(r['Free Site'] == 'On Time' for r in sla),
                 'SLA Missed': sum(r['Free Site'] == 'Missing' for r in sla), 'sla_rows': sla,
+                'SLA OnTime': sum(r['Free Site'] == 'On Time' for r in sla),
+                'Missing': sum(r['Free Site'] == 'Missing' for r in sla),
                 'rows': items, 'columns': list(dict.fromkeys(HEADERS + [c for r in items for c in r if not c.startswith('_')])), 'missing_ids': absent, 'completed_ids': completed,
                 'new_ids': new_ids, 'unchanged_ids': unchanged})
     return reports
@@ -479,6 +488,8 @@ def sync_trackers(frame=None, on_progress=None, book=None):
     store_root = frame.attrs.get('store_root') if frame is not None else None
     with sync_lock(store_root):
         store = PreviewStore(store_root or BASE / 'previews')
+        from report_workspace import ReportWorkspace
+        publish_tracker_reports = ReportWorkspace(store).read()['mode'] != 'excel'
         if book is None:
             book, _ = target_worksheet()
         from monthly_production import tab_identity
@@ -493,6 +504,12 @@ def sync_trackers(frame=None, on_progress=None, book=None):
             worksheets[OLD_REMAINING].update_title(REMAINING)
             worksheets[REMAINING] = worksheets.pop(OLD_REMAINING)
         def sheet(title):
+            from monthly_views import view_identity
+            if title not in worksheets and view_identity(title):
+                alias = next((name for name in list(worksheets) if view_identity(name) == view_identity(title)), None)
+                if alias:
+                    worksheets[title] = worksheets.pop(alias)
+                    worksheets[title].update_title(title)
             if title not in worksheets:
                 worksheets[title] = book.add_worksheet(title=title, rows=1, cols=1)
             return worksheets[title]
@@ -510,7 +527,8 @@ def sync_trackers(frame=None, on_progress=None, book=None):
         preview_id = frame.attrs.get('preview_id') if frame is not None else 0
         receipt = store.get_sync_report(preview_id, include_staged=True)
         if frame is None and receipt and receipt['committed']:
-            refresh_monthly_views(book)
+            if publish_tracker_reports:
+                refresh_monthly_views(book)
             ensure_tracker_formatting(book)
             import_default_details(book)
             return list(TRACKERS)
@@ -528,7 +546,8 @@ def sync_trackers(frame=None, on_progress=None, book=None):
             if receipt and not receipt['committed']:
                 verify_tracker_cells(book, receipt['report'].get('_expected_tracker_cells', {}))
                 store.commit_sync_report(preview_id, digest)
-            refresh_monthly_views(book)
+            if publish_tracker_reports:
+                refresh_monthly_views(book)
             ensure_tracker_formatting(book)
             frame.attrs['pass_report'] = {k: v for k, v in receipt['report'].items() if not k.startswith('_')} if receipt else {}
             return list(TRACKERS) + ['All Products', 'Sheet1']
@@ -547,6 +566,8 @@ def sync_trackers(frame=None, on_progress=None, book=None):
                 worksheets[title] = worksheets.pop(legacy)
             target = sheet(title)
             prior = target.get_all_values()
+            if not any(any(text(cell) for cell in row) for row in prior):
+                prior = []  # A newly created one-cell sheet can read back as [[]].
             if prior and ('Order Number' not in prior[0] or len(set(prior[0])) != len(prior[0])):
                 raise ValueError(f'Tracker {title} needs unique headers and an Order Number column before syncing.')
             saved_values[title] = prior
@@ -645,7 +666,7 @@ def sync_trackers(frame=None, on_progress=None, book=None):
             headers = list(dict.fromkeys(prior_headers + HEADERS + [c for r in merged[title] for c in r]))
             write(title, matrix(merged[title], headers), tracker=True)
         full_headers = list(dict.fromkeys((saved_values[FULL][0] if saved_values[FULL] else HEADERS) + HEADERS + [c for r in merged[FULL] for c in r]))
-        for title, values in monthly_view_values(merged, headers=full_headers).items():
+        for title, values in (monthly_view_values(merged, headers=full_headers).items() if publish_tracker_reports else []):
             from monthly_views import keep_view_headers
             if title in worksheets:
                 prior_view = worksheets[title].get_all_values()
@@ -667,19 +688,23 @@ def sync_trackers(frame=None, on_progress=None, book=None):
             if not raw_history:
                 raw_history = [{'Preview': preview, 'Preview Timestamp': anchor.isoformat()}]
             history_headers = list(dict.fromkeys(['Preview', 'Preview Timestamp'] + raw_headers))
-            for title in ('All Products', 'Sheet1'):
+            for title in (('All Products', 'Sheet1') if publish_tracker_reports else ('Sheet1',)):
                 write(title, matrix(raw_history, history_headers), append=True)
         # These cached sheets are refreshed from tracker results on each sync. API reports
         # also reread live tracker values, including subsequent human edits.
         all_rows = [r for title in TRACKERS for r in merged[title] if key(r)]
         statuses = Counter(text(r.get('Status')) or '(Blank)' for r in all_rows)
-        write('Status Report', [['Status', 'Orders', 'Share', 'Preview', 'Sync Date & Time']] +
-              [[s, n, n / len(all_rows) if all_rows else 0, preview, anchor.isoformat()] for s, n in statuses.items()])
-        summaries = sheet_reports(merged, report)
-        for title, kind, period in (('Daily Orders', 'daily', 'Date'), ('Monthly report', 'monthly', 'Month')):
-            columns = [period, 'Today Orders' if kind == 'daily' else 'Month Orders', 'Completed Orders',
-                       'Awaiting for Clarification', 'Not in latest preview', 'SLA On Time', 'SLA Missed']
-            write(title, matrix(summaries[kind], columns))
+        if publish_tracker_reports:
+            write('Status Report', [['Status', 'Orders', 'Share', 'Preview', 'Sync Date & Time']] +
+                  [[s, n, n / len(all_rows) if all_rows else 0, preview, anchor.isoformat()] for s, n in statuses.items()])
+            summaries = sheet_reports(merged, report)
+            from monthly_views import capacity_report_values
+            for title, kind, period in (('Monthly Orders', 'monthly', 'Month'),):
+                columns = [period, 'Received' if kind == 'daily' else 'Month Orders', 'Completed Orders',
+                           'Awaiting for Clarification', 'Cancelled', 'Vendor Pending',
+                           'In-House Pending', 'Not in latest preview', 'SLA OnTime', 'Missing']
+                write(title, matrix(summaries[kind], columns))
+            write('Capacity Report', capacity_report_values(summaries['monthly'], summaries['daily']))
         report['ambiguous_count'] = len(report['ambiguous'])
         report['not_in_latest_count'] = len(report['not_in_latest'])
         report['_expected_tracker_cells'] = {title: [
@@ -701,7 +726,7 @@ def sync_trackers(frame=None, on_progress=None, book=None):
             frame.attrs['pass_report'] = {k: v for k, v in report.items() if not k.startswith('_')}
         else:
             import_default_details(book)
-        return list(TRACKERS) + ['All Products', 'Sheet1', 'Status Report', 'Daily Orders', 'Monthly report']
+        return list(TRACKERS) + ['All Products', 'Sheet1', 'Status Report', 'Monthly Orders', 'Capacity Report']
 
 
 def verify_tracker_cells(book, expected, actual=None):

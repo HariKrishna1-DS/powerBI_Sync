@@ -2,6 +2,8 @@
 
 The primary product is now the Windows desktop app. `desktop/main.cjs` owns the native window, single-instance lock, encrypted settings, process lifecycle, tray, and native dialogs. A sandboxed React renderer talks to a bundled Python engine through an authenticated, loopback-only HTTP service on an operating-system-assigned port. Google Sheets remains the authoritative production store; local SQLite stores captures, durable staged/committed sync reports, receipts and failures, while a dated JSON cache supports offline production reads.
 
+The report workspace also stores an independent imported Excel dataset and the active report source in SQLite. `report_workspace.py` reads batches of workbooks, supplies the selected dataset to all report APIs, and publishes seven public report tabs. Tracker/history sheets remain hidden for recovery. Daily date selection and configurable daily capacity targets drive the public report layouts. See the PDF update section in `gsheet_dashboard/README.md` for usage and limits.
+
 ```mermaid
 flowchart LR
   User[Desktop window / React] -->|Narrow validated IPC| Main[Electron main process]

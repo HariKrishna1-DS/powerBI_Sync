@@ -11,7 +11,7 @@ def foreground(color):
     return '#111827' if (r * 299 + g * 587 + b * 114) / 1000 > 155 else '#ffffff'
 
 
-def rules_for(sheet_id, headers):
+def rules_for(sheet_id, headers, row_count=None):
     from gspread.utils import rowcol_to_a1
     from datatrace_sync import sheet_color
     rules = []
@@ -27,20 +27,24 @@ def rules_for(sheet_id, headers):
                        'textFormat': {'foregroundColor': sheet_color(foreground(color))}}}}
     ranges = [{'sheetId': sheet_id, 'startRowIndex': 1, 'startColumnIndex': 0,
                'endColumnIndex': len(headers)}]
+    if row_count is not None:
+        if row_count <= 1:
+            return []
+        ranges[0]['endRowIndex'] = row_count
     for status, color in PALETTE.items():
         rules.append(rule(ranges, f'LOWER(TRIM(${status_col}2))="{status}"', color))
     return rules
 
 
-def format_requests(sheet_id, values, existing_rules=()):
+def format_requests(sheet_id, values, existing_rules=(), replace_rules=False):
     """Style app-owned output while preserving unrelated conditional rules."""
     from monthly_production import plain_format
     headers = values[0] if values else []
     requests = [{'deleteConditionalFormatRule': {'sheetId': sheet_id, 'index': i}}
-                for i in reversed(range(len(existing_rules))) if MARKER in json.dumps(existing_rules[i])]
+                for i in reversed(range(len(existing_rules))) if replace_rules or MARKER in json.dumps(existing_rules[i])]
     requests.extend(plain_format(sheet_id, len(values), len(headers)))
     requests.extend({'addConditionalFormatRule': {'index': i, 'rule': rule}}
-                    for i, rule in enumerate(rules_for(sheet_id, headers)))
+                    for i, rule in enumerate(rules_for(sheet_id, headers, len(values))))
     return requests
 
 

@@ -2,15 +2,97 @@
 import datetime as dt
 import json
 import os
+import queue
 import re
+import signal
 from pathlib import Path
 import subprocess
 import tempfile
+import threading
 import time
 
 import pandas as pd
 from openpyxl.worksheet.table import Table, TableStyleInfo
 from sync_config import BASE_DIR, ASSET_DIR, SPREADSHEET_ID, WORKSHEET_GID, TARGET_GSHEET_URL
+
+
+class CaptureCancelled(Exception):
+    pass
+
+
+def run_extractor(command, cwd, env, cancel_event, on_progress):
+    """Stream portal progress while allowing only this extractor to be stopped."""
+    process = subprocess.Popen(command, cwd=cwd, env=env, stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, text=True, encoding='utf-8', errors='replace',
+        creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0),
+        start_new_session=os.name != 'nt')
+    lines, output = queue.Queue(), []
+
+    def read_output():
+        try:
+            for line in process.stdout:
+                lines.put(line)
+        finally:
+            lines.put(None)
+
+    def stop():
+        if process.poll() is not None:
+            return
+        if os.name == 'nt':
+            subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0), timeout=15)
+        else:
+            os.killpg(process.pid, signal.SIGTERM)
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+
+    reader = threading.Thread(target=read_output, daemon=True)
+    reader.start()
+    deadline = time.monotonic() + 300
+    try:
+        while True:
+            if cancel_event is not None and cancel_event.is_set():
+                raise CaptureCancelled('Queue extraction cancelled.')
+            if time.monotonic() >= deadline:
+                raise RuntimeError('DataTrace extraction timed out. Retry Extract Queue; existing captures are retained.')
+            try:
+                line = lines.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            if line is None:
+                break
+            output.append(line)
+            stage = None
+            if 'Launching Puppeteer' in line:
+                stage = 'Opening the extraction browser'
+            elif 'Navigating to:' in line:
+                stage = 'Opening DataTrace'
+            elif 'Checking for login inputs' in line:
+                stage = 'Checking DataTrace login'
+            elif 'Found login field' in line or 'Clicking' in line and 'Sign in' in line:
+                stage = 'Signing in to DataTrace'
+            elif 'Opening the configured queue' in line:
+                stage = 'Loading the configured queue'
+            elif 'Waiting for queue grid' in line:
+                stage = 'Waiting for queue results'
+            elif 'Loading queue results with Refresh' in line:
+                stage = 'Refreshing queue results'
+            elif '[+] Queue page ' in line:
+                stage = 'Extracting ' + line.strip().removeprefix('[+] ').lower()
+            elif 'Successfully extracted' in line:
+                stage = 'Queue fetched; preparing local storage'
+            if stage:
+                on_progress(stage)
+        process.wait(timeout=10)
+        return subprocess.CompletedProcess(command, process.returncode, ''.join(output), '')
+    finally:
+        stop()
+        reader.join(timeout=2)
+        process.stdout.close()
 
 # Product list used only by dashboard filters; sync includes every product.
 REMAINING_PRODUCTS = json.loads(Path(__file__).with_name('remaining_products.json').read_text(encoding='utf-8'))
@@ -49,7 +131,7 @@ REPORT_SHEETS = [('All Products', ALL_PRODUCT_FIELDS), ('Full Title', FULL_TITLE
 STATUS_COLORS = json.loads((ASSET_DIR / 'status_colors.json').read_text(encoding='utf-8'))
 
 
-def target_worksheet():
+def target_worksheet(required=False):
     import gspread
     from google.auth.exceptions import RefreshError
     from google.oauth2.service_account import Credentials
@@ -73,7 +155,15 @@ def target_worksheet():
         client = gspread.authorize(credentials)
         client.set_timeout((10, 90))
         book = client.open_by_key(SPREADSHEET_ID)
-        return book, book.get_worksheet_by_id(WORKSHEET_GID)
+        # Reports and tracker sync address sheets by title. A deleted initial
+        # tab (often gid=0) must not invalidate access to the whole workbook.
+        try:
+            sheet = book.get_worksheet_by_id(WORKSHEET_GID)
+        except gspread.exceptions.WorksheetNotFound:
+            if required:
+                raise RuntimeError(f'The configured worksheet gid={WORKSHEET_GID} no longer exists. Select an existing worksheet for this direct-sheet operation.')
+            sheet = None
+        return book, sheet
     except RefreshError as exc:
         details = next((arg for arg in exc.args if isinstance(arg, dict)), {})
         description = str(details.get('error_description', '')).casefold()
@@ -449,7 +539,7 @@ def sync_dataframe(df, target=None, validate=True, row_backgrounds=None, color_s
                    existing_values=None, on_progress=None):
     if validate:
         validate_queue(df)
-    book, sheet = target or target_worksheet()
+    book, sheet = target or target_worksheet(required=True)
     values = [list(df.columns)] + df.astype(object).values.tolist()
     include_format = row_backgrounds is not None
     row_backgrounds = row_backgrounds or [None] * len(values)
@@ -504,21 +594,23 @@ def sync_workbook(df, selected_products=None, on_progress=None):
 
 def read_target(gid=None, title=None):
     book, sheet = target_worksheet()
-    if gid is not None and int(gid) != sheet.id:
+    if gid is not None:
         sheet = book.get_worksheet_by_id(int(gid))
-    elif gid is None and title:
+    elif title:
         sheet = book.worksheet(title)
+    elif sheet is None:
+        raise ValueError(f'The configured worksheet gid={WORKSHEET_GID} no longer exists. Choose a worksheet title or ID.')
     values = sheet.get_all_values()
     if not values:
         return pd.DataFrame()
     return pd.DataFrame(values[1:], columns=values[0]).fillna('')
 
 
-def run_sync(on_progress=None, auto_sync=True):
+def run_sync(on_progress=None, auto_sync=True, cancel_event=None):
     from dotenv import load_dotenv
     from preview_store import PreviewStore
     if os.environ.get('DATATRACE_DESKTOP') != '1':
-        load_dotenv(BASE_DIR / '.env', override=True)
+        load_dotenv(BASE_DIR / '.env', override=False)
     status = {'action': 'extract', 'started_at': dt.datetime.now(dt.timezone.utc).isoformat(),
               'scrape': 'pending', 'google_sheet': 'not_synced', 'rows': 0, 'error': None}
     def progress(stage):
@@ -526,6 +618,8 @@ def run_sync(on_progress=None, auto_sync=True):
         if on_progress:
             on_progress(dict(status))
     try:
+        if cancel_event is not None and cancel_event.is_set():
+            raise CaptureCancelled('Queue extraction cancelled.')
         store = PreviewStore(BASE_DIR / 'previews')
         if auto_sync and not store.list():
             progress('Recovering preview numbering from Google Sheets')
@@ -540,27 +634,38 @@ def run_sync(on_progress=None, auto_sync=True):
         # Per-run output prevents old exports from being uploaded after a failed scrape.
         with tempfile.TemporaryDirectory(prefix='datatrace-') as folder:
             output = Path(folder) / 'queue.json'
-            env = dict(os.environ, DATATRACE_OUTPUT_JSON=str(output))
+            env = dict(os.environ, DATATRACE_OUTPUT_JSON=str(output),
+                       DATATRACE_DIAGNOSTICS_DIR=str(BASE_DIR / 'extractor-diagnostics'))
             extractor = Path(os.environ.get('DATATRACE_EXTRACTOR_DIR', str(ASSET_DIR)))
             node = os.environ.get('DATATRACE_NODE_EXECUTABLE', 'node')
             env.pop('GOOGLE_SERVICE_ACCOUNT_JSON', None)
             env.pop('DATATRACE_DESKTOP_TOKEN', None)
             if os.environ.get('DATATRACE_DESKTOP') == '1':
                 env['ELECTRON_RUN_AS_NODE'] = '1'
-            process = subprocess.run([node, str(extractor / 'scrape_datatrace.js')],
-                                     cwd=extractor, env=env, capture_output=True, text=True, timeout=300,
-                                     creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            process = run_extractor([node, str(extractor / 'scrape_datatrace.js')],
+                                    extractor, env, cancel_event, progress)
             if process.returncode:
-                details = process.stderr if isinstance(process.stderr, str) else ''
+                logs = process.stdout + '\n' + process.stderr
+                for field in ('DATATRACE_USERNAME', 'DATATRACE_PASSWORD'):
+                    if os.getenv(field):
+                        logs = logs.replace(os.getenv(field), '[redacted]')
+                (BASE_DIR / 'extractor-diagnostics').mkdir(exist_ok=True)
+                (BASE_DIR / 'extractor-diagnostics' / 'last-run.log').write_text(logs, encoding='utf-8')
+                details = logs
                 lines = [line.strip() for line in details.splitlines() if line.strip()]
                 reason = next((line for line in lines if '[!] Puppeteer Automation Error:' in line),
-                              lines[0] if lines else 'Check portal login/MFA and Node dependencies.')
+                              next((line for line in lines if line.startswith(('Error:', 'TypeError:'))),
+                                   lines[0] if lines else 'Check portal login/MFA and Node dependencies.'))
+                if 'Cannot find module' in reason:
+                    reason += ' Install the extractor dependencies in gsheet_dashboard (npm install), then retry Extract Queue.'
                 for key in ('DATATRACE_USERNAME', 'DATATRACE_PASSWORD'):
                     secret = os.getenv(key)
                     if secret:
                         reason = reason.replace(secret, '[redacted]')
                 raise RuntimeError(f'DataTrace extraction failed: {reason[:600]}')
             df = pd.DataFrame(json.loads(output.read_text(encoding='utf-8')))
+        if cancel_event is not None and cancel_event.is_set():
+            raise CaptureCancelled('Queue extraction cancelled.')
         validate_queue(df)
         status.update(scrape='success', rows=len(df))
         df = powerbi_table(df, status['started_at'])
@@ -582,12 +687,14 @@ def run_sync(on_progress=None, auto_sync=True):
                 store.mark_synced(pending['id'], status['pass_report'])
             status['action'] = 'sync'
             status['google_sheet'] = 'success'
+    except CaptureCancelled:
+        status.update(cancelled=True, scrape='cancelled', google_sheet='not_synced')
     except Exception as exc:
         status['error'] = str(exc)
         status['google_sheet' if status['scrape'] == 'success' else 'scrape'] = 'failed'
     previous = load_status()
     status.setdefault('last_success_at', previous.get('last_success_at'))
-    progress('Finished' if not status['error'] else 'Finished with errors')
+    progress('Cancelled' if status.get('cancelled') else 'Finished' if not status['error'] else 'Finished with errors')
     (BASE_DIR / 'sync_status.json').write_text(json.dumps(status, indent=2), encoding='utf-8')
     return status
 

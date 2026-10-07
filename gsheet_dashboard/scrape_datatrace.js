@@ -17,7 +17,9 @@ if (!USERNAME || !PASSWORD) {
 const outputPath = process.env.DATATRACE_OUTPUT_JSON || path.join(__dirname, 'queue_data.json');
 
 (async () => {
-    let browser;
+    let browser, page;
+    let phase = "browser startup";
+    const pageErrors = [];
     try {
         const options = browserOptions();
         const headless = options.headless;
@@ -26,19 +28,25 @@ const outputPath = process.env.DATATRACE_OUTPUT_JSON || path.join(__dirname, 'qu
         browser = await puppeteer.launch(options);
         console.log('[+] Chromium launched successfully.');
 
-        const page = await browser.newPage();
+        page = await browser.newPage();
+        page.on('pageerror',error=>pageErrors.push(error.message));
+        page.on('requestfailed',request=>{try{const url=new URL(request.url());pageErrors.push(`${url.origin}${url.pathname}: ${request.failure()?.errorText}`);}catch{}});
+        phase = "opening the portal";
         console.log(`[*] Navigating to: ${TARGET_URL}`);
         await page.goto(TARGET_URL, { waitUntil: 'domcontentloaded', timeout: TIMEOUT_MS }).catch(e => {
             console.log("[!] Navigation load notice:", e.message);
         });
+
+        await page.waitForNetworkIdle({idleTime:750,timeout:Math.min(TIMEOUT_MS,10000)}).catch(()=>{});
 
         // Check for Azure B2C (#signInName) or ASP.NET login inputs
         let usernameSelector = '#signInName';
         let passwordSelector = '#password';
         let submitSelector = '#next';
 
+        phase = "portal login";
         console.log("[*] Checking for login inputs...");
-        await page.waitForSelector(usernameSelector, { timeout: TIMEOUT_MS }).catch(() => {});
+        await page.waitForSelector('#signInName, #txtUserName, [name*="UserName"], #ctl00_ContentPlaceHolder1_pnlResults', { timeout: TIMEOUT_MS }).catch(() => {});
 
         if (!await page.$(usernameSelector)) {
             if (await page.$('#txtUserName')) {
@@ -90,7 +98,17 @@ const outputPath = process.env.DATATRACE_OUTPUT_JSON || path.join(__dirname, 'qu
             console.log("[*] No login inputs found or already logged in. Proceeding to target table...");
         }
 
+        // Sign-in can return to Queues.aspx without the configured query ID.
+        // Load the requested queue again using the authenticated session.
+        if (userElem || page.url() !== TARGET_URL) {
+            phase = 'opening the requested queue after login';
+            console.log('[*] Opening the configured queue after sign-in...');
+            await page.goto(TARGET_URL, {waitUntil: 'domcontentloaded', timeout: TIMEOUT_MS});
+            await page.waitForNetworkIdle({idleTime:750,timeout:Math.min(TIMEOUT_MS,10000)}).catch(()=>{});
+        }
+
         // Scope table discovery and paging to the portal's results panel.
+        phase = "loading the queue grid";
         const GRID_SELECTOR = '#ctl00_ContentPlaceHolder1_pnlResults';
 
         console.log(`[*] Waiting for queue grid table selector: ${GRID_SELECTOR}...`);
@@ -101,6 +119,7 @@ const outputPath = process.env.DATATRACE_OUTPUT_JSON || path.join(__dirname, 'qu
         if (!hasResults) {
             const refresh = await page.$('input[value="Refresh View"]');
             if (!refresh) throw new Error('Results panel is empty and Refresh View was not found.');
+            phase = 'refreshing the queue results';
             console.log('[*] Loading queue results with Refresh View...');
             await Promise.all([
                 page.waitForFunction(selector => {
@@ -111,27 +130,27 @@ const outputPath = process.env.DATATRACE_OUTPUT_JSON || path.join(__dirname, 'qu
             ]);
         }
 
-        // Try clicking Arrival Time header to sort by newest arrival date
-        try {
-            const headers = await page.$$(`${GRID_SELECTOR} th`);
-            for (const header of headers) {
-                const text = await page.evaluate(el => el.textContent.trim(), header);
-                if (text.toLowerCase().includes('arrival time')) {
-                    console.log("[*] Sorting by Arrival Time header...");
-                    await header.click();
-                    await new Promise(r => setTimeout(r, 2000));
-                    break;
-                }
-            }
-        } catch (e) {
-            console.log("[!] Header click sort note:", e.message);
-        }
+        // Collect the configured view once its resource and query requests finish.
+        // Additional sorting causes an overlapping postback on this portal.
+        await page.waitForNetworkIdle({idleTime:750,timeout:Math.min(TIMEOUT_MS,10000)}).catch(()=>{});
 
         // Locate the queue by its headers, not the first layout table in the panel.
         let tableData = [];
         const seenPages = new Set();
+        let expectedRows = null;
+        let expectedPages = null;
         for (let pageNumber = 0; ; pageNumber++) {
         if (pageNumber >= 1000) throw new Error('Queue pagination exceeded safety limit.');
+        const pager = await page.$eval(GRID_SELECTOR, panel => {
+            const match = panel.innerText.match(/([\d,]+)\s+items\s+in\s+([\d,]+)\s+pages/i);
+            return match ? {rows: Number(match[1].replace(/,/g, '')), pages: Number(match[2].replace(/,/g, ''))} : null;
+        });
+        if (pager && expectedRows === null) {
+            expectedRows = pager.rows;
+            expectedPages = pager.pages;
+        } else if (pager && (pager.rows !== expectedRows || pager.pages !== expectedPages)) {
+            throw new Error('The queue changed during extraction. Retry to capture every row together.');
+        }
         const pageData = await page.evaluate((selector) => {
             const gridContainer = document.querySelector(selector);
 
@@ -198,6 +217,9 @@ const outputPath = process.env.DATATRACE_OUTPUT_JSON || path.join(__dirname, 'qu
         if (seenPages.has(fingerprint)) throw new Error('Queue pagination repeated a page.');
         seenPages.add(fingerprint);
         tableData.push(...pageData);
+        console.log(`[+] Queue page ${pageNumber + 1}: ${pageData.length} rows`);
+        // The portal leaves Next enabled on its final page. Trust its page count.
+        if (expectedPages !== null && pageNumber + 1 >= expectedPages) break;
         const nextSelector = `${GRID_SELECTOR} .rgPageNext`;
         const next = await page.$(nextSelector);
         const enabled = next && await page.evaluate(el =>
@@ -205,14 +227,31 @@ const outputPath = process.env.DATATRACE_OUTPUT_JSON || path.join(__dirname, 'qu
             !el.className.includes('Disabled'), next);
         if (!enabled) break;
         const before = await page.$eval(GRID_SELECTOR, el => el.innerText);
-        await next.click();
+        phase = `moving to queue page ${pageNumber + 2}`;
+        const serverSubmit=await page.evaluate(el=>el.type==='submit'&&!!el.name&&!!el.form,next);
+        if(serverSubmit){
+            // The portal's AJAX submit handler can stall when its script bundle
+            // fails. Submit the same enabled pager button through its native form.
+            await Promise.all([
+                page.waitForNavigation({waitUntil:'domcontentloaded',timeout:TIMEOUT_MS}),
+                page.evaluate(el=>{
+                    const form=el.form;
+                    const button=document.createElement('input');button.type='hidden';button.name=el.name;button.value=el.value;form.appendChild(button);
+                    for(const name of ['__EVENTTARGET','__EVENTARGUMENT']){const field=form.elements.namedItem(name);if(field)field.value='';}
+                    HTMLFormElement.prototype.submit.call(form);
+                },next),
+            ]);
+        }else await next.click();
         await page.waitForFunction((selector, previous) => {
             const grid = document.querySelector(selector);
             return grid && grid.innerText !== previous;
         }, { timeout: TIMEOUT_MS }, GRID_SELECTOR, before);
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await page.waitForNetworkIdle({idleTime:750,timeout:Math.min(TIMEOUT_MS,10000)}).catch(()=>{});
         }
 
+        if (expectedRows !== null && tableData.length !== expectedRows) {
+            throw new Error(`Queue extraction captured ${tableData.length} of ${expectedRows} rows. Retry before syncing.`);
+        }
         if (tableData && tableData.length > 0) {
             console.log(`[+] Successfully extracted ${tableData.length} queue rows from ${GRID_SELECTOR}!`);
 
@@ -236,7 +275,30 @@ const outputPath = process.env.DATATRACE_OUTPUT_JSON || path.join(__dirname, 'qu
         }
 
     } catch (err) {
-        console.error("[!] Puppeteer Automation Error:", err.stack || err.message);
+        if (process.env.DATATRACE_DIAGNOSTICS_DIR && page) {
+            try {
+                const folder=process.env.DATATRACE_DIAGNOSTICS_DIR;
+                fs.mkdirSync(folder,{recursive:true});
+                const details=await page.evaluate(()=>({
+                    url:location.origin+location.pathname,
+                    title:document.title,
+                    summary:document.body.innerText.split('Order Number')[0].slice(0,1000),
+                    queueLinks:[...document.querySelectorAll('a')].filter(a=>/Queues|Default Query/.test(a.innerText)).map(a=>({text:a.innerText,href:a.href})),
+                    options:[...document.querySelectorAll('input[type="radio"],select')].map(el=>({id:el.id,name:el.name,value:el.value,checked:el.checked})),
+                    alerts:[...document.querySelectorAll('[role="alert"],.error,.errorMessage,#errorMessage')].map(el=>el.innerText).filter(Boolean),
+                    next:[...document.querySelectorAll('.rgPageNext')].map(el=>({tag:el.tagName,type:el.type,name:el.name,id:el.id,value:el.value,disabled:el.disabled,class:el.className,title:el.title,aria:el.getAttribute('aria-disabled'),onclick:el.getAttribute('onclick')})),
+                    pager:[...document.querySelectorAll('.rgPager a')].map(el=>({text:el.innerText,href:el.getAttribute('href'),onclick:el.getAttribute('onclick')})),
+                    tables:[...document.querySelectorAll('#ctl00_ContentPlaceHolder1_pnlResults table')].map(el=>({rows:el.rows.length,headers:el.rows[0]?.innerText})),
+                }));
+                details.phase=phase;
+                details.pageErrors=pageErrors;
+                let encoded=JSON.stringify(details,null,2);
+                for(const secret of [USERNAME,PASSWORD])if(secret)encoded=encoded.split(secret).join('[redacted]');
+                fs.writeFileSync(path.join(folder,'portal-error.json'),encoded,'utf8');
+                await page.screenshot({path:path.join(folder,'portal-error.png'),fullPage:true});
+            }catch{}
+        }
+        console.error(`[!] Puppeteer Automation Error: ${phase}:`, err.stack || err.message);
         process.exitCode = 1;
     } finally {
         if (browser) await browser.close();

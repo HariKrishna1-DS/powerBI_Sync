@@ -21,9 +21,22 @@ function textColorForBg(color) {
   return (r * 299 + g * 587 + b * 114) / 1000 > 155 ? '#111827' : '#ffffff';
 }
 async function api(url, options = {}) {
-  const timeout = AbortSignal.timeout(30000);
-  const signal = options.signal ? AbortSignal.any([options.signal, timeout]) : timeout;
-  const response = await fetch(url, {...options, signal});
+  const {timeoutMs=30000, ...requestOptions}=options;
+  const retryable=['GET','HEAD'].includes((requestOptions.method||'GET').toUpperCase());
+  let response;
+  for(let attempt=0;attempt<3;attempt++){
+    const timeout=AbortSignal.timeout(timeoutMs);
+    const signal=requestOptions.signal?AbortSignal.any([requestOptions.signal,timeout]):timeout;
+    try{response=await fetch(url,{...requestOptions,signal});}
+    catch(error){
+      if(error.name==='AbortError'||requestOptions.signal?.aborted)throw error;
+      if(retryable&&error instanceof TypeError&&attempt<2){await new Promise(resolve=>setTimeout(resolve,500*(attempt+1)));continue;}
+      if(error instanceof TypeError){const unavailable=Error('Cannot reach the local application. Reconnecting automatically; your saved data is retained.');unavailable.code='CONNECTION_LOST';throw unavailable;}
+      throw error;
+    }
+    if(retryable&&[502,503,504].includes(response.status)&&attempt<2){await new Promise(resolve=>setTimeout(resolve,500*(attempt+1)));continue;}
+    break;
+  }
   if (!response.ok) { let body; try { body = await response.json(); } catch { body = {}; } throw Error(body.error || `Request failed (${response.status})`); }
   const body = await response.json();
   if (body.clock) body.clock.receivedAt = performance.now();

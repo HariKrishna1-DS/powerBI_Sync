@@ -449,11 +449,10 @@ function DataTable({rows, columns, filters, openFilter, name, filterable=true, o
 function completionStatus(row) { return row; }
 
 const DAILY_SERIES = [
-  {name:'Today Orders',color:'#147d72'},
-  {name:'Not in latest preview',color:'#bd6268'},
-  {name:'Newly Orders',color:'#d79a32'},
-  {name:'Unchanged',color:'#596cc0'},
-  {name:'Awaiting for Clarification',color:STATUS_COLORS['awaiting for clarification']}
+  {name:'Received',color:'#147d72'}, {name:'Completed',color:'#315c9b'},
+  {name:'Clarification',color:'#9370a8'}, {name:'Cancelled',color:'#ba5555'},
+  {name:'Vendor Pending',color:'#b99442'}, {name:'In-House Pending',color:'#596cc0'},
+  {name:'SLA OnTime',color:'#30874b'}, {name:'Missing',color:'#d79a32'}
 ];
 
 function PeriodOrdersChart({history, selected, onSelect, period, series, title, label: chartLabel}) {
@@ -495,34 +494,71 @@ function PeriodOrdersChart({history, selected, onSelect, period, series, title, 
     {expanded&&<MaximizedModal title={title} onClose={()=>setExpanded(false)}>{renderChart(true)}</MaximizedModal>}
   </section>;
 }
-function DailyOrdersChart({history, selectedDate, onSelect}) {
-  return <PeriodOrdersChart history={history} selected={selectedDate} onSelect={onSelect} period="Date" series={DAILY_SERIES} title="Daily Orders by Date" label="Daily orders bar chart"/>;
+function DailyOrdersChart({history, selectedDate, onSelect, series=DAILY_SERIES}) {
+  return <PeriodOrdersChart history={history} selected={selectedDate} onSelect={onSelect} period="Date" series={series} title="Daily Orders by Date" label="Daily orders bar chart"/>;
 }
+
+function ImportedStatusSummary({report}) {
+  const counts=report?.status_counts;
+  if(!counts)return null;
+  return <section className="status-report"><div className="section-heading"><h3>All imported statuses</h3><span>{Object.keys(counts).length} statuses / {report.Received} orders</span></div><div className="status-report-scroll"><table className="status-report-table"><thead><tr><th>Status</th><th>Orders</th><th>Share</th></tr></thead><tbody>{Object.entries(counts).map(([name,count])=><tr key={name}><td>{name}</td><td>{count.toLocaleString()}</td><td>{report.Received?(count/report.Received*100).toFixed(1):'0.0'}%</td></tr>)}</tbody></table></div></section>;
+}
+const importedSeries=snapshot=>(snapshot?.statuses||[]).map(name=>({name:'Status: '+name,color:statusColor(name)}));
 
 function DailyOrders({preview, running}) {
   const [history,setHistory]=useState([]), [error,setError]=useState(''), [date,setDate]=useState(''), [search,setSearch]=useState('');
-  const [loading,setLoading]=useState(true), [snapshot,setSnapshot]=useState(null);
-  useEffect(()=>{let active=true;setLoading(true);api(`/api/daily-orders${preview.id?`?preview_id=${preview.id}`:''}`).then(data=>{if(active){setHistory(data.rows);setSnapshot(data);setDate(current=>data.rows.some(row=>row.Date===current)?current:data.selected_date||'');setError('');}}).catch(e=>{if(active){setHistory([]);setError(e.message);}}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[preview.id,running]);
+  const [loading,setLoading]=useState(true), [snapshot,setSnapshot]=useState(null), [publishing,setPublishing]=useState(false), [publishMessage,setPublishMessage]=useState('');
+  const [highlight,setHighlight]=useState(null);
+  useEffect(()=>{let active=true;setLoading(true);api(`/api/daily-orders${preview.id?`?preview_id=${preview.id}`:''}`).then(data=>{if(active){setHistory(data.rows);setSnapshot(data);setHighlight(data);setDate(current=>data.rows.some(row=>row.Date===current)?current:data.selected_date||'');setError('');}}).catch(e=>{if(active){setHistory([]);setError(e.message);}}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[preview.id,running]);
+  useEffect(()=>{
+    if(!highlight?.selected_date)return;
+    const selected=highlight.selected_date;
+    if(highlight.publication_state==='synced'&&highlight.highlighted_date===selected){setPublishMessage(`${selected} is highlighted in Google Sheets · Daily Status Report.`);return;}
+    if(highlight.publication_state==='error'){setError(`Date selected locally. Google Sheets highlight needs retry: ${highlight.sync_error}`);return;}
+    if(!['pending','working'].includes(highlight.publication_state))return;
+    setPublishMessage(`Highlighting ${selected} in Google Sheets · Daily Status Report…`);
+    let active=true;
+    const timer=setTimeout(()=>api('/api/report-workspace').then(data=>{if(active)setHighlight(data);}).catch(e=>{if(active)setError(e.message);}),2000);
+    return()=>{active=false;clearTimeout(timer);};
+  },[highlight]);
+  async function chooseDate(value){
+    if(!value||publishing)return;
+    setDate(value);setSearch('');setPublishing(true);setError('');setPublishMessage('');
+    try{const result=await api('/api/report-date',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date:value}),timeoutMs:180000});
+      if(!result.synced&&!result.queued)setError(`Date selected locally. Google Sheets update needs retry: ${result.sync_error}`);
+      else{setHighlight({selected_date:value,publication_state:result.queued?'pending':'synced',highlighted_date:result.highlighted_date});setPublishMessage(result.queued?`Highlighting ${value} in Daily Status Report…`:`${value} is highlighted in Daily Status Report.`);}
+    }catch(e){setError(e.message);}finally{setPublishing(false);}
+  }
   const selectedDay=history.find(day=>day.Date===date)||history[0];
   const columns=selectedDay?.columns||[];
   const rows=(selectedDay?.rows||[]).filter(row=>!search||columns.some(column=>str(row[column]).toLowerCase().includes(search.toLowerCase())));
+  const onTimeOrders=new Set((selectedDay?.sla_rows||[]).filter(row=>row['Free Site']==='On Time').map(row=>str(row['Order Number']).trim()));
+  const missingSlaOrders=new Set((selectedDay?.sla_rows||[]).filter(row=>row['Free Site']==='Missing').map(row=>str(row['Order Number']).trim()));
   const groups=[
-    ['Today Orders',rows],
-    ['Not in latest preview',rows.filter(row=>selectedDay?.missing_ids?.includes(str(row['Order Number']).trim()))],
-    ['Newly Orders',rows.filter(row=>selectedDay?.new_ids?.includes(str(row['Order Number']).trim()))],
-    ['Unchanged',rows.filter(row=>selectedDay?.unchanged_ids?.includes(str(row['Order Number']).trim()))],
-    ['Awaiting for Clarification',rows.filter(row=>normalized(row['Task Status'] ?? row.Status)==='awaiting for clarification')]
+    ['Received',rows],
+    ['Completed',rows.filter(row=>normalized(row.Status ?? row['Task Status'])==='completed and delivered')],
+    ['Clarification',rows.filter(row=>normalized(row.Status ?? row['Task Status'])==='awaiting for clarification')],
+    ['Cancelled',rows.filter(row=>normalized(row.Status ?? row['Task Status'])==='cancelled')],
+    ['Vendor Pending',rows.filter(row=>normalized(row.Status ?? row['Task Status'])==='assign to abs')],
+    ['In-House Pending',rows.filter(row=>!['completed and delivered','awaiting for clarification','cancelled','assign to abs'].includes(normalized(row.Status ?? row['Task Status'])))],
+    ['SLA OnTime',rows.filter(row=>onTimeOrders.has(str(row['Order Number']).trim()))],
+    ['Missing',rows.filter(row=>missingSlaOrders.has(str(row['Order Number']).trim()))],
   ];
-  const names=['Today Orders','Not in latest preview','Newly Orders','Unchanged','Awaiting for Clarification'];
-  return <section className="daily-orders"><OfflineNotice snapshot={snapshot}/>{snapshot&&!snapshot.offline&&<p className="report-context">Google Sheets production · {snapshot.updated_at?`Refreshed ${new Date(snapshot.updated_at).toLocaleString()}`:'Refresh time unavailable'}</p>}
-    {error&&<div className="notice error">{error}</div>}
+  const names=DAILY_SERIES.map(item=>item.name);
+  const statusNames=snapshot?.mode==='excel'?(snapshot.statuses||[]):[];
+  const historyNames=[...names,...statusNames.map(name=>'Status: '+name)];
+  const detailGroups=snapshot?.mode==='excel'?[
+    ['Received',rows],...statusNames.map(name=>[name,rows.filter(row=>(str(row.Status||row['Task Status']).trim()||'(Blank)')===name)]),...groups.slice(-2)
+  ]:groups;
+  return <section className="daily-orders"><OfflineNotice snapshot={snapshot}/>{snapshot&&!snapshot.offline&&<p className="report-context">{snapshot.source||'Google Sheets'} production · {snapshot.updated_at?`Refreshed ${new Date(snapshot.updated_at).toLocaleString()}`:'Refresh time unavailable'}</p>}
+    {error&&<div className="notice error" role="alert">{error}</div>}{publishMessage&&<p role="status">{publishMessage}</p>}{publishing&&<p role="status">Updating Google Sheets for the selected date…</p>}
     {loading?<div className="loading"><LoaderCircle className="spin"/>Loading daily orders...</div>:<>
-      <div className="section-heading"><h2>Daily production orders</h2><label>Date<select aria-label="Daily orders date" value={selectedDay?.Date||''} onChange={e=>{setDate(e.target.value);setSearch('');}}>{history.map(day=><option key={day.Date}>{day.Date}</option>)}</select></label></div>
-      <div className="metrics">{names.map((name,index)=><div className={`metric ${['green','red','amber','gray','purple'][index]}`} key={name}><span>{name}</span><strong>{selectedDay?.[name]??0}</strong></div>)}</div>
-      <p className="report-context">{selectedDay?.Previews?.length?`Captures: ${selectedDay.Previews.join(' → ')}. `:''}New and missing counts compare the reported captures; unchanged orders occur in both.</p><DailyOrdersChart history={history} selectedDate={selectedDay?.Date} onSelect={value=>{if(value){setDate(value);setSearch('');}}}/>
-      <div className="table-scroll"><table><thead><tr>{['Date','Previews',...names].map(name=><th key={name}>{name}</th>)}</tr></thead><tbody>{history.map(day=><tr key={day.Date}><td><button className="text-button" onClick={()=>{setDate(day.Date);setSearch('');}}>{day.Date}</button></td><td>{day.Previews.join(', ')}</td>{names.map(name=><td key={name}>{day[name]}</td>)}</tr>)}</tbody></table></div>
+      <div className="section-heading"><h2>Daily production orders</h2><label>Date<select aria-label="Daily orders date" value={selectedDay?.Date||''} disabled={publishing} onChange={e=>chooseDate(e.target.value)}>{history.map(day=><option key={day.Date}>{day.Date}</option>)}</select></label></div>
+      <div className="metrics">{names.map((name,index)=><div className={`metric ${['green','red','amber','gray','purple'][index%5]}`} key={name}><span>{name}</span><strong>{selectedDay?.[name]??0}</strong></div>)}</div>
+      <ImportedStatusSummary report={selectedDay}/><p className="report-context">Click a date to highlight its row in the Google Sheets Daily Status Report tab.</p><DailyOrdersChart history={history} selectedDate={selectedDay?.Date} onSelect={chooseDate} series={snapshot?.mode==='excel'?importedSeries(snapshot):DAILY_SERIES}/>
+      <div className="table-scroll"><table><thead><tr>{['Date',...historyNames].map(name=><th key={name}>{name}</th>)}</tr></thead><tbody>{history.map(day=><tr key={day.Date} className={day.Date===selectedDay?.Date?'daily-date-selected':undefined}><td><button className="text-button" aria-pressed={day.Date===selectedDay?.Date} disabled={publishing} onClick={()=>chooseDate(day.Date)}>{day.Date}</button></td>{historyNames.map(name=><td key={name}>{day[name]??0}</td>)}</tr>)}</tbody></table></div>
       <div className="filter-toolbar"><div className="search-input"><Search size={16}/><input aria-label="Search daily orders" placeholder="Search all columns" value={search} onChange={e=>setSearch(e.target.value)}/></div></div>
-      {selectedDay?groups.map(([name,items])=><DataTable key={name} rows={items} columns={columns} filters={{}} openFilter={()=>{}} filterable={false} name={`${name} · ${items.length}`}/>):<div className="table-empty">No daily orders</div>}
+      {selectedDay?detailGroups.map(([name,items])=><DataTable key={name} rows={items} columns={columns} filters={{}} openFilter={()=>{}} filterable={false} name={`${name} · ${items.length}`}/>):<div className="table-empty">No daily orders</div>}
     </>}
   </section>;
 }
@@ -541,8 +577,8 @@ function monthlyPercentage(report, name) {
   return `${total?((report?.[name]||0)/total*100).toFixed(1):'0.0'}%`;
 }
 
-function MonthlyOrdersChart({history, selectedMonth, onSelect}) {
-  return <PeriodOrdersChart history={history} selected={selectedMonth} onSelect={onSelect} period="Month" series={MONTHLY_SERIES} title="Monthly Orders by Month" label="Monthly orders bar chart"/>;
+function MonthlyOrdersChart({history, selectedMonth, onSelect, series=MONTHLY_SERIES}) {
+  return <PeriodOrdersChart history={history} selected={selectedMonth} onSelect={onSelect} period="Month" series={series} title="Monthly Orders by Month" label="Monthly orders bar chart"/>;
 }
 
 const SLA_COLUMNS=['Order Number','Product Group','Product','In Time','Out Time','SLA Expiration','Free Site'];
@@ -610,7 +646,7 @@ function SlaOrdersTable({rows, statusFilter, onStatusFilter, onSave, running}) {
   </section>;
 }
 
-function MonthlyOrders({preview,running}) {
+function MonthlyOrders({preview,running,reportMode='tracker'}) {
   const [history,setHistory]=useState([]), [error,setError]=useState(''), [month,setMonth]=useState(''), [search,setSearch]=useState('');
   const [loading,setLoading]=useState(true), [snapshot,setSnapshot]=useState(null);
   const [slaFilter,setSlaFilter]=useState(''), [refreshId,setRefreshId]=useState(0), [saving,setSaving]=useState(false);
@@ -652,22 +688,25 @@ function MonthlyOrders({preview,running}) {
   const groups=useMemo(()=>{
     const query=deferredSearch.toLowerCase(),completed=new Set(selectedMonth?.completed_ids||[]);
     const rows=(selectedMonth?.rows||[]).filter(row=>!query||columns.some(column=>str(row[column]).toLowerCase().includes(query)));
+    if(reportMode==='excel')return [['Month Orders',rows],...(snapshot?.statuses||[]).map(name=>[name,rows.filter(row=>(str(row.Status||row['Task Status']).trim()||'(Blank)')===name)])];
     return [['Month Orders',rows],['Completed Orders',rows.filter(row=>completed.has(str(row['Order Number']).trim()))],
       ['Awaiting for Clarification',rows.filter(row=>normalized(row['Task Status'] ?? row.Status)==='awaiting for clarification')]];
-  },[selectedMonth,deferredSearch]);
+  },[selectedMonth,deferredSearch,reportMode,snapshot?.statuses]);
   const names=MONTHLY_SERIES.map(series=>series.name);
+  const historyNames=[...names,...(reportMode==='excel'?(snapshot?.statuses||[]).map(name=>'Status: '+name):[])];
 
-  return <section className="daily-orders"><OfflineNotice snapshot={snapshot}/>{snapshot&&!snapshot.offline&&<p className="report-context">Google Sheets production · {snapshot.updated_at?`Refreshed ${new Date(snapshot.updated_at).toLocaleString()}`:'Refresh time unavailable'}</p>}
+  return <section className="daily-orders"><OfflineNotice snapshot={snapshot}/>{snapshot&&!snapshot.offline&&<p className="report-context">{snapshot.source||'Google Sheets'} production · {snapshot.updated_at?`Refreshed ${new Date(snapshot.updated_at).toLocaleString()}`:'Refresh time unavailable'}</p>}
+    {reportMode==='excel'&&<div className="notice">Import Excel report: all statuses from your saved files are included. Use Import files to replace an updated workbook or remove a saved file.</div>}
     {error&&<div className="notice error">{error}</div>}
-    <MonthlyMaintenance month={selectedMonth?.Month} running={running||saving||snapshot?.offline} onChanged={()=>setRefreshId(value=>value+1)}/>
+    {reportMode==='tracker'&&<MonthlyMaintenance month={selectedMonth?.Month} running={running||saving||snapshot?.offline} onChanged={()=>setRefreshId(value=>value+1)}/>}
     {loading?<div className="loading"><LoaderCircle className="spin"/>Loading monthly orders...</div>:<>
       <div className="section-heading"><h2>Monthly production orders</h2><div className="monthly-actions"><label>Month<select aria-label="Monthly orders date" disabled={saving} value={selectedMonth?.Month||''} onChange={e=>{setMonth(e.target.value);setSearch('');}}>{history.map(m=><option key={m.Month} value={m.Month}>{m.MonthLabel || m.Month}</option>)}</select></label><MonthlyDownload month={selectedMonth?.Month} disabled={running||saving||snapshot?.offline}/></div></div>
       <div className="metrics">{names.slice(0,4).map((name,index)=><div className={`metric ${['green','gold','gray','purple'][index]}`} key={name}><span>{name}</span><strong>{selectedMonth?.[name]??(error?'—':0)}</strong><small>{monthlyPercentage(selectedMonth,name)} of {selectedMonth?.['Month Orders']??0} month orders</small></div>)}</div>
       <p className="report-context">SLA percentages use completed orders with an On Time or Missed result. Orders without an SLA result are excluded.</p><div className="section-heading"><h2>SLA results</h2><button className="secondary" disabled={saving} onClick={()=>setRefreshId(value=>value+1)}>Refresh SLA</button></div>
       <div className="metrics sla-metrics">{names.slice(4).map(name=>{const value=name==='SLA On Time'?'On Time':'Missing';return <button className={`metric sla-metric ${value==='On Time'?'green':'red'}`} key={name} disabled={saving} aria-pressed={slaFilter===value} onClick={()=>setSlaFilter(slaFilter===value?'':value)}><span>{name}</span><strong>{selectedMonth?.[name]??(error?'—':0)}</strong><small>{monthlyPercentage(selectedMonth,name)} of {(selectedMonth?.['SLA On Time']||0)+(selectedMonth?.['SLA Missed']||0)} SLA results</small></button>;})}</div>
-      <SlaOrdersTable key={selectedMonth?.Month||'empty'} rows={selectedMonth?.sla_rows||[]} statusFilter={slaFilter} onStatusFilter={setSlaFilter} onSave={saveSla} running={running||snapshot?.offline}/>
-      <MonthlyOrdersChart history={history} selectedMonth={selectedMonth?.Month} onSelect={value=>{if(value){setMonth(value);setSearch('');}}}/>
-      <div className="table-scroll"><table><thead><tr>{['Month','Previews',...names].map(name=><th key={name}>{name}</th>)}</tr></thead><tbody>{history.map(m=><tr key={m.Month}><td><button className="text-button" onClick={()=>{setMonth(m.Month);setSearch('');}}>{m.MonthLabel || m.Month}</button></td><td>{m.Previews.join(', ')}</td>{names.map(name=><td key={name}>{`${m[name]??0} (${monthlyPercentage(m,name)})`}</td>)}</tr>)}</tbody></table></div>
+      <SlaOrdersTable key={selectedMonth?.Month||'empty'} rows={selectedMonth?.sla_rows||[]} statusFilter={slaFilter} onStatusFilter={setSlaFilter} onSave={saveSla} running={running||snapshot?.offline||reportMode==='excel'}/>
+      <ImportedStatusSummary report={selectedMonth}/><MonthlyOrdersChart series={reportMode==='excel'?importedSeries(snapshot):MONTHLY_SERIES} history={history} selectedMonth={selectedMonth?.Month} onSelect={value=>{if(value){setMonth(value);setSearch('');}}}/>
+      <div className="table-scroll"><table><thead><tr>{['Month','Previews',...historyNames].map(name=><th key={name}>{name}</th>)}</tr></thead><tbody>{history.map(m=><tr key={m.Month}><td><button className="text-button" onClick={()=>{setMonth(m.Month);setSearch('');}}>{m.MonthLabel || m.Month}</button></td><td>{m.Previews.join(', ')}</td>{historyNames.map(name=><td key={name}>{`${m[name]??0} (${monthlyPercentage(m,name)})`}</td>)}</tr>)}</tbody></table></div>
       <div className="filter-toolbar"><div className="search-input"><Search size={16}/><input aria-label="Search monthly orders" placeholder="Search all columns" value={search} onChange={e=>setSearch(e.target.value)}/></div></div>
       {selectedMonth?groups.map(([name,items])=><DataTable key={name} rows={items} columns={columns} filters={{}} openFilter={()=>{}} filterable={false} name={`${name} · ${items.length}`}/>):<div className="table-empty">No monthly orders</div>}
     </>}

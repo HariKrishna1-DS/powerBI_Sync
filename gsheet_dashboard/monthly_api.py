@@ -86,6 +86,8 @@ def register_monthly_routes(app, store, gate, maintenance, production_cache, loa
             with store.connect() as db:
                 db.execute("UPDATE monthly_operations SET status='applied',result_json=? WHERE id=?", (json.dumps(result), plan['id']))
             production_cache.invalidate()
+            if app.extensions.get('publish_active_reports'):
+                result['publication'] = app.extensions['publish_active_reports']()
             return jsonify(result)
         except ValueError as exc:
             return jsonify(error=str(exc)), 409

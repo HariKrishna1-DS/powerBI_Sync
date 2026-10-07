@@ -3,15 +3,27 @@ import re
 from collections import defaultdict
 
 
+def capacity_report_values(monthly_reports, daily_reports=()):
+    """Use the supplied daily targets only for dates present in the source."""
+    from report_workspace import capacity_report, CAPACITY_COLUMNS
+    from tracker_sync import matrix
+    report = capacity_report({'monthly': monthly_reports, 'daily': list(daily_reports)}, {})
+    rows = report['monthly']
+    year = report['month'][:4]
+    total = {'Date': f'{year} YTD Total', **{c: sum(r.get(c, 0) for r in rows if r['Date'].startswith(year)) for c in CAPACITY_COLUMNS[1:]}}
+    daily_total = {'Date': 'Total', **{c: sum(r.get(c, 0) for r in report['daily']) for c in CAPACITY_COLUMNS[1:]}}
+    return matrix(rows + [total] + report['daily'] + [daily_total], CAPACITY_COLUMNS)
+
+
 def view_name(full, month):
     from monthly_production import month_key, MONTHS
     month_key(month)
-    return f'{"Full_search" if full else "Remaining"}_{MONTHS[int(month[5:])-1].upper()}_{month[:4]}'
+    return f'{"Full_Search" if full else "Remaining_Search"}_{MONTHS[int(month[5:])-1].upper()}_{month[:4]}'
 
 
 def view_identity(title):
     from monthly_production import MONTHS
-    match = re.fullmatch(r'(Full_search|Remaining)_([A-Za-z]{3})_(\d{4})', title, re.I)
+    match = re.fullmatch(r'(Full_Search|Remaining_Search|Full_search|Remaining)_([A-Za-z]{3})_(\d{4})', title, re.I)
     months = [month.upper() for month in MONTHS]
     if match and match[2].upper() in months:
         return match[1].casefold() == 'full_search', f'{match[3]}-{months.index(match[2].upper())+1:02}'
@@ -85,7 +97,7 @@ def refresh_monthly_views(book):
         plan['writes']['Status Report'] = encode([dict(metadata, Status=s, Orders=n, Share=n/total if total else 0)
             for s, n in statuses.items()], status_headers)
         reports = sheet_reports(repaired)
-        for title, kind, period in (('Daily Orders', 'daily', 'Date'), ('Monthly report', 'monthly', 'Month')):
+        for title, kind, period in (('Monthly Orders', 'monthly', 'Month'),):
             if title in sheets:
                 prior = sheets[title].get_all_values()
                 by_period = {r[period]: r for r in reports[kind]}
@@ -96,6 +108,7 @@ def refresh_monthly_views(book):
                         if column in result:
                             row[column] = result[column]
                 plan['writes'][title] = encode(report_rows, prior[0])
+        plan['writes']['Capacity Report'] = capacity_report_values(reports['monthly'], reports['daily'])
     def normalized(values):
         result = []
         for row in values:
@@ -110,6 +123,12 @@ def refresh_monthly_views(book):
         if normalized(prior) != normalized(values):
             plan['writes'][title] = values
             plan.setdefault('archive_fingerprints', {})[title] = fingerprint(prior)
+    reports = sheet_reports(repaired)
+    capacity_values = capacity_report_values(reports['monthly'], reports['daily'])
+    prior_capacity = sheets['Capacity Report'].get_all_values(value_render_option='UNFORMATTED_VALUE') if 'Capacity Report' in sheets else []
+    if normalized(prior_capacity) != normalized(capacity_values):
+        plan['writes']['Capacity Report'] = capacity_values
+        plan.setdefault('archive_fingerprints', {})['Capacity Report'] = fingerprint(prior_capacity)
     if plan['writes']:
         if 'Sheet1' in sheets:
             plan.setdefault('archive_fingerprints', {})['Sheet1'] = fingerprint(raw_values)

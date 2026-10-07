@@ -4,12 +4,14 @@ import { Activity, Camera, Home, ListFilter, Settings2, ArrowDown, ArrowUp, Arro
 import './style.css';
 import './tokens.css';
 import {OrdersWorkspace, ProductionOverview, OperationActivity, ThemeControl, VIEW_TITLES} from './StudioWorkspace';
+import ReportControls from './ReportControls';
+const CapacityReport = React.lazy(() => import('./CapacityReport'));
 import DismissibleNotice from './DismissibleNotice';
 import {WorkspaceSidebar, WorkspaceContext, SheetSegments, CapturePicker, useSidebarState} from './WorkspaceShell';
 import {MonthlyActivity} from './MonthlyMaintenance';
 import {DesktopTools, LocalWelcome, OfflineNotice, WorkspaceBoundary} from './DesktopExperience';
 import remainingProducts from '../../remaining_products.json';
-import {readProduction} from './productionResource';
+import {readProduction,invalidateProduction} from './productionResource';
 
 import {EMPTY, DEFAULT_IGNORE, colors, str, label, normalized, badgeClass, STATUS_COLORS, statusColor, textColorForBg, api, saveBlob, csvDownload, matches, IconButton} from './workspaceUtils';
 const OverviewDashboard = React.lazy(() => import('./WorkspaceViews').then(module => ({default: module.OverviewDashboard})));
@@ -70,15 +72,20 @@ function StatusReport({rows}) {
 
 function App() {
   const [state,setState]=useState({previews:[],job:{running:false,stage:'Ready'}}), [selected,setSelected]=useState(null), [preview,setPreview]=useState(EMPTY), [view,setView]=useState('sheets');
+  const [reportMode,setReportMode]=useState('tracker'), [reportRevision,setReportRevision]=useState(0), [reportImportOpen,setReportImportOpen]=useState(false);
   const [previous,setPrevious]=useState(''), [diff,setDiff]=useState(null), [keys,setKeys]=useState([]), [ignore,setIgnore]=useState(DEFAULT_IGNORE), [compareBusy,setCompareBusy]=useState(false), [compareError,setCompareError]=useState('');
   const [filters,setFilters]=useState({}), [filterColumn,setFilterColumn]=useState(null), [search,setSearch]=useState(''), [error,setError]=useState(''), [pending,setPending]=useState(false), [loading,setLoading]=useState(false), [uploading,setUploading]=useState(false);
   const [chartSelection,setChartSelection]=useState(null), [scheduleDraft,setScheduleDraft]=useState({enabled:false,times:['09:00'],newTime:'10:00'}), [savingSchedule,setSavingSchedule]=useState(false);
   const [selectedRemainingProducts, setSelectedRemainingProducts] = useState([]);
   const [savingProducts,setSavingProducts]=useState(false);
-  const [liveSheets,setLiveSheets]=useState(null), [liveSheetError,setLiveSheetError]=useState('');
+  const [loadedSheets,setLiveSheets]=useState(null), [liveSheetError,setLiveSheetError]=useState('');
   const [refreshingProduction,setRefreshingProduction]=useState(false);
+  const [connectionError,setConnectionError]=useState(''), [cancelling,setCancelling]=useState(false);
+  const liveSheets=loadedSheets?.mode===reportMode&&(loadedSheets.data_revision||'')===(state.report_workspace?.data_revision||'')?loadedSheets:null;
+  const sourceKey=`${reportMode}:${state.report_workspace?.data_revision||reportRevision}`;
+  const sourceEditVersion=useRef(0);
   const [deleteMessage,setDeleteMessage]=useState('');
-  const upload=useRef(), seen=useRef(null), scheduleLoaded=useRef(false), remainingLoaded=useRef(false), refreshRequest=useRef(null), jobRunning=useRef(false);
+  const seen=useRef(null), scheduleLoaded=useRef(false), remainingLoaded=useRef(false), refreshRequest=useRef(null), jobRunning=useRef(false);
   const [compareAttempt,setCompareAttempt]=useState(0);
   const [sheetGroup,setSheetGroup]=useState('all'), [scheduleMessage,setScheduleMessage]=useState('');
   const [sidebarCollapsed,setSidebarCollapsed,sidebarReady,sidebarError]=useSidebarState();
@@ -119,8 +126,10 @@ function App() {
   async function refresh() {
     if(refreshRequest.current)return refreshRequest.current;
     refreshRequest.current=(async()=>{
+    const editVersion=sourceEditVersion.current;
     const next=await api('/api/state?light=1');
-    setState(next);jobRunning.current=next.job.running;
+    if(editVersion!==sourceEditVersion.current)return;
+    setState(next);setConnectionError('');setReportMode(next.report_workspace?.mode||'tracker');jobRunning.current=next.job.running;
     if(next.schedule&&!scheduleLoaded.current){
       const times = next.schedule.times && next.schedule.times.length ? next.schedule.times : [next.schedule.time || '09:00'];
       setScheduleDraft(prev => ({ ...prev, enabled: !!next.schedule.enabled, times: times }));
@@ -131,8 +140,9 @@ function App() {
     })();
     try{return await refreshRequest.current;}finally{refreshRequest.current=null;}
   }
-  useEffect(()=>{let active=true,timer;const poll=async()=>{try{if(active)await refresh();}catch(e){if(active)setError(e.message);}finally{if(active)timer=setTimeout(poll,document.hidden?30000:jobRunning.current?1800:10000);}};poll();return()=>{active=false;clearTimeout(timer);};},[]);
+  useEffect(()=>{let active=true,timer;const poll=async()=>{try{if(active)await refresh();}catch(e){if(active)setConnectionError(e.message);}finally{if(active)timer=setTimeout(poll,document.hidden?30000:jobRunning.current?1800:10000);}};poll();return()=>{active=false;clearTimeout(timer);};},[]);
   useEffect(()=>{if(!selected)return;let cancelled=false;setLoading(true);setPreview(EMPTY);setKeys([]);api(`/api/previews/${selected}`).then(data=>{if(!cancelled)setPreview(data);}).catch(e=>{if(!cancelled)setError(e.message);}).finally(()=>{if(!cancelled)setLoading(false);});return()=>{cancelled=true;};},[selected]);
+  useEffect(()=>{invalidateProduction();setLiveSheets(null);setFilters({});setSearch('');setChartSelection(null);},[sourceKey]);
   useEffect(()=>{
     if(!['sheets','overview'].includes(view))return;
     let active=true, busy=false;
@@ -140,19 +150,19 @@ function App() {
       if(busy)return;
       busy=true;
       try{const data=await readProduction();if(active){setLiveSheets(data);setLiveSheetError('');}}
-      catch(e){if(active){setLiveSheets(previous=>previous?{...previous,offline:true}:null);setLiveSheetError(e.message);}}
+      catch(e){if(active&&e.name!=='AbortError'){setLiveSheets(previous=>previous?{...previous,offline:true}:null);setLiveSheetError(e.message);}}
       finally{busy=false;}
     };
     refresh();const timer=setInterval(()=>{if(!document.hidden)refresh();},30000);
     const visible=()=>{if(!document.hidden)refresh();};
     document.addEventListener('visibilitychange',visible);
     return()=>{active=false;clearInterval(timer);document.removeEventListener('visibilitychange',visible);};
-  },[view,state.job.running]);
+  },[view,state.job.running,sourceKey]);
   async function refreshProduction(){
     if(refreshingProduction)return;
     setRefreshingProduction(true);
     try{setLiveSheets(await readProduction(true));setLiveSheetError('');}
-    catch(e){setLiveSheetError(e.message);setLiveSheets(previous=>previous?{...previous,offline:true}:null);}
+    catch(e){if(e.name!=='AbortError'){setLiveSheetError(e.message);setLiveSheets(previous=>previous?{...previous,offline:true}:null);}}
     finally{setRefreshingProduction(false);}
   }
   useEffect(()=>{setFilters({});setFilterColumn(null);setSearch('');setChartSelection(null);},[view]);
@@ -236,24 +246,35 @@ function App() {
   }, [view, filtered, table.columns, liveSheets, preview, loading, selected]);
 
   async function extract(){setPending(true);setError('');try{await api('/api/extract',{method:'POST'});await refresh();}catch(e){setError(e.message);}finally{setPending(false);}}
+  async function cancelExtraction(){
+    setCancelling(true);setError('');
+    try{await api('/api/extract/cancel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({run_id:state.job.run_id})});setState(current=>({...current,job:{...current.job,cancel_requested:true,stage:'Cancelling extraction…'}}));await refresh();}
+    catch(e){setError(e.message);}
+    finally{setCancelling(false);}
+  }
   const [exporting,setExporting]=useState(false);
   async function exportSheets(){
     setExporting(true);setError('');
     try{
-      let response=await fetch('/api/export/google-sheets');
-      if(response.status===409){
-        const result=await response.json();
-        if(!result.requires_short_names)throw Error(result.error||'Export failed');
-        const proposed=Object.entries(result.proposed_names||{}).map(([from,to])=>`${from} → ${to}`).join('\n');
-        if(!window.confirm(`Use these Excel tab names in the exported copy?\n\n${proposed}\n\nGoogle Sheets tab names stay unchanged.`))return;
-        response=await fetch('/api/export/google-sheets?short_names=true');
-      }
+      const response=await fetch('/api/export/report');
       if(!response.ok)throw Error((await response.json()).error||'Export failed');
       const filename=response.headers.get('Content-Disposition')?.match(/filename="?([^";]+)/)?.[1]||'Production_data.xlsx';
       saveBlob(await response.blob(),filename);
     }catch(e){setError(e.message);}finally{setExporting(false);}
   }
-  async function syncSheets(){setPending(true);setError('');try{await api('/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({preview:selected,previous:previous?Number(previous):null,keys,ignore,remaining_products:selectedRemainingProducts.length>0?selectedRemainingProducts:null})});await refresh();}catch(e){setError(e.message);}finally{setPending(false);}}
+  async function reportsChanged(next){
+    sourceEditVersion.current++;
+    invalidateProduction();setLiveSheets(null);setLiveSheetError('');
+    setState(current=>({...current,report_workspace:next}));
+    setReportMode(next.mode);setReportRevision(value=>value+1);setFilters({});setSearch('');setChartSelection(null);
+    if(next.mode==='excel')setSelectedRemainingProducts([]);else remainingLoaded.current=false;
+    await refresh();
+  }
+  async function syncSheets(){setPending(true);setError('');try{
+    if(reportMode==='excel'||!selected){const result=await api('/api/report-publish',{method:'POST',timeoutMs:180000});if(!result.synced&&!result.queued)throw Error(result.sync_error);}
+    else await api('/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({preview:selected,previous:previous?Number(previous):null,keys,ignore})});
+    await refresh();
+  }catch(e){setError(e.message);}finally{setPending(false);}}
   async function retryFailed(id){setPending(true);setError('');try{await api('/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({preview:id})});await refresh();}catch(e){setError(e.message);}finally{setPending(false);}}
   async function saveSchedule(enabled=true, times=scheduleDraft.times){
     setSavingSchedule(true);
@@ -270,17 +291,17 @@ function App() {
       setSavingSchedule(false);
     }
   }
-  async function importFile(e){const file=e.target.files[0];if(!file)return;setUploading(true);setError('');try{const body=new FormData();body.append('file',file);await api('/api/import',{method:'POST',body});await refresh();}catch(e){setError(e.message);}finally{setUploading(false);e.target.value='';}}
+
   function choosePrevious(value){setPrevious(value);if(!value)return;const index=state.previews.findIndex(p=>p.id===Number(value));const newer=state.previews[index-1];if(newer)setSelected(newer.id);}
   function chooseLatest(value){const id=Number(value);setSelected(id);const index=state.previews.findIndex(p=>p.id===id);setPrevious(String(state.previews[index+1]?.id||''));}
   async function deletePreview(event,id){event.stopPropagation();const target=state.previews.find(p=>p.id===id);if(!window.confirm(`Delete ${target?.name||`preview${id}`} and its saved CSV/Excel files? A workspace recovery copy will be saved first. You can restore it in Settings > Local data & recovery.`))return;setError('');setDeleteMessage('');try{const deleted=await api(`/api/previews/${id}`,{method:'DELETE'});if(deleted.recovery_backup)setDeleteMessage(`Capture deleted. Recovery copy: ${deleted.recovery_backup}. Find it in your workspace backups folder; restore it through Settings.`);const next=await api('/api/state?light=1');setState(next);seen.current=next.previews[0]?.id??null;const nextSelected=id===selected?(next.previews[0]?.id??null):selected;setSelected(nextSelected);const index=next.previews.findIndex(p=>p.id===nextSelected);setPrevious(String(next.previews[index+1]?.id||''));if(!nextSelected){setPreview(EMPTY);setDiff(null);}}catch(e){setError(e.message);}}
   async function downloadChanges(){try{const response=await fetch('/api/compare',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({previous:Number(previous),latest:selected,keys,ignore,download:true})});if(!response.ok)throw Error((await response.json()).error);saveBlob(await response.blob(),`${diff.previous}-to-${diff.latest}-changes.xlsx`);}catch(e){setError(e.message);}}
-  const running=state.job.running||pending, result=state.job.result;
+  const running=state.job.running||pending||uploading, result=state.job.result;
   return <div className={`workspace ${sidebarCollapsed?'sidebar-collapsed':''}`} data-view={view}>
     <a className="skip-link" href="#workspace-content">Skip to workspace</a>
     <WorkspaceSidebar state={state} selected={selected} view={view} onNavigate={navigate} collapsed={sidebarCollapsed} onToggle={()=>{if(sidebarReady)setSidebarCollapsed(!sidebarCollapsed).catch(()=>{});}} snapshot={liveSheets} busy={running} onDelete={deletePreview} onSelect={id=>{setSelected(id);navigate('captures');const index=state.previews.findIndex(p=>p.id===id);setPrevious(String(state.previews[index+1]?.id||''));}}/>
-    <main ref={mainScroll}><header className="topbar"><div className="breadcrumb"><span>Workspace</span><ChevronRight size={13}/><strong>{VIEW_TITLES[view]}</strong></div><div className="inline"><DesktopTools onNavigate={navigate} onImport={()=>upload.current.click()} running={running}/><span className={`run-state ${running?'running':''}`}>{running&&<LoaderCircle size={14} className="spin"/>}{pending&&!state.job.running?'Starting…':state.job.stage}</span><button className="secondary" onClick={()=>upload.current.click()} disabled={uploading||(running&&state.job.action!=='sync')}><Upload size={16}/>{uploading?'Importing…':'Import file'}</button><button className="secondary" onClick={exportSheets} disabled={exporting||running} title="Download all Google Sheet tabs as Excel">{exporting?<LoaderCircle size={16} className="spin"/>:<ArrowDownToLine size={16}/>} {exporting?'Exporting...':'Export'}</button><input ref={upload} type="file" hidden accept=".csv,.xlsx" onChange={importFile}/></div></header>
-      <div className="content" id="workspace-content" tabIndex={-1}><div className="page-heading"><div><span className="eyebrow">TITLE PRODUCTION</span><h1>{VIEW_TITLES[view]}</h1><p className="muted">{productionView?(view==='sheets'?'Keep every order in view.':'Your production, clearly organized.'):(preview.name?`${preview.name} · ${new Date(preview.created).toLocaleString()}`:'Your local production workspace')}</p></div><div className="page-actions"><button className="secondary" onClick={syncSheets} disabled={running||!selected||loading||compareBusy||!!compareError}>{state.job.action==='sync'&&running?<LoaderCircle size={17} className="spin"/>:<CloudUpload size={17}/>}<span>{state.job.action==='sync'&&running?'Syncing…':'Sync to Sheets'}</span></button><details className="sync-schedule"><summary><Clock3 size={16}/><span>AutoLogin Trigger</span><span className={`schedule-state ${state.schedule?.enabled?'enabled':''}`}>{state.schedule?.enabled?'On':'Paused'}</span></summary><div>
+    <main ref={mainScroll}><header className="topbar"><div className="breadcrumb"><span>Workspace</span><ChevronRight size={13}/><strong>{VIEW_TITLES[view]}</strong></div><div className="inline"><ReportControls mode={reportMode} running={running} open={reportImportOpen} setOpen={setReportImportOpen} onChanged={reportsChanged} onBusy={setUploading} workspaceState={state.report_workspace}/><DesktopTools onNavigate={navigate} onImport={()=>setReportImportOpen(true)} running={running}/><span className={`run-state ${running?'running':''}`}>{running&&<LoaderCircle size={14} className="spin"/>}{pending&&!state.job.running?'Starting…':state.job.stage}</span><button className="secondary" onClick={()=>setReportImportOpen(true)} disabled={uploading}><Upload size={16}/>{uploading?'Importing…':'Import files'}</button><button className="secondary" onClick={exportSheets} disabled={exporting||running} title="Download the selected report source as Excel">{exporting?<LoaderCircle size={16} className="spin"/>:<ArrowDownToLine size={16}/>} {exporting?'Exporting...':'Export'}</button></div></header>
+      <div className="content" id="workspace-content" tabIndex={-1}><div className="page-heading"><div><span className="eyebrow">TITLE PRODUCTION</span><h1>{VIEW_TITLES[view]}</h1><p className="muted">{productionView?(view==='sheets'?'Keep every order in view.':'Your production, clearly organized.'):(preview.name?`${preview.name} · ${new Date(preview.created).toLocaleString()}`:'Your local production workspace')}</p></div><div className="page-actions"><button className="secondary" onClick={syncSheets} disabled={running||loading||compareBusy||!!compareError}>{state.job.action==='sync'&&running?<LoaderCircle size={17} className="spin"/>:<CloudUpload size={17}/>}<span>{state.job.action==='sync'&&running?'Syncing…':'Sync to Sheets'}</span></button><details className="sync-schedule"><summary><Clock3 size={16}/><span>AutoLogin Trigger</span><span className={`schedule-state ${state.schedule?.enabled?'enabled':''}`}>{state.schedule?.enabled?'On':'Paused'}</span></summary><div>
         <TriggerClock schedule={state.schedule} clock={state.clock}/>
         <button className="secondary" disabled={savingSchedule||!state.schedule} onClick={()=>saveSchedule(!state.schedule?.enabled,state.schedule?.times||[state.schedule?.time||'09:00'])}>{state.schedule?.enabled?'Pause schedule':'Resume schedule'}</button>
         <div className="schedule-times-label">Scheduled times (IST):</div>
@@ -300,34 +321,37 @@ function App() {
         </div>
         <button className="primary" onClick={()=>saveSchedule()} disabled={savingSchedule||!scheduleDraft.times.length}>{savingSchedule?'Saving…':'Save AutoLogin Trigger'}</button>
         {scheduleMessage&&<p className="schedule-feedback" role="status"><Check size={14}/>{scheduleMessage}</p>}{state.schedule?.last_triggered_date&&<small>Last triggered {state.schedule.last_triggered_date}</small>}
-      </div></details><button className="primary" onClick={extract} disabled={running}>{state.job.action==='extract'&&running?<LoaderCircle size={17} className="spin"/>:<Camera size={17}/>}<span>{state.job.action==='extract'&&running?'Extracting…':'Extract Queue'}</span></button></div></div>
-      <WorkspaceContext view={view} production={productionView} preview={preview} snapshot={liveSheets} running={running} stage={pending&&!state.job.running?'Starting…':state.job.stage} pending={state.pending_sync} selected={selected} sheetUrl={state.sheet_url} onRefresh={refreshProduction} refreshing={refreshingProduction}/>
+      </div></details><button className="primary" onClick={extract} disabled={running}>{state.job.action==='extract'&&running?<LoaderCircle size={17} className="spin"/>:<Camera size={17}/>}<span>{state.job.action==='extract'&&running?'Extracting…':'Extract Queue'}</span></button>{state.job.running&&state.job.action==='extract'&&<button className="secondary" onClick={cancelExtraction} disabled={cancelling||state.job.cancel_requested}><X size={17}/>{cancelling||state.job.cancel_requested?'Cancelling…':'Cancel extraction'}</button>}</div></div>
+      <WorkspaceContext reportMode={reportMode} view={view} production={productionView} preview={preview} snapshot={liveSheets} running={running} stage={pending&&!state.job.running?'Starting…':state.job.stage} pending={state.pending_sync} selected={selected} sheetUrl={state.sheet_url} onRefresh={refreshProduction} refreshing={refreshingProduction}/>
       {sidebarError&&<div className="notice warning" role="alert">{sidebarError}</div>}
       {deleteMessage&&<div className="notice" role="status">{deleteMessage}<IconButton title="Dismiss recovery message" onClick={()=>setDeleteMessage('')}><X size={16}/></IconButton></div>}
       {(state.failed_syncs||[]).map(failure=><div key={failure.preview_id} className="notice warning" role="alert"><strong>{failure.preview_name} retained locally.</strong> {failure.error}<button className="secondary" disabled={running} onClick={()=>retryFailed(failure.preview_id)}>Retry sync</button></div>)}
       {view==='audit'&&<div className="notice">Local sync activity · {syncAudit?.preview_name||'No sync report yet'}</div>}
       {view==='audit'&&auditError&&<div className="notice error">{auditError}</div>}
       {error&&<div className="notice error" role="alert">{error}<IconButton title="Dismiss error" onClick={()=>setError('')}><X size={16}/></IconButton></div>}
-      {liveSheetError&&(!state.capabilities?.desktop||state.capabilities?.google_configured)&&productionView&&<div className="notice warning" role="status">Connect Google Sheets to load production reports. {liveSheetError}</div>}
+      {connectionError&&<div className="notice warning" role="status">{connectionError}</div>}
+      {liveSheetError&&(!state.capabilities?.desktop||state.capabilities?.google_configured)&&productionView&&<div className="notice warning" role="status">{reportMode==='excel'?'Imported Excel reports are saved locally.':'Could not refresh Google Sheets reports.'} {liveSheetError}</div>}
       {liveSheets?.cache_warning&&productionView&&<div className="notice warning" role="status">{liveSheets.cache_warning}</div>}
-      {productionView&&<OfflineNotice snapshot={liveSheets}/>}{liveCurrent&&!liveSheets.offline&&<DismissibleNotice key={`connected-${state.job.run_id}`} noticeId={`connected-${state.job.run_id}`} role="status"><Check size={14}/>Google Sheets connected · all retained tracker orders{liveSheets.updated_at&&<span> · Refreshed {new Date(liveSheets.updated_at).toLocaleTimeString()}</span>}</DismissibleNotice>}
+      {productionView&&<OfflineNotice snapshot={liveSheets}/>}{liveCurrent&&!liveSheets.offline&&<DismissibleNotice key={`connected-${state.job.run_id}`} noticeId={`connected-${state.job.run_id}`} role="status"><Check size={14}/>{reportMode==='excel'?'Imported Excel report · all uploaded dates':'Google Sheets connected · all retained tracker orders'}{liveSheets.updated_at&&<span> · Refreshed {new Date(liveSheets.updated_at).toLocaleTimeString()}</span>}</DismissibleNotice>}
       {result?.error&&<DismissibleNotice key={`error-${state.job.run_id}`} noticeId={`error-${state.job.run_id}`} className="notice warning" role="status">{result.preview_name&&<strong>{result.preview_name} saved. </strong>}{result.error}</DismissibleNotice>}
-      {result&&!result.error&&!running&&<DismissibleNotice key={`result-${state.job.run_id}`} noticeId={`result-${state.job.run_id}`} className="notice success"><Check size={16}/>{result.action==='sync'?`${result.preview_name} synced · ${result.rows} rows · ${result.worksheets?.length||0} Google Sheets tabs updated`:`${result.preview_name} saved locally · ${result.rows} rows · Google Sheets sync pending`}</DismissibleNotice>}
-      {result?.pass_report&&!running&&<DismissibleNotice key={`scan-${state.job.run_id}`} noticeId={`scan-${state.job.run_id}`} role="status">{result.pass_report.scanned} scanned · {result.pass_report.added} added · {result.pass_report.updated} updated · {result.pass_report.unchanged} unchanged · {reportCount(result.pass_report,'not_in_latest')} not in latest preview</DismissibleNotice>}
-      {result?.pass_report&&!running&&(reportCount(result.pass_report,'ambiguous')+reportCount(result.pass_report,'unprocessed')>0)&&<DismissibleNotice key={`review-${state.job.run_id}`} noticeId={`review-${state.job.run_id}`} className="notice warning" role="status">{reportCount(result.pass_report,'ambiguous')+reportCount(result.pass_report,'unprocessed')} review items · open Sync activity to review the saved local report.</DismissibleNotice>}
+      {result?.cancelled&&!running&&<DismissibleNotice key={`cancelled-${state.job.run_id}`} noticeId={`cancelled-${state.job.run_id}`} role="status">Extraction cancelled. {result.saved_locally?`${result.preview_name} remains saved locally for sync.`:'Existing captures and imported reports are retained.'}</DismissibleNotice>}
+      {result&&!result.error&&!result.cancelled&&!running&&<DismissibleNotice key={`result-${state.job.run_id}`} noticeId={`result-${state.job.run_id}`} className="notice success"><Check size={16}/>{result.action==='sync'?`${result.preview_name} synced · ${result.rows} rows · ${result.worksheets?.length||0} Google Sheets tabs updated`:`${result.preview_name} saved locally · ${result.rows} rows · Google Sheets sync pending`}</DismissibleNotice>}
+      {result?.pass_report&&!running&&(reportMode==='tracker'||view==='audit')&&<DismissibleNotice key={`scan-${state.job.run_id}`} noticeId={`scan-${state.job.run_id}`} role="status">{result.pass_report.scanned} scanned · {result.pass_report.added} added · {result.pass_report.updated} updated · {result.pass_report.unchanged} unchanged · {reportCount(result.pass_report,'not_in_latest')} not in latest preview</DismissibleNotice>}
+      {result?.pass_report&&!running&&(reportMode==='tracker'||view==='audit')&&(reportCount(result.pass_report,'ambiguous')+reportCount(result.pass_report,'unprocessed')>0)&&<DismissibleNotice key={`review-${state.job.run_id}`} noticeId={`review-${state.job.run_id}`} className="notice warning" role="status">{reportCount(result.pass_report,'ambiguous')+reportCount(result.pass_report,'unprocessed')} review items · open Sync activity to review the saved local report.</DismissibleNotice>}
       {view==='audit'&&<><OperationActivity running={running}/><MonthlyActivity/></>}
-      <React.Suspense fallback={<div className="loading" role="status"><LoaderCircle className="spin"/>Loading view…</div>}>{!state.previews.length && !liveSheets && !['monthly','audit'].includes(view) ? <LocalWelcome onImport={()=>upload.current.click()}/> : view==='overview'?<><ProductionOverview snapshot={liveSheets} state={state} onNavigate={navigate}/><OverviewDashboard rows={filtered} columns={table.columns} onSelect={setChartSelection} selectedProducts={selectedRemainingProducts} setSelectedProducts={handleProductSelectionChange} savingProducts={savingProducts}/><AdvancedChart rows={filtered} columns={table.columns} onSelect={setChartSelection}/><React.Suspense fallback={null}>{chartSelection&&<SideDrawer title={`${chartSelection.column}: ${chartSelection.value}`} rows={chartRows} columns={table.columns} onClose={()=>setChartSelection(null)}/>}</React.Suspense></>:view==='sheets'?<><SheetSegments value={sheetGroup} onChange={value=>{setSheetGroup(value);setFilterColumn(null);}} counts={Object.fromEntries(Object.entries(sheetTables).map(([key,value])=>[key,value.rows.length]))}/><div className={filterColumn?'data-layout with-filter':'data-layout'}><OrdersWorkspace snapshot={liveSheets} rows={filtered} columns={table.columns} search={search} setSearch={setSearch} filters={filters} setFilters={setFilters} openFilter={setFilterColumn} previews={state.previews}/>{filterColumn&&<FilterPanel key={filterColumn} column={filterColumn} rows={table.rows} filters={filters} setFilters={setFilters} close={()=>setFilterColumn(null)}/>}</div></>:<>
+      <React.Suspense fallback={<div className="loading" role="status"><LoaderCircle className="spin"/>Loading view…</div>}>{!state.previews.length && !liveSheets && !['monthly','audit','capacity'].includes(view) ? <LocalWelcome onImport={()=>setReportImportOpen(true)}/> : view==='overview'?<><ProductionOverview snapshot={liveSheets} state={state} onNavigate={navigate}/><OverviewDashboard key={sourceKey} rows={filtered} columns={table.columns} onSelect={setChartSelection} selectedProducts={selectedRemainingProducts} setSelectedProducts={handleProductSelectionChange} savingProducts={savingProducts}/><AdvancedChart rows={filtered} columns={table.columns} onSelect={setChartSelection}/><React.Suspense fallback={null}>{chartSelection&&<SideDrawer title={`${chartSelection.column}: ${chartSelection.value}`} rows={chartRows} columns={table.columns} onClose={()=>setChartSelection(null)}/>}</React.Suspense></>:view==='sheets'?<><SheetSegments value={sheetGroup} onChange={value=>{setSheetGroup(value);setFilterColumn(null);}} counts={Object.fromEntries(Object.entries(sheetTables).map(([key,value])=>[key,value.rows.length]))}/><div className={filterColumn?'data-layout with-filter':'data-layout'}><OrdersWorkspace key={sourceKey} snapshot={liveSheets} rows={filtered} columns={table.columns} search={search} setSearch={setSearch} filters={filters} setFilters={setFilters} openFilter={setFilterColumn} previews={state.previews}/>{filterColumn&&<FilterPanel key={filterColumn} column={filterColumn} rows={table.rows} filters={filters} setFilters={setFilters} close={()=>setFilterColumn(null)}/>}</div></>:<>
       {view==='captures'&&<CapturePicker previews={state.previews} selected={selected} onSelect={chooseLatest} onDelete={deletePreview} busy={running}/>}
       {view==='captures'&&preview.id&&<div className="notice" role="status">Raw saved capture · {preview.name}<a className="secondary" href={`/api/previews/${preview.id}/download/xlsx`}>Download Excel</a></div>}{view==='changes'&&<section className="compare-controls"><label>Previous preview<select aria-label="Previous preview" value={previous} onChange={e=>choosePrevious(e.target.value)}><option value="">Select a preview</option>{state.previews.filter(p=>p.id!==selected).map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label><ArrowLeftRight size={18}/><label>Latest preview<select aria-label="Latest preview" value={selected||''} onChange={e=>chooseLatest(e.target.value)}>{state.previews.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select></label><span className="muted">Matched by Order Number (ignoring case and surrounding spaces)</span><details className="match-options"><summary>Ignored columns ({ignore.length})</summary><div>{preview.columns.map(c=><label className="check-row" key={c}><input type="checkbox" checked={ignore.includes(c)} onChange={()=>setIgnore(ignore.includes(c)?ignore.filter(k=>k!==c):[...ignore,c])}/>{c}</label>)}</div></details><button className="secondary" disabled={!diff||compareBusy} onClick={downloadChanges}><ArrowDownToLine size={16}/>Power BI changes.xlsx</button></section>}
       {view==='changes'&&compareError&&<div className="notice warning" role="alert">{compareError}<button className="secondary" onClick={()=>setCompareAttempt(value=>value+1)}>Retry comparison</button></div>}
       {view==='changes'&&!previous&&<div className="notice">Capture or import a second preview to compare changes.</div>}
       {view==='changes'&&diff&&<><p className="comparison-method">{diff.method}</p>{(diff.added_columns.length>0||diff.removed_columns.length>0)&&<div className="notice">Columns added: {diff.added_columns.join(', ')||'None'} · Columns removed: {diff.removed_columns.join(', ')||'None'}</div>}</>}
-      {!['daily','monthly'].includes(view)&&<div className="metrics">{(view==='changes'?[['Matched',diff?.record_counts?.matched??'—','green'],['Missing Previews',diff?.record_counts?.missing??'—','red'],['Newly added',diff?.record_counts?.newly_added??'—','amber'],['Unchanged',diff?.record_counts?.unchanged??'—','gray']]:overviewMetrics).map(([title,value,color])=><div className={`metric ${color}`} key={title}><span>{title}</span><strong>{value}</strong></div>)}</div>}
-      {!['daily','monthly'].includes(view)&&<div className="filter-toolbar"><div className="search-input"><Search size={16}/><input aria-label="Search rows" placeholder="Search all columns" value={search} onChange={e=>setSearch(e.target.value)}/></div><select aria-label="Choose column filter" value={filterColumn||''} onChange={e=>setFilterColumn(e.target.value||null)}><option value="">Filter a column…</option>{table.columns.map(c=><option key={c}>{c}</option>)}</select>{Object.keys(filters).map(c=><button className="filter-chip" key={c} onClick={()=>setFilterColumn(c)}><Filter size={12}/>{c}</button>)}{Object.keys(filters).length>0&&<button className="text-button" onClick={()=>setFilters({})}>Clear filters</button>}<span className="row-tally">{filtered.length.toLocaleString()} / {table.rows.length.toLocaleString()} rows</span>{view!=='changes'&&preview.id&&<><button className="secondary" onClick={exportSheets} disabled={exporting||running}><ArrowDownToLine size={16}/>Production Excel</button><button className="secondary" onClick={()=>csvDownload(filtered,table.columns,`${view}.csv`)}>CSV</button></>}</div>}
+      {!['daily','monthly','capacity'].includes(view)&&<div className="metrics">{(view==='changes'?[['Matched',diff?.record_counts?.matched??'—','green'],['Missing Previews',diff?.record_counts?.missing??'—','red'],['Newly added',diff?.record_counts?.newly_added??'—','amber'],['Unchanged',diff?.record_counts?.unchanged??'—','gray']]:overviewMetrics).map(([title,value,color])=><div className={`metric ${color}`} key={title}><span>{title}</span><strong>{value}</strong></div>)}</div>}
+      {!['daily','monthly','capacity'].includes(view)&&<div className="filter-toolbar"><div className="search-input"><Search size={16}/><input aria-label="Search rows" placeholder="Search all columns" value={search} onChange={e=>setSearch(e.target.value)}/></div><select aria-label="Choose column filter" value={filterColumn||''} onChange={e=>setFilterColumn(e.target.value||null)}><option value="">Filter a column…</option>{table.columns.map(c=><option key={c}>{c}</option>)}</select>{Object.keys(filters).map(c=><button className="filter-chip" key={c} onClick={()=>setFilterColumn(c)}><Filter size={12}/>{c}</button>)}{Object.keys(filters).length>0&&<button className="text-button" onClick={()=>setFilters({})}>Clear filters</button>}<span className="row-tally">{filtered.length.toLocaleString()} / {table.rows.length.toLocaleString()} rows</span>{view!=='changes'&&preview.id&&<><button className="secondary" onClick={exportSheets} disabled={exporting||running}><ArrowDownToLine size={16}/>Production Excel</button><button className="secondary" onClick={()=>csvDownload(filtered,table.columns,`${view}.csv`)}>CSV</button></>}</div>}
       {(loading||(view==='changes'&&compareBusy))?<div className="loading"><LoaderCircle className="spin"/>Loading preview…</div>:<><div className={filterColumn?'data-layout with-filter':'data-layout'}><div className="data-main">{view==='sheets'&&<StatusReport rows={filtered}/>}
-        {view==='daily'&&<DailyOrders preview={preview} running={running}/>}
-        {view==='monthly'&&<MonthlyOrders preview={preview} running={running}/>}
-        {['daily','monthly'].includes(view) ? null : productSplit ? <>
+        {view==='daily'&&<DailyOrders key={sourceKey} preview={preview} running={running}/>}
+        {view==='monthly'&&<MonthlyOrders key={sourceKey} preview={preview} running={running} reportMode={reportMode}/>}
+        {view==='capacity'&&<CapacityReport revision={sourceKey} running={running}/>}
+        {['daily','monthly','capacity'].includes(view) ? null : productSplit ? <>
           <DataTable rows={filtered} columns={table.columns} filters={filters} openFilter={setFilterColumn} name={'Production trackers'}/>
           <DataTable rows={liveFull?liveFull.rows.filter(row=>matches(row,filters)&&(!search||liveFull.columns.some(column=>str(row[column]).toLowerCase().includes(search.toLowerCase())))):productSplit.fullTitle} columns={liveFull?.columns||table.columns} filters={liveFull?{}:filters} openFilter={setFilterColumn} name={'Full Title'}/>
           <DataTable rows={liveRemaining?liveRemaining.rows.filter(row=>matches(row,filters)&&(!search||liveRemaining.columns.some(column=>str(row[column]).toLowerCase().includes(search.toLowerCase())))):productSplit.remaining} columns={liveRemaining?.columns||table.columns} filters={liveRemaining?{}:filters} openFilter={setFilterColumn} name={'Remaining Products'}/>

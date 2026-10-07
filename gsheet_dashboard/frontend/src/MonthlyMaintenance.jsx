@@ -8,7 +8,7 @@ export function MonthlyDownload({month, disabled}) {
   async function download(){
     setBusy(true);setError('');
     try{
-      const response=await fetch(`/api/export/monthly?month=${encodeURIComponent(month)}`,{signal:AbortSignal.timeout(120000)});
+      const response=await fetch(`/api/export/report?month=${encodeURIComponent(month)}`,{signal:AbortSignal.timeout(120000)});
       if(!response.ok){const body=await response.json();throw Error(body.error||'The monthly export failed.');}
       const filename=response.headers.get('Content-Disposition')?.match(/filename="?([^";]+)/)?.[1]||`TV_Search_Production_Report_${month}.xlsx`;
       saveBlob(await response.blob(),filename);

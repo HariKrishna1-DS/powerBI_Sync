@@ -289,8 +289,7 @@ def sync_production(df, on_progress=None):
         daily = daily_orders(sheet_rows=all_rows)
         monthly = monthly_orders(sheet_rows=all_rows)
         for title, reports, columns in (
-                ('Daily Orders', daily, ['Date', 'Today Orders', 'Completed Orders', 'Awaiting for Clarification']),
-                ('Monthly report', monthly, ['Month', 'Month Orders', 'Completed Orders', 'Awaiting for Clarification', 'SLA On Time', 'SLA Missed'])):
+                ('Monthly report', monthly, ['Month', 'Month Orders', 'Completed Orders', 'Awaiting for Clarification', 'SLA On Time', 'SLA Missed']),):
             batch.replace_view(title, pd.DataFrame(reports).reindex(columns=columns).fillna(''))
         if sum(r['Today Orders'] for r in daily) != len(all_rows) or sum(r['Month Orders'] for r in monthly) != len(all_rows):
             raise RuntimeError('Report totals do not match the trackers; no changes were sent.')

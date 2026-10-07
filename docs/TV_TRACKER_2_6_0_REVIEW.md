@@ -25,7 +25,7 @@ credentials, and the existing installer/profile identity.
 | P2 | Reusable components | Dedicated table-layout component/hook/styles and shared production-read coordinator. No broad business-logic refactor. |
 | P2 | Themes | New controls use existing shared theme tokens; light/dark and responsive regression coverage. |
 | P2 | Diagnostics | API request counts/errors/mean/max latency; operation duration and accurate activity-loading feedback. |
-| P2 | Delivery | Version 2.6.0 with compatible app/profile identity; existing updater, lifecycle, recovery and installer checks. Public automatic release retains the signing gate. |
+| P2 | Delivery | Version 2.6.0 with compatible app/profile identity; existing updater, lifecycle, recovery and installer checks. A one-version unsigned exception matches 2.5.3; future versions retain the signing requirement. |
 
 No dependencies, database migration or new user configuration are required.
 `uiPreferences.tableLayout` is an optional validated addition. Existing profiles
@@ -128,12 +128,16 @@ excluded from source control and the source archive.
 - Live extraction, production writes and production schedule changes are excluded
   from this upgrade's fixture verification. Portal availability and production
   credentials still determine real capture success.
-- Repository signing secrets were absent when checked. Public automatic publishing
-  requires the existing authorized Windows signing identity. The signing gate is
-  retained; Authenticode confirms this local installer is unsigned. Configure
-  `TV_TRACKER_CSC_LINK` and `TV_TRACKER_CSC_KEY_PASSWORD` with an authorized Windows
-  signing certificate and password, then rerun the desktop release workflow.
-  Source publication alone does not make an update available to installed users.
+- No signing certificate was used for the published 2.5.3 installer: the local
+  installer matches GitHub's published SHA-256 and Authenticode reports NotSigned.
+  At the owner's explicit request, 2.6.0 continues that no-purchase distribution.
+  The release workflow permits NotSigned only for version 2.6.0. All other
+  versions require Valid; invalid signatures are rejected for every version.
+  installer SHA-512 verification, full regression checks and draft-first publication
+  remain required. Optional signing via `TV_TRACKER_CSC_LINK` and
+  `TV_TRACKER_CSC_KEY_PASSWORD` remains available. Release notes disclose unsigned
+  status. Source publication alone does not make an update available to users;
+  the complete installer, blockmap and latest.yml must be published.
 
 ## Files
 

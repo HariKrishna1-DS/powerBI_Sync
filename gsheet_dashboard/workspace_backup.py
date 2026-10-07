@@ -10,7 +10,7 @@ import tempfile
 import zipfile
 
 SETTINGS = ('remaining_products.json', 'sync_schedule.json', 'production-cache.json')
-TABLES = {'previews', 'sla_corrections', 'sync_receipts', 'sync_jobs', 'sync_reports', 'sync_failures', 'operation_history', 'monthly_operations', 'sqlite_sequence'}
+TABLES = {'previews', 'sla_corrections', 'sync_receipts', 'sync_jobs', 'sync_reports', 'sync_failures', 'operation_history', 'monthly_operations', 'report_workspace', 'sqlite_sequence'}
 
 
 def save_safety_backup(store, reason):
@@ -79,6 +79,19 @@ def restore_backup(store, raw):
                 if ('table', 'sync_receipts') in schema:
                     connection.execute('SELECT preview_id,report_json FROM sync_receipts LIMIT 1')
                 connection.execute('SELECT order_number,completion_date,status,updated FROM sla_corrections LIMIT 1')
+                if ('table', 'report_workspace') in schema:
+                    for number, payload in connection.execute('SELECT id,payload FROM report_workspace'):
+                        try:
+                            value = json.loads(payload)
+                            if number != 1 or not isinstance(value, dict) or value.get('mode') not in ('tracker', 'excel'):
+                                raise ValueError('Invalid report source.')
+                            imported = value.get('imported')
+                            if imported is not None and (not isinstance(imported, dict) or
+                                    not isinstance(imported.get('rows'), list) or not all(isinstance(row, dict) for row in imported['rows']) or
+                                    not isinstance(imported.get('columns'), list) or not all(isinstance(c, str) for c in imported['columns'])):
+                                raise ValueError('Invalid imported report.')
+                        except (ValueError, TypeError) as exc:
+                            raise ValueError('Backup contains invalid report data.') from exc
                 invalid = connection.execute("SELECT COUNT(*) FROM previews WHERE NOT json_valid(rows_json) OR NOT json_valid(columns_json)").fetchone()[0]
                 if invalid:
                     raise ValueError('Backup contains invalid preview data.')

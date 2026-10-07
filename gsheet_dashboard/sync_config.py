@@ -8,6 +8,8 @@ BASE_DIR = Path(os.environ.get('DATATRACE_DATA_DIR', str(ASSET_DIR))).resolve()
 BASE_DIR.mkdir(parents=True, exist_ok=True)
 if os.environ.get('DATATRACE_DESKTOP') != '1':
     load_dotenv(BASE_DIR / '.env')
+    from local_settings import load_environment
+    load_environment(BASE_DIR)
 CONFIG = json.loads((ASSET_DIR / 'sync_config.json').read_text(encoding='utf-8'))
 SPREADSHEET_ID = os.environ.get('DATATRACE_SPREADSHEET_ID', CONFIG['spreadsheet_id'])
 WORKSHEET_GID = int(CONFIG['worksheet_gid'])

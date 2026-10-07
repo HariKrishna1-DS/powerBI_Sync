@@ -12,9 +12,12 @@ def sync_monthly(book, frame, store, on_progress=None):
     from tracker_sync import (HEADERS, IST, key, records, matrix, text, merge_trackers,
                               sheet_reports, archive_value_matches)
     from tracker_formatting import ensure_tracker_formatting
-    from monthly_views import refresh_monthly_views
+    from monthly_views import refresh_monthly_views, capacity_report_values
+    from report_workspace import ReportWorkspace
+    publish_tracker_reports = ReportWorkspace(store).read()['mode'] != 'excel'
     if frame is None:
-        refresh_monthly_views(book)
+        if publish_tracker_reports:
+            refresh_monthly_views(book)
         ensure_tracker_formatting(book)
         return [s.title for s in book.worksheets() if tab_identity(s.title)]
     original = frame.attrs.get('original_capture')
@@ -37,7 +40,8 @@ def sync_monthly(book, frame, store, on_progress=None):
             # Raw archive and production changes shared a single atomic batch.
             store.commit_sync_report(number, digest)
         frame.attrs['pass_report'] = {k: v for k, v in (saved or {}).get('report', {}).items() if not k.startswith('_')}
-        refresh_monthly_views(book)
+        if publish_tracker_reports:
+            refresh_monthly_views(book)
         ensure_tracker_formatting(book)
         return list(sheets)
     history_ids = [int(r['Preview'][7:]) for r in history if str(r.get('Preview', '')).startswith('preview') and str(r['Preview'][7:]).isdigit()]
@@ -75,6 +79,7 @@ def sync_monthly(book, frame, store, on_progress=None):
     report['unprocessed'] += len(reviews)
     report['ambiguous'].extend(reviews)
     plan = new_plan(before, 'sync')
+    plan['preserve_report_views'] = not publish_tracker_reports
     plan['view_raw_rows'] = history + incoming
     plan['format_titles'] = list(before)
     grouped = {title: [] for title in before if tab_identity(title) and tab_identity(title)[1] > ARCHIVE}
@@ -103,7 +108,7 @@ def sync_monthly(book, frame, store, on_progress=None):
                   default_conflicts=[], ambiguous_count=len(report['ambiguous']), not_in_latest_count=len(report['not_in_latest']))
     raw_rows = [dict(r, Preview=preview, **{'Preview Timestamp': anchor.isoformat()}) for r in incoming]
     raw_rows = raw_rows or [{'Preview': preview, 'Preview Timestamp': anchor.isoformat()}]
-    for title in ('All Products', 'Sheet1'):
+    for title in (('All Products', 'Sheet1') if publish_tracker_reports else ('Sheet1',)):
         prior = sheets[title].get_all_values(value_render_option='UNFORMATTED_VALUE') if title in sheets else []
         headers = list(dict.fromkeys((prior[0] if prior else []) + ['Preview', 'Preview Timestamp'] + list(columns)))
         plan['writes'][title] = matrix(records(prior) + raw_rows, headers)
@@ -113,15 +118,18 @@ def sync_monthly(book, frame, store, on_progress=None):
     all_trackers = {title: decode(plan['writes'].get(title, sheet['values'])) for title, sheet in before.items() if tab_identity(title)}
     all_trackers.update({title: decode(values) for title, values in plan['writes'].items() if tab_identity(title)})
     reports = sheet_reports(all_trackers, report)
-    for title, kind, period in (('Daily Orders', 'daily', 'Date'), ('Monthly report', 'monthly', 'Month')):
-        headers = [period, 'Today Orders' if kind == 'daily' else 'Month Orders', 'Completed Orders',
-                   'Unchanged', 'Awaiting for Clarification', 'SLA On Time', 'SLA Missed']
-        plan['writes'][title] = matrix(reports[kind], headers)
-    from collections import Counter
-    statuses = Counter(text(r.get('Status')) or '(Blank)' for rows in merged.values() for r in rows)
-    total = sum(statuses.values())
-    plan['writes']['Status Report'] = [['Status', 'Orders', 'Share', 'Preview', 'Sync Date & Time']] + [
-        [status, count, count/total if total else 0, preview, anchor.isoformat()] for status, count in statuses.items()]
+    if publish_tracker_reports:
+        for title, kind, period in (('Monthly Orders', 'monthly', 'Month'),):
+            headers = [period, 'Received' if kind == 'daily' else 'Month Orders', 'Completed',
+                       'Clarification', 'Cancelled', 'Vendor Pending',
+                       'In-House Pending', 'SLA OnTime', 'Missing']
+            plan['writes'][title] = matrix(reports[kind], headers)
+        plan['writes']['Capacity Report'] = capacity_report_values(reports['monthly'], reports['daily'])
+        from collections import Counter
+        statuses = Counter(text(r.get('Status')) or '(Blank)' for rows in merged.values() for r in rows)
+        total = sum(statuses.values())
+        plan['writes']['Status Report'] = [['Status', 'Orders', 'Share', 'Preview', 'Sync Date & Time']] + [
+            [status, count, count/total if total else 0, preview, anchor.isoformat()] for status, count in statuses.items()]
     store.stage_sync_report(number, digest, report)
     if on_progress:
         on_progress('Saving monthly production, backups and capture receipt')

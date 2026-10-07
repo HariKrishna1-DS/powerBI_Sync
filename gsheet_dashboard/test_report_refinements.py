@@ -64,12 +64,12 @@ class ReportRefinementTests(unittest.TestCase):
         rows = [order('B', Product='Update'), order('A', Product='  Full   Search  '),
                 order('C', Product='Unlisted product'), order('D', Product='Current Owner')]
         views = monthly_view_values({tab_name(BASES[0],'2026-10'):rows}, [{'Order Number':'C','Vendor':'Retained vendor'}])
-        self.assertEqual([r['Order Number'] for r in decode(views['Full_search_OCT_2026'])], ['A'])
-        remaining = decode(views['Remaining_OCT_2026'])
+        self.assertEqual([r['Order Number'] for r in decode(views['Full_Search_OCT_2026'])], ['A'])
+        remaining = decode(views['Remaining_Search_OCT_2026'])
         self.assertEqual([r['Order Number'] for r in remaining], ['B','C','D'])
         self.assertEqual([r['No'] for r in remaining], [1,2,3])
         self.assertNotIn('Vendor', remaining[1])
-        self.assertEqual(views['Remaining_OCT_2026'][0], views['Full_search_OCT_2026'][0])
+        self.assertEqual(views['Remaining_Search_OCT_2026'][0], views['Full_Search_OCT_2026'][0])
 
     def test_repeat_view_refresh_does_not_create_duplicate_tabs_or_change_trackers(self):
         book = AtomicBook()
@@ -80,12 +80,12 @@ class ReportRefinementTests(unittest.TestCase):
         batch_count = len(book.batches)
         refresh_monthly_views(book)
         self.assertEqual(len(book.batches),batch_count)
-        self.assertEqual(len([s for s in book.worksheets() if s.title=='Remaining_OCT_2026']),1)
+        self.assertEqual(len([s for s in book.worksheets() if s.title=='Remaining_Search_OCT_2026']),1)
         for title, values in before.items():
             self.assertEqual(book.worksheet(title).get_all_values(), values)
         ensure_tracker_formatting(book)
         self.assertEqual(ensure_tracker_formatting(book),0)
-        self.assertTrue(all(MARKER in str(rule) for rule in book.worksheet('Remaining_OCT_2026').conditional_formats))
+        self.assertTrue(all(MARKER in str(rule) for rule in book.worksheet('Remaining_Search_OCT_2026').conditional_formats))
 
 
 if __name__ == '__main__':

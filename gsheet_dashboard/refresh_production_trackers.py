@@ -68,7 +68,7 @@ def refresh_production_trackers(book, backup=True):
             [[status, count, count / len(all_rows) if all_rows else 0, audit.get('preview_name', ''), audit.get('timestamp', '')]
              for status, count in counts.most_common()])
         reports = sheet_reports(trackers, audit)
-        for title, kind, period in (('Daily Orders', 'daily', 'Date'), ('Monthly report', 'monthly', 'Month')):
+        for title, kind, period in (('Monthly report', 'monthly', 'Month'),):
             columns = [period, 'Today Orders' if kind == 'daily' else 'Month Orders', 'Completed Orders',
                        'Awaiting for Clarification', 'Not in latest preview', 'SLA On Time', 'SLA Missed']
             write_report(title, [columns] + [[row[c] for c in columns] for row in reports[kind]])

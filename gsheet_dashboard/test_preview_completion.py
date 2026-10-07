@@ -99,7 +99,7 @@ class PreviewCompletionTests(unittest.TestCase):
         book.add('Full_search_OCT_2026',[order(Borrower='Raw extra')])
         book.add('Remaining_OCT_2026',[order('B',Vendor='Raw extra')])
         refresh_monthly_views(book)
-        for name in ('Full_search_OCT_2026','Remaining_OCT_2026'):
+        for name in ('Full_Search_OCT_2026','Remaining_Search_OCT_2026'):
             values=book.worksheet(name).get_all_values()
             self.assertEqual([v for v in values[0] if v],full.values[0])
         batches=len(book.batches)

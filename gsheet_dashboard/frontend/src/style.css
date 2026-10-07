@@ -4932,3 +4932,44 @@ tr:hover td {
   .workspace:not(.sidebar-collapsed) .sidebar .nav-subsection { display:contents; }
   .workspace:not(.sidebar-collapsed) .sidebar .nav-item { font-size:11px; gap:6px; padding-inline:6px; }
 }
+.report-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.topbar > .inline { flex-wrap: wrap; justify-content: flex-end; }
+.report-file-picker { display: grid; gap: 10px; margin: 18px 0; }
+.report-mode button {
+  border: 0;
+  border-radius: 7px;
+  padding: 7px 9px;
+  color: var(--muted);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.report-mode button.active {
+  color: var(--ink);
+  background: var(--surface-raised, #edf3f1);
+  font-weight: 650;
+}
+@media (max-width: 1180px) {
+  .report-mode button { padding: 6px; font-size: 11px; }
+}
+
+.report-saved-file, .report-upload-list li { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px; border: 1px solid var(--line); border-radius: 8px; margin: 8px 0; }
+.report-saved-file strong, .report-upload-list span { overflow-wrap: anywhere; }
+.report-saved-file p { margin: 5px 0 0; }
+.report-saved-file button, .report-upload-list button { flex-shrink: 0; }
+.report-upload-list { list-style: none; padding: 0; }
+
+.dialog-content .report-replace-all { display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:10px; margin:12px 0; }
+.report-replace-all input[type="checkbox"] { width:auto; margin:0; }
+
+.daily-orders tr.daily-date-selected { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }

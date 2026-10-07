@@ -6,6 +6,8 @@ env/
 
 # Node modules
 node_modules/
+.npm-cache/
+.cache/
 package-lock.json
 
 # Python cache & bytecode
@@ -20,10 +22,13 @@ desktop/test-output/
 !desktop/package-lock.json
 !desktop/extractor/package-lock.json
 !gsheet_dashboard/frontend/package-lock.json
+!gsheet_dashboard/package-lock.json
 
 # Streamlit config cache
 .streamlit/secrets.toml
 .env
+.env.*
+!.env.example
 service_account*.json
 *service_account*
 settings.vault*
@@ -35,6 +40,22 @@ gsheet_dashboard/previews/
 gsheet_dashboard/frontend/dist/
 gsheet_dashboard/frontend/test-results/
 gsheet_dashboard/frontend/playwright-report/
+gsheet_dashboard/backups/
+gsheet_dashboard/extractor-diagnostics/
+gsheet_dashboard/scratch/
+gsheet_dashboard/production-cache.json
+gsheet_dashboard/sync_schedule.json
+gsheet_dashboard/queue_data_sheet2.csv
+gsheet_dashboard/queue_data_sheet2.xlsx
+gsheet_dashboard/export-verification.xlsx
+*.log
+*.db
+*.sqlite
+*.sqlite3
+*.tvbackup
+*.tvcloud
+cloud-archives/
+DataTrace_Workspace.zip
 
 # OS generated files
 .DS_Store

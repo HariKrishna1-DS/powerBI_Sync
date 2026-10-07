@@ -12,7 +12,7 @@ export class WorkspaceBoundary extends React.Component {
 }
 
 export function OfflineNotice({snapshot}) {
-  return snapshot?.offline ? <div className="offline-notice" role="status"><WifiOff size={17}/><div><strong>Viewing a saved Google Sheets copy</strong><span>Last refreshed {new Date(snapshot.updated_at).toLocaleString()}. Reconnect to sync changes.</span></div></div> : null;
+  return snapshot?.offline ? <div className="offline-notice" role="status"><WifiOff size={17}/><div><strong>{snapshot.mode==='excel'?'Viewing saved imported Excel data':'Viewing a saved Google Sheets copy'}</strong><span>Last refreshed {new Date(snapshot.updated_at).toLocaleString()}. {snapshot.mode==='excel'?'Reconnecting to the local application.':'Reconnect to sync changes.'}</span></div></div> : null;
 }
 
 export function Dialog({title, children, onClose, className='', initialFocus=''}) {
@@ -52,22 +52,33 @@ function Updates({running}) {
 
 function Connections({onClose,running,initialTab='connections'}) {
   const [form,setForm]=useState(null),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[error,setError]=useState(''),[tab,setTab]=useState(initialTab);
+  const keyInput=useRef(), saved=useRef(false);
+  const desktop=!!window.desktop;
+  async function localRequest(path,body) {
+    const response=await fetch(`/api/local/${path}`,body===undefined?{}:{method:'POST',headers:{'Content-Type':'application/json','X-Settings-Token':form.csrfToken},body:JSON.stringify(body),signal:AbortSignal.timeout(120000)});
+    const value=await response.json();
+    if(!response.ok)throw Error(value.error||'The connection settings could not be updated.');
+    return value;
+  }
   useEffect(()=>setTab(initialTab),[initialTab]);
-  useEffect(()=>{window.desktop?.getSettings().then(value=>setForm({...value,password:''})).catch(e=>setError(e.message));return()=>{window.desktop?.discardSettings().catch(()=>{});};},[]);
+  useEffect(()=>{let active=true;(desktop?window.desktop.getSettings():localRequest('settings')).then(value=>{if(active)setForm({...value,password:''});}).catch(e=>{if(active)setError(e.message);});return()=>{active=false;window.desktop?.discardSettings().catch(()=>{});};},[]);
   const update=(key,value)=>setForm(current=>({...current,[key]:value}));
   async function action(fn) {setBusy(true);setError('');setMessage('');try{await fn();}catch(e){setError(e.message.replace(/^Error invoking remote method '[^']+': Error: /,''));}finally{setBusy(false);}}
-  async function save(event) {event.preventDefault();await action(async()=>{await window.desktop.saveSettings(form);setMessage('Settings saved. Reopening your workspace…');});}
-  async function checkConnection() {await action(async()=>{const response=await fetch('/api/desktop/check-connection',{method:'POST',signal:AbortSignal.timeout(120000)});const value=await response.json();if(!response.ok)throw Error(value.error);setMessage(`Connected. ${value.orders.toLocaleString()} production orders are available. Next capture: preview${value.next_preview}.`);});}
-  return <Dialog title="Connections & settings" onClose={()=>{if(!busy)onClose();}} className="settings-dialog">
-    {!window.desktop?<div className="settings-body"><div className="settings-callout"><Monitor size={22}/><div><h3>Open Tv Tracker for desktop settings</h3><p>The installed application includes secure credential storage, local backups, and background scheduling. This browser window is the development interface.</p></div></div><p className="muted">For web development, use the project’s .env.example and sync_config.json. Saved passwords and keys are never displayed here.</p></div>:!form?<div className="settings-body">{error?<p role="alert">{error}</p>:<p className="loading"><LoaderCircle className="spin"/>Loading settings…</p>}</div>:<form onSubmit={save}>
-      <div className="settings-tabs" role="tablist" aria-label="Settings sections"><button type="button" role="tab" aria-selected={tab==='connections'} onClick={()=>setTab('connections')}><Plug size={16}/>Connections</button><button type="button" role="tab" aria-selected={tab==='workspace'} onClick={()=>setTab('workspace')}><HardDrive size={16}/>Workspace</button><button type="button" role="tab" aria-selected={tab==='updates'} onClick={()=>setTab('updates')}><Download size={16}/>Updates</button></div>
+  function close(){if(busy)return;if(!desktop&&saved.current)location.reload();else onClose();}
+  async function save(event) {event.preventDefault();await action(async()=>{if(desktop){await window.desktop.saveSettings(form);setMessage('Settings saved. Reopening your workspace…');}else{const value=await localRequest('settings',form);setForm({...value,password:''});saved.current=true;setMessage('Settings saved. You can test the connection now.');}});}
+  async function importKey(event){const file=event.target.files?.[0];event.target.value='';if(!file)return;await action(async()=>{if(file.size>65536)throw Error('Choose a service-account JSON file smaller than 64 KB.');const raw=await file.text();let value;try{value=JSON.parse(raw.replace(/^\uFEFF/,''));}catch{throw Error('The selected file is not valid JSON.');}if(value?.type!=='service_account'||!value.client_email||!value.private_key)throw Error('Choose a Google service-account JSON key.');setForm(current=>({...current,serviceAccount:JSON.stringify(value),serviceAccountEmail:value.client_email}));setMessage('Key selected. Save settings to apply it.');});}
+  async function checkConnection() {await action(async()=>{if(!desktop){const value=await localRequest('check-connection',{});setMessage(`Connected to ${value.title}.${value.missingTrackers.length?` Tracker tabs not found: ${value.missingTrackers.join(', ')}.`:' Both tracker tabs are available.'}`);return;}const response=await fetch('/api/desktop/check-connection',{method:'POST',signal:AbortSignal.timeout(120000)});const value=await response.json();if(!response.ok)throw Error(value.error);setMessage(`Connected. ${value.orders.toLocaleString()} production orders are available. Next capture: preview${value.next_preview}.`);});}
+  return <Dialog title="Connections & settings" onClose={close} className="settings-dialog">
+    {!form?<div className="settings-body">{error?<p role="alert">{error}</p>:<p className="loading"><LoaderCircle className="spin"/>Loading settings…</p>}</div>:<form onSubmit={save}>
+      <div className="settings-tabs" role="tablist" aria-label="Settings sections"><button type="button" role="tab" aria-selected={tab==='connections'} onClick={()=>setTab('connections')}><Plug size={16}/>Connections</button>{desktop&&<><button type="button" role="tab" aria-selected={tab==='workspace'} onClick={()=>setTab('workspace')}><HardDrive size={16}/>Workspace</button><button type="button" role="tab" aria-selected={tab==='updates'} onClick={()=>setTab('updates')}><Download size={16}/>Updates</button></>}</div>
       <div className="settings-body" role="tabpanel">
       {form.connectionRecovery&&<div className="notice warning" role="alert">{form.connectionRecovery.message}</div>}
       {tab==='connections'?<>
         <div className="settings-section"><div className="settings-section-heading"><div className="settings-section-icon"><Database size={20}/></div><div><h3>Google Sheets</h3><p>Your production source of truth</p></div><span className={`connection-pill ${form.googleConfigured?'ready':''}`}>{form.googleConfigured?'Configured':'Setup needed'}</span></div>
           <label>Spreadsheet URL or ID<input autoFocus value={form.spreadsheetId} onChange={e=>update('spreadsheetId',e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/…" autoComplete="off"/></label>
           <div className="form-grid"><label>Full Title tracker tab<input value={form.fullTrackerTitle} onChange={e=>update('fullTrackerTitle',e.target.value)} required maxLength={100}/></label><label>Remaining Products tracker tab<input value={form.remainingTrackerTitle} onChange={e=>update('remainingTrackerTitle',e.target.value)} required maxLength={100}/></label></div>
-          <div className="credential-row"><div><strong>Service-account key</strong><p>{form.serviceAccountEmail||'Import the JSON key from your Google Cloud project.'}</p></div><button type="button" className="secondary" disabled={busy} onClick={()=>action(async()=>{const value=await window.desktop.importServiceAccount();if(value){update('serviceAccountEmail',value.email);setMessage('Key selected. Save settings to apply it.');}})}><KeyRound size={16}/>{form.serviceAccountEmail?'Replace key':'Import key'}</button></div>
+          {!desktop&&<input ref={keyInput} type="file" accept=".json,application/json" hidden aria-label="Service-account JSON key" onChange={importKey}/>}
+          <div className="credential-row"><div><strong>Service-account key</strong><p>{form.serviceAccountEmail||'Import the JSON key from your Google Cloud project.'}</p></div><button type="button" className="secondary" disabled={busy} onClick={()=>desktop?action(async()=>{const value=await window.desktop.importServiceAccount();if(value){update('serviceAccountEmail',value.email);setMessage('Key selected. Save settings to apply it.');}}):keyInput.current?.click()}><KeyRound size={16}/>{form.serviceAccountEmail?'Replace key':'Import key'}</button></div>
           {form.serviceAccountEmail&&<p className="field-help">Share the spreadsheet with this service-account email as Editor.</p>}
           <button type="button" className="text-button" disabled={busy||running} onClick={checkConnection}>Test saved Google Sheets connection</button>
         </div>
@@ -83,12 +94,12 @@ function Connections({onClose,running,initialTab='connections'}) {
         <div className="settings-section"><h3>Extraction browser</h3><p className="field-help">{form.browserDetected?'A supported browser was detected.':'Install Microsoft Edge or Google Chrome, or select its executable.'}</p><div className="browser-choice"><input aria-label="Browser executable" value={form.browserPath} readOnly placeholder="Automatically detect Edge or Chrome"/><button type="button" className="secondary" onClick={()=>action(async()=>{const value=await window.desktop.chooseBrowser();if(value)update('browserPath',value);})}>Choose browser</button><button type="button" className="text-button" onClick={()=>update('browserPath','')}>Use automatic</button></div></div>
       </>}
       {error&&<div className="notice error" role="alert">{error}</div>}{message&&<div className="notice success" role="status"><Check size={16}/>{message}</div>}
-      </div><div className="settings-footer"><span><ShieldCheck size={15}/>Protected with Windows encryption</span><button type="button" className="secondary" onClick={onClose} disabled={busy}>Cancel</button><button className="primary" disabled={busy||running}>{busy?<LoaderCircle size={16} className="spin"/>:<Check size={16}/>}Save settings</button></div>
+      </div><div className="settings-footer"><span><ShieldCheck size={15}/>Protected with Windows encryption</span><button type="button" className="secondary" onClick={close} disabled={busy}>{saved.current?'Done':'Cancel'}</button><button className="primary" disabled={busy||running}>{busy?<LoaderCircle size={16} className="spin"/>:<Check size={16}/>}Save settings</button></div>
     </form>}
   </Dialog>;
 }
 
-const PAGES=[['overview','Overview'],['sheets','Data Sheets'],['captures','Saved captures'],['daily','Daily Orders'],['monthly','Monthly report'],['audit','Sync activity'],['changes','Changes between captures']];
+const PAGES=[['overview','Overview'],['sheets','Data Sheets'],['captures','Saved captures'],['daily','Daily Orders'],['monthly','Monthly Orders'],['capacity','Capacity Report'],['audit','Sync activity'],['changes','Changes between captures']];
 export function DesktopTools({onNavigate,onImport,running}) {
   const [settings,setSettings]=useState(false),[commands,setCommands]=useState(false),[query,setQuery]=useState(''),[settingsTab,setSettingsTab]=useState('connections');
   const [updateState,setUpdateState]=useState(null),[connectionRecovery,setConnectionRecovery]=useState(null);
