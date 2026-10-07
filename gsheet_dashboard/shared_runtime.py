@@ -117,7 +117,11 @@ class SharedRuntime:
                     if error.kind!='conflict':
                         raise
             raise CloudError('Reports changed during refresh. The last verified copy was retained.', 'retry')
-        return self.cache.get(load, **kwargs)
+        result = self.cache.get(load, **kwargs)
+        # The reusable production cache supplies Sheets labels; shared data has
+        # the same provenance for tracker/import, cached and loading responses.
+        result['source'] = 'Shared workspace'
+        return result
 
     def report_state(self, revision=None):
         result = self.rpc.call('tv_reporting_state', {'p_workspace':self.selection['id'],'p_revision':revision})

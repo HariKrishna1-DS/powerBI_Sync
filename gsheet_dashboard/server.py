@@ -728,9 +728,11 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
                      for index, date in enumerate(published.get('daily_dates', []))} if prefs['publish_status'] == 'published' else {}
             return jsonify(rows=snapshot['reports']['daily'], selected_date=None,
                            sheet_links=links,
+                           source_mode=snapshot.get('source_mode', 'tracker'),
+                           report_preferences=snapshot.get('report_preferences', {}),
                            **{key: snapshot.get(key) for key in ('source', 'offline', 'updated_at')})
         except Exception as exc:
-            return jsonify(error=f'Could not read Google Sheets daily orders: {exc}'), 502
+            return jsonify(error=f'Could not load production daily orders: {exc}'), 502
 
     def read_sla_sheets():
         book, _ = target_worksheet()
@@ -751,9 +753,10 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
             snapshot = production_snapshot()
             return jsonify(rows=snapshot['reports']['monthly'], sla_error=None,
                            source_mode=snapshot.get('source_mode', 'tracker'),
+                           report_preferences=snapshot.get('report_preferences', {}),
                            **{key: snapshot.get(key) for key in ('source', 'offline', 'updated_at')})
         except Exception as exc:
-            return jsonify(error=f'Could not read Google Sheets monthly orders: {exc}'), 502
+            return jsonify(error=f'Could not load production monthly orders: {exc}'), 502
 
     @app.post('/api/sla-comments')
     @app.post('/api/sla-comments/bulk')

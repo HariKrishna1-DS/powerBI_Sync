@@ -1,8 +1,10 @@
 from copy import deepcopy
+import json
+import os
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 import uuid
 
 from cloud_backend.publication import projection
@@ -11,6 +13,7 @@ from report_workspace import read_workbooks
 from shared_backend import CloudError
 from shared_requests import SharedRequests
 from shared_runtime import SharedRuntime
+from server import create_app
 from test_report_workspace import workbook,order
 from tracker_sync import FULL
 from workspace_backup import make_backup,restore_backup
@@ -67,3 +70,35 @@ class SharedReportingTests(unittest.TestCase):
         with self.assertRaises(ValueError):self.runtime.report_change('publish',{},None)
         self.runtime.rpc=Mock(); self.runtime.rpc.call.return_value={'revision':999,'state':'pending'}
         with self.assertRaises(CloudError):self.runtime.report_change('publish',{},1)
+
+    def test_daily_and_monthly_api_preserve_shared_source_and_access_for_imports_and_offline_cache(self):
+        dataset=read_workbooks([('report.xlsx',workbook([order('0007')]))])
+        for role in ('owner','viewer'):
+            for source in ('tracker','import'):
+                with self.subTest(role=role,source=source):
+                    with patch.dict(os.environ,{'DATATRACE_DESKTOP':'1','DATATRACE_DESKTOP_TOKEN':'local-fixture',
+                            'DATATRACE_SHARED_WORKSPACE':json.dumps(dict(self.config,role=role))}):
+                        app=create_app(root=self.store.root)
+                    runtime=app.extensions['shared_runtime']
+                    runtime.rpc=Mock()
+                    runtime.rpc.snapshot.return_value={'revision':1,'orders':[{'order_key':'0001','data':order('0001')}]}
+                    context=deepcopy(self.context)
+                    context['preferences'].update(source=source,import_id=str(uuid.uuid4()) if source=='import' else None)
+                    context['dataset']=dataset if source=='import' else None
+                    runtime.rpc.call.return_value=context
+                    self.assertEqual(runtime.snapshot(force=True)['source'],'Shared workspace')
+                    client=app.test_client();headers={'X-DataTrace-Token':'local-fixture'}
+                    for offline in (False,True):
+                        if offline:
+                            runtime.rpc.snapshot.side_effect=CloudError('Network unavailable','retry')
+                            runtime.cache.invalidate()
+                        for path in ('/api/daily-orders','/api/monthly-orders'):
+                            response=client.get(path,headers=headers)
+                            self.assertEqual(response.status_code,200)
+                            result=response.json
+                            self.assertEqual(result['source'],'Shared workspace')
+                            self.assertEqual(result['source_mode'],source)
+                            self.assertEqual(result['offline'],offline)
+                            self.assertTrue(result['report_preferences']['shared'])
+                            self.assertEqual(result['report_preferences']['can_edit'],role=='owner')
+                            self.assertTrue(result['rows'])

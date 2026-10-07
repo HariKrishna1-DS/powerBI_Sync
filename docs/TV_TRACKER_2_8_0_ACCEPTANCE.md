@@ -31,14 +31,14 @@
 
 | Check | Verified result |
 |---|---|
-| Full engine regression before final history guard | 330 tests passed |
+| Full engine regression after the shared daily/monthly metadata fix | 333 tests passed; actual API responses preserve source and manager/restricted access across tracker/import reports and offline cache |
 | Final shared-client history guard and report safety | 20 tests passed |
 | Focused conflict/recovery/monthly/reporting/SLA | 51 tests passed |
 | Bounded publisher and worker failures | 17 tests passed |
 | Final shared capture/schedule/routes regression | 24 tests passed; existing viewer schedule cannot start a browser or upload |
 | Desktop Auth/settings/update/recovery rules | 41 tests passed |
 | Focused monthly/owner/viewer/source UI | 14 tests passed; shared acceptance, offline provenance and missing-Google-key refresh errors verified |
-| Full desktop UI before the final source-label corrections | 74 tests passed, including light/dark layouts, keyboard controls and viewer permissions |
+| Full desktop UI on the preceding frozen candidate | 78 tests passed, including light/dark layouts, keyboard controls and permissions; the daily/monthly API fix requires final-build revalidation |
 | Packaged lifecycle | Passed: first launch, protected settings, backup restoration, restart persistence and safe browser handoff |
 | Packaged reporting | Passed: multi-workbook import, source isolation, SLA deadline equality, Excel export and reload persistence |
 | Packaged connection recovery | Passed: unreadable-vault startup, accessible update controls, encrypted backup restoration and restart |
