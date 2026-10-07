@@ -1,6 +1,6 @@
 # Tv Tracker 1.0.1
 
-The application version is 1.0.1 on `tv-tracker-updates`. This project continues from the repository's earlier 2.6.0 source with the Excel report and extraction updates.
+The application version is 1.0.1 on `tv-tracker-online`. This project continues from the repository's earlier 2.6.0 source with the Excel report and extraction updates.
 
 ## Included changes
 
@@ -15,4 +15,8 @@ The application version is 1.0.1 on `tv-tracker-updates`. This project continues
 
 The desktop and web app manifests and their lockfiles use 1.0.1. Desktop packaging reads the version from `desktop/package.json`, including the displayed app version and installer filenames.
 
-This source update does not create or publish a Windows installer. An installed 2.6.0 app needs a rebuilt 1.0.1 installer and manual installation because 1.0.1 is a lower version number. Existing 2.6.0 release records remain historical records.
+The GitHub release provides `Tv-Tracker-1.0.1-x64.exe`, a portable Windows ZIP, the source ZIP, and integrity hashes. Download the installer from the Assets section of the [1.0.1 release](https://github.com/HariKrishna1-DS/powerBI_Sync/releases/tag/v1.0.1).
+
+The Windows installer is unsigned. Windows may ask you to confirm the publisher before running it. Chrome or Edge is required for queue extraction.
+
+Install this version manually when replacing an installed 2.x version because 1.0.1 is a lower version number. This release does not replace 2.8.0 as the repository's latest release. Existing release records remain historical records.

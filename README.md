@@ -2,23 +2,23 @@
 
 Tv Tracker is a local desktop workspace for TitleVision extraction, Google Sheets production tracking, saved captures, comparisons, and Power BI exports. Its Python and Node runtimes are bundled. No Render hosting or PostgreSQL service is required.
 
-The current project version is **1.0.1** on `tv-tracker-updates`. Desktop and web app package manifests and lockfiles use this version. See [the 1.0.1 release notes](docs/TV_TRACKER_1_0_1_RELEASE.md) for the included changes and installation details.
+The current project version is **1.0.1** on `tv-tracker-online`. Desktop and web app package manifests and lockfiles use this version. See [the 1.0.1 release notes](docs/TV_TRACKER_1_0_1_RELEASE.md) for the included changes and installation details.
 
 ## Desktop branch
 
-**`tv-tracker-updates`** contains this project's 1.0.1 source, based on the earlier 2.6.0 code. `tv-tracker` continues the separate desktop development history, and `main` remains the upstream browser/sync project. Review branch differences before merging them so native settings, local storage, and packaging remain compatible.
+**`tv-tracker-online`** contains this project's 1.0.1 source, based on the earlier 2.6.0 code. `tv-tracker` continues the separate desktop development history, and `main` remains the upstream browser/sync project. Review branch differences before merging them so native settings, local storage, and packaging remain compatible.
 
 ```powershell
 git fetch origin
-git switch tv-tracker-updates
-git pull --ff-only origin tv-tracker-updates
+git switch tv-tracker-online
+git pull --ff-only origin tv-tracker-online
 ```
 
 The 2.1.0 integration incorporates upstream `db0c274` plus the existing desktop implementation. See [analysis, mapping, changes and validation](docs/DESKTOP_UPSTREAM_ALIGNMENT.md).
 
 ## Install and connect
 
-Install the Windows `.exe` from the [latest release](https://github.com/HariKrishna1-DS/powerBI_Sync/releases/latest), or extract the portable ZIP and open **Tv Tracker.exe**. Configure the Google spreadsheet, service-account key, and TitleVision credentials through **Connections & settings** (Ctrl+,).
+Install the Windows `.exe` from the [1.0.1 release](https://github.com/HariKrishna1-DS/powerBI_Sync/releases/tag/v1.0.1), or extract the portable ZIP and open **Tv Tracker.exe**. Configure the Google spreadsheet, service-account key, and TitleVision credentials through **Connections & settings** (Ctrl+,).
 
 The app includes a single native window, system tray, encrypted credentials, an authenticated loopback engine, dated offline reports, backup/restore, and keyboard quick actions. Internet is required for extraction and Sheets sync. Saved captures and cached production reports remain available offline. Schedules need the app running and the computer awake.
 
