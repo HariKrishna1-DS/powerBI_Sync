@@ -10,7 +10,7 @@ import time
 from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path[:0] = [str(ROOT / '.desktop-build' / 'deps'), str(ROOT / 'gsheet_dashboard')]
+sys.path[:0] = [str(ROOT / '.desktop-build' / 'deps'), str(ROOT / 'gsheet_dashboard'), str(ROOT)]
 from preview_store import PreviewStore
 from production_cache import ProductionCache
 from server import create_app
