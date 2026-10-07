@@ -36,6 +36,12 @@
 | Bounded publisher and worker failures | 17 tests passed |
 | Desktop Auth/settings/update/recovery rules | 41 tests passed |
 | Focused monthly/owner/viewer UI | 10 tests passed |
+| Full current desktop UI | 74 tests passed, including light/dark layouts, keyboard controls and viewer permissions |
+| Packaged lifecycle | Passed: first launch, protected settings, backup restoration, restart persistence and safe browser handoff |
+| Packaged reporting | Passed: multi-workbook import, source isolation, SLA deadline equality, Excel export and reload persistence |
+| Packaged connection recovery | Passed: unreadable-vault startup, accessible update controls, encrypted backup restoration and restart |
+| Packaged stalled-engine shutdown | Passed: bounded quit, engine termination and preserved capture after restart |
+| Representative performance | Passed on 7,000 orders / 35 captures: status median 47.53 ms, warm cache 124.09 ms, unchanged response 276 bytes; reporting median 1,145.14 ms |
 | Lint and production dependency audit | Passed; no known vulnerabilities reported by the configured audits |
 | Source credential-format scan | Passed; supplements credential rotation, not a substitute for it |
 | Hosted migrations | 001–009 applied; 005–009 received explicit owner approval |
@@ -46,12 +52,11 @@ The four concurrent save sessions used one owner account on one physical PC. Thi
 
 ## Remaining release/rollout gates
 
-1. Complete the full current UI suite and packaged lifecycle, reporting, connection recovery and shutdown checks.
-2. Run the isolated fresh database and actual 2.7.2 installer upgrade/recovery tests in GitHub. Verify the exact release artifacts and manifest before making an updater release public.
-3. Rotate the previously exposed Google key on the owner's side. Valid old keys remain compatible; revoked keys cannot be made valid by the application.
-4. Establish and rehearse shared PostgreSQL backup/restore independently of portable local workspace backups. Monitor database storage; no automatic deletion of canonical orders or retry receipts is enabled.
-5. Confirm older capture/publish jobs are stopped on every PC, re-review the current production workbook, and approve its one-time migration before activation. Production is still shadow/unseeded.
-6. Perform supervised four-PC acceptance with separate operator accounts and the registered office worker, including overlapping captures, outages, sleep/resume and a sustained normal working shift.
+1. Run the isolated fresh database and actual 2.7.2 installer upgrade/recovery tests in GitHub. Verify the exact release artifacts and manifest before making an updater release public.
+2. Rotate the previously exposed Google key on the owner's side. Valid old keys remain compatible; revoked keys cannot be made valid by the application.
+3. Establish and rehearse shared PostgreSQL backup/restore independently of portable local workspace backups. Monitor database storage; no automatic deletion of canonical orders or retry receipts is enabled.
+4. Confirm older capture/publish jobs are stopped on every PC, re-review the current production workbook, and approve its one-time migration before activation. Production is still shadow/unseeded.
+5. Perform supervised four-PC acceptance with separate operator accounts and the registered office worker, including overlapping captures, outages, sleep/resume and a sustained normal working shift.
 
 The app cannot guarantee availability while the office PC is shut down, sleeping or disconnected. Captures remain local or accepted in Supabase until that worker resumes. Generated Sheets tabs should be read-only for operators: Google Sheets cannot fence an arbitrary human edit occurring during the final commit window.
 

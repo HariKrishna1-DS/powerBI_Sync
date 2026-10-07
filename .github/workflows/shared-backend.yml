@@ -33,7 +33,9 @@ jobs:
           printf '%s' "$qa_container" > .desktop-build/supabase-qa-container.txt
           docker run -d --name "$qa_container" --label app=tvtracker-supabase-qa -e POSTGRES_PASSWORD="$qa_password" postgres:17-alpine
           for attempt in $(seq 1 30); do
-            if docker exec "$qa_container" pg_isready -U postgres; then exit 0; fi
+            # The image's temporary initialization server accepts Unix-socket
+            # probes before restarting. TCP is enabled only on the final server.
+            if docker exec "$qa_container" pg_isready -h 127.0.0.1 -U postgres; then exit 0; fi
             sleep 1
           done
           exit 1
