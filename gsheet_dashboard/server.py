@@ -645,6 +645,11 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
             response.headers['Cache-Control'] = 'no-store'
         return response
 
+    from shared_backend import CloudError
+    @app.errorhandler(CloudError)
+    def shared_error(exc):
+        return jsonify(error=str(exc),kind=exc.kind),401 if exc.kind=='auth' else 503 if exc.kind=='retry' else 409
+
     @app.errorhandler(ValueError)
     def invalid(exc):
         return jsonify(error=str(exc)), 422
@@ -751,6 +756,14 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
     @app.post('/api/sla-comments')
     @app.post('/api/sla-comments/bulk')
     def update_sla_comment():
+        if shared_runtime.enabled:
+            from shared_sla import correct_shared_sla
+            if maintenance.is_set() or not gate.acquire(blocking=False):
+                return jsonify(error='Wait for the current operation before correcting SLA.'),409
+            try:
+                return jsonify(correct_shared_sla(shared_runtime,request.get_json(silent=True),request.path.endswith('/bulk'))),202
+            finally:
+                gate.release()
         if app.extensions['report_workspace'].preferences()['source'] == 'import':
             raise ValueError('Correct the imported workbook and import it again. Imported reports cannot change tracker SLA values.')
         body = request.get_json(silent=True)

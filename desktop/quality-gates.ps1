@@ -14,7 +14,7 @@ try {
   Check-Exit 'Recovery lint'
   & $Python -m ruff check --select E9,F gsheet_dashboard/sheets_transport.py gsheet_dashboard/test_sheets_quota.py gsheet_dashboard/production_cache.py gsheet_dashboard/sheet_reads.py
   Check-Exit 'Sheets transport lint'
-  & $Python -m ruff check --select E9,F cloud_backend supabase/tests gsheet_dashboard/shared_backend.py gsheet_dashboard/shared_routes.py gsheet_dashboard/shared_runtime.py gsheet_dashboard/test_shared_routes.py gsheet_dashboard/test_shared_runtime.py gsheet_dashboard/test_shared_backend.py gsheet_dashboard/test_cloud_worker.py gsheet_dashboard/test_cloud_publication.py desktop/cloud-publisher-acceptance.py
+  & $Python -m ruff check --select E9,F cloud_backend supabase/tests gsheet_dashboard/shared_backend.py gsheet_dashboard/shared_routes.py gsheet_dashboard/shared_runtime.py gsheet_dashboard/shared_recovery.py gsheet_dashboard/shared_reporting.py gsheet_dashboard/shared_requests.py gsheet_dashboard/shared_sla.py gsheet_dashboard/shared_monthly.py gsheet_dashboard/test_shared_reporting.py gsheet_dashboard/test_shared_monthly.py gsheet_dashboard/test_shared_sla.py gsheet_dashboard/test_shared_recovery.py gsheet_dashboard/test_shared_routes.py gsheet_dashboard/test_shared_runtime.py gsheet_dashboard/test_shared_backend.py gsheet_dashboard/test_cloud_worker.py gsheet_dashboard/test_cloud_publication.py gsheet_dashboard/test_cloud_migration.py desktop/cloud-publisher-acceptance.py
   Check-Exit 'Shared backend lint'
   & $Python -m pip_audit -r desktop/requirements-build.lock --no-deps --disable-pip
   Check-Exit 'Python dependency audit'

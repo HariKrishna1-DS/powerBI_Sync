@@ -165,6 +165,32 @@ def read_workbooks(uploads, choices=None):
             'duplicates_removed': examined - len(rows), 'conflicts_resolved': reviewed}
 
 
+def dataset_snapshot(dataset, identity, created, revision):
+    from tracker_sync import FULL, REMAINING, sheet_reports
+    from production_rules import full_title
+    rows, columns = dataset['rows'], dataset['columns']
+    full = [r for r in rows if full_title(r)]
+    rest = [r for r in rows if not full_title(r)]
+    sheets = {name: {'rows': values, 'columns': columns} for name, values in (
+        ('Overview', rows), ('All Products', rows), ('Full Title', full), ('Remaining Products', rest))}
+    return {'sheets': sheets, 'reports': sheet_reports({FULL: full, REMAINING: rest}),
+        'source': 'Imported Excel', 'source_mode': 'import', 'import_id': identity,
+        'offline': False, 'updated_at': created, 'revision': revision, 'files': dataset['files']}
+
+
+def validate_targets(date, capacity, extended):
+    if not isinstance(date, str):
+        raise ValueError('Use a valid capacity date.')
+    if date != 'default':
+        if datetime.strptime(date, '%Y-%m-%d').strftime('%Y-%m-%d') != date:
+            raise ValueError('Use a valid YYYY-MM-DD capacity date.')
+    for value in (capacity, extended):
+        if value is not None and (type(value) is not int or not 0 <= value <= 1_000_000):
+            raise ValueError('Capacity must be a whole number between 0 and 1,000,000, or blank.')
+    if capacity is not None and extended is not None and extended < capacity:
+        raise ValueError('Extended capacity must be at least the normal capacity.')
+
+
 class ReportWorkspace:
     def __init__(self, store):
         self.store = store
@@ -217,7 +243,6 @@ class ReportWorkspace:
                     db.execute("SELECT id,created,json_array_length(dataset_json,'$.rows'),json_extract(dataset_json,'$.files') FROM report_imports ORDER BY created DESC")]
 
     def imported_snapshot(self, identity=None):
-        from tracker_sync import FULL, REMAINING, sheet_reports
         identity = identity or self.preferences()['import_id']
         with self.store.connect() as db:
             record = db.execute('SELECT created,dataset_json,digest FROM report_imports WHERE id=?', (identity,)).fetchone()
@@ -225,14 +250,7 @@ class ReportWorkspace:
             raise ValueError('Import production Excel files before choosing Import Excel report.')
         created, raw, digest = record
         dataset = json.loads(raw)
-        rows, columns = dataset['rows'], dataset['columns']
-        full = [r for r in rows if ' '.join(r['Product'].casefold().split()) in ('full title', 'full search')]
-        rest = [r for r in rows if ' '.join(r['Product'].casefold().split()) not in ('full title', 'full search')]
-        sheets = {name: {'rows': values, 'columns': columns} for name, values in (
-            ('Overview', rows), ('All Products', rows), ('Full Title', full), ('Remaining Products', rest))}
-        return {'sheets': sheets, 'reports': sheet_reports({FULL: full, REMAINING: rest}),
-                'source': 'Imported Excel', 'source_mode': 'import', 'import_id': identity,
-                'offline': False, 'updated_at': created, 'revision': f'import:{digest}', 'files': dataset['files']}
+        return dataset_snapshot(dataset, identity, created, f'import:{digest}')
 
     def capacity(self, snapshot):
         prefs = self.preferences()
@@ -241,16 +259,7 @@ class ReportWorkspace:
         return capacity_report(snapshot['reports']['daily'], targets, prefs['default_capacity'], prefs['default_extended'])
 
     def set_targets(self, date, capacity, extended):
-        if not isinstance(date, str):
-            raise ValueError('Use a valid capacity date.')
-        if date != 'default':
-            if datetime.strptime(date, '%Y-%m-%d').strftime('%Y-%m-%d') != date:
-                raise ValueError('Use a valid YYYY-MM-DD capacity date.')
-        for value in (capacity, extended):
-            if value is not None and (type(value) is not int or not 0 <= value <= 1_000_000):
-                raise ValueError('Capacity must be a whole number between 0 and 1,000,000, or blank.')
-        if capacity is not None and extended is not None and extended < capacity:
-            raise ValueError('Extended capacity must be at least the normal capacity.')
+        validate_targets(date,capacity,extended)
         if date == 'default':
             self.update(default_capacity=capacity, default_extended=extended)
         else:

@@ -19,6 +19,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  shared-database:
+    uses: ./.github/workflows/shared-backend.yml
+
   build:
     runs-on: windows-latest
     timeout-minutes: 60
@@ -86,7 +89,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Packaged connection recovery tests failed' }
           node desktop/shutdown-smoke.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Packaged unresponsive-engine shutdown tests failed' }
-      - name: Verify actual installed 2.7.1 upgrade and recovery
+      - name: Verify actual installed 2.7.2 upgrade and recovery
         timeout-minutes: 8
         shell: pwsh
         env:
@@ -111,7 +114,7 @@ jobs:
           retention-days: 14
 
   publish:
-    needs: build
+    needs: [build, shared-database]
     # Publication follows all build gates, including actual NSIS upgrade/recovery.
     if: github.ref == 'refs/heads/tv-tracker' && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && inputs.publish_release))
     runs-on: windows-latest

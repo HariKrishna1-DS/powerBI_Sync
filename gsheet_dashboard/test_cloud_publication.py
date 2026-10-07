@@ -159,6 +159,16 @@ class PublicationTests(unittest.TestCase):
         self.assertFalse(any(s.title.startswith('__TvTracker_Stage_') for s in self.book.sheets))
         self.assertEqual(next(s for s in self.book.sheets if s.title == 'All Products').values, rows)
 
+    def test_small_monthly_tables_share_one_bounded_staging_transfer(self):
+        tables={f'Report {i}':[['Order Number','Status'],[str(i),'Available']] for i in range(30)}
+        self.publisher.publish(1,tables)
+        transfers=[batch for batch in self.book.batches if any('updateCells' in request for request in batch['requests'])
+            and not any('copyPaste' in request for request in batch['requests'])]
+        self.assertEqual(len(transfers),1)
+        self.assertEqual(len(transfers[0]['requests']),30)
+        self.assertLess(len(json.dumps(transfers[0]).encode()),1_600_000)
+        self.assertEqual(self.publisher._read(sorted(tables)),tables)
+
     def test_interrupted_staging_preserves_visible_data_and_retries(self):
         self.publisher.publish(1, self.tables)
         self.book.interrupt_upload = True
@@ -170,3 +180,19 @@ class PublicationTests(unittest.TestCase):
         self.book.interrupt_upload = False
         self.assertEqual(self.publisher.publish(2, revised)['revision'], 2)
         self.assertFalse(any(s.title.startswith('__TvTracker_Stage_') for s in self.book.sheets))
+
+    def test_abandoned_staging_is_bounded_and_unrelated_tabs_survive(self):
+        own=f'__TvTracker_Stage_{self.workspace[:8]}_9_aabbccdd_0'
+        foreign='__TvTracker_Stage_ffffffff_9_aabbccdd_0'
+        self.book.sheets.extend([Sheet(own,150,[['disposable']]),Sheet(foreign,151,[['retain']])])
+        self.publisher.publish(1,self.tables)
+        self.assertNotIn(own,{s.title for s in self.book.sheets})
+        self.assertEqual(self.book.get_worksheet_by_id(151).values,[['retain']])
+
+    def test_full_grid_rejects_before_staging_without_changing_visible_reports(self):
+        personal=self.book.get_worksheet_by_id(101)
+        personal.row_count=500000;personal.col_count=20
+        with self.assertRaisesRegex(CloudError,'lacks space'):
+            self.publisher.publish(1,self.tables)
+        self.assertEqual(self.book.batches,[])
+        self.assertEqual(self.publisher._receipt()['revision'],0)

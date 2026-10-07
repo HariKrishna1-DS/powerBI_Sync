@@ -50,21 +50,25 @@ class SupabaseRpc:
             raise CloudError('Shared backend is unreachable. Saved operations will retry.', 'retry') from exc
         if response.status_code == 401:
             raise CloudError('Your session expired. Sign in again; saved operations are retained.', 'auth')
+        if response.status_code == 403:
+            raise CloudError('You do not have permission for this workspace operation.', 'auth')
+        code = None
+        if not 200 <= response.status_code < 300 and response.status_code != 429:
+            try:
+                code = response.json().get('code')
+            except (ValueError, AttributeError):
+                pass
+        # PostgREST can return PostgreSQL serialization failures as HTTP 500.
+        # Their SQLSTATE must win over generic service-outage classification.
+        if code in ('PT409', '40001', '40P01'):
+            raise CloudError('Shared data changed. Refresh before retrying this operation.', 'conflict')
         if response.status_code == 429 or response.status_code >= 500:
             try:
                 delay = min(900, max(30, int(response.headers.get('Retry-After', '30'))))
             except ValueError:
                 delay = 30
             raise CloudError('Shared backend is busy. Saved operations will retry.', 'retry', delay)
-        if response.status_code == 403:
-            raise CloudError('You do not have permission for this workspace operation.', 'auth')
         if not 200 <= response.status_code < 300:
-            try:
-                code = response.json().get('code')
-            except (ValueError, AttributeError):
-                code = None
-            if code == '40001':
-                raise CloudError('Shared data changed. Refresh before retrying this operation.', 'conflict')
             raise CloudError('The backend rejected this operation. Review its data or the latest order version.')
         try:
             return response.json()

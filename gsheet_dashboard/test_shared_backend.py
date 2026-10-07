@@ -37,6 +37,8 @@ class RpcTests(unittest.TestCase):
     def test_failures_are_classified_and_do_not_expose_server_content(self):
         for code, body, kind in [(401, {}, 'auth'), (403, {}, 'auth'), (429, {}, 'retry'),
                                  (503, {}, 'retry'), (409, {'code': '40001'}, 'conflict'),
+                                 (500, {'code': '40001'}, 'conflict'), (500, {'code': '40P01'}, 'conflict'),
+                                 (409, {'code': 'PT409'}, 'conflict'),
                                  (400, {'message': 'private record'}, 'review')]:
             self.session.post.return_value = response(code, body, {'Retry-After': '120'})
             with self.assertRaises(CloudError) as failure:

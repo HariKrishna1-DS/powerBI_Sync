@@ -73,6 +73,33 @@ class ShadowWorkerTests(unittest.TestCase):
 
 
 class OfficeWorkerTests(unittest.TestCase):
+    def test_google_failures_retain_job_token_and_never_acknowledge(self):
+        from gspread.exceptions import APIError
+        from requests import Response, ConnectionError
+        from google.auth.exceptions import RefreshError
+        for status,kind in ((429,'retry'),(503,'retry'),(403,'review')):
+            response=Response();response.status_code=status
+            response._content=b'{"error":{"code":403,"message":"Sensitive upstream detail"}}'
+            errors=[APIError(response)]
+            if status==429:
+                errors.extend((ConnectionError('Private connection details'),RefreshError('Private credential details')))
+            for error in errors:
+                with self.subTest(status=status,error=type(error).__name__),tempfile.TemporaryDirectory() as folder:
+                    workspace=str(uuid.uuid4());rpc=Mock();tokens=[]
+                    def claim_job(name,body):
+                        self.assertEqual(name,'tv_claim_job');tokens.append(body['p_token'])
+                        return {'mode':'active','spreadsheet':'qa','orders':[],
+                            'job':{'workspace_id':workspace,'token':body['p_token'],'kind':'publish',
+                                'revision':1,'started_at':'2026-10-07T12:00:00Z'}}
+                    rpc.call.side_effect=claim_job
+                    worker=OfficeWorker(rpc,folder,Mock(side_effect=error))
+                    for _ in range(2):
+                        with self.assertRaises(CloudError) as caught:worker.step(workspace)
+                        expected='review' if isinstance(error,RefreshError) else 'retry' if isinstance(error,ConnectionError) else kind
+                        self.assertEqual(caught.exception.kind,expected)
+                        self.assertNotIn('Private',str(caught.exception));self.assertNotIn('Sensitive',str(caught.exception))
+                    self.assertEqual(tokens[0],tokens[1]);self.assertEqual(rpc.call.call_count,2)
+
     def test_publication_is_verified_before_ack_and_lost_ack_reuses_job(self):
         from unittest.mock import patch
         with tempfile.TemporaryDirectory() as folder:

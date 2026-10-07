@@ -95,10 +95,27 @@ class OfficeWorker(ShadowWorker):
         if claim['job'].get('kind') != 'publish':
             raise CloudError('Unknown office worker job.')
         from cloud_backend.publication import SheetsPublisher, projection
+        from gspread.exceptions import APIError
+        from google.auth.exceptions import GoogleAuthError, TransportError
+        from requests import RequestException
+        from sheets_transport import SheetsQuotaError
         revision = claim['job']['revision']
-        tables, _ = projection(claim['orders'], claim['job']['started_at'])
-        publisher = SheetsPublisher(self.open_book(claim['spreadsheet']), workspace, claim['spreadsheet'])
-        publisher.publish(revision, tables)
+        tables, snapshot = projection(claim['orders'], claim['job']['started_at'], claim.get('report_context'))
+        try:
+            publisher = SheetsPublisher(self.open_book(claim['spreadsheet']), workspace, claim['spreadsheet'])
+            publisher.publish(revision, tables, snapshot['capacity'])
+        except SheetsQuotaError as error:
+            raise CloudError('Google Sheets is temporarily limiting the office worker. This publication is retained for retry.',
+                'retry',error.retry_after) from error
+        except APIError as error:
+            status = error.response.status_code
+            if status == 429 or status >= 500:
+                raise CloudError('Google Sheets is busy. The office worker retained this publication for retry.', 'retry', 60) from error
+            raise CloudError('The office worker cannot access Google Sheets. Check its Google key and workbook sharing.') from error
+        except (RequestException, TransportError) as error:
+            raise CloudError('The office worker cannot reach Google Sheets. This publication is retained for retry.', 'retry', 60) from error
+        except GoogleAuthError as error:
+            raise CloudError('The office worker Google credentials need review. Import a valid service-account JSON.') from error
         return self.rpc.call('tv_ack_publication', {'p_workspace': workspace,
             'p_token': token, 'p_revision': revision})
 

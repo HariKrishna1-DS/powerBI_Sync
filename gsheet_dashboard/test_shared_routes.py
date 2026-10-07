@@ -56,3 +56,33 @@ class SharedRoutesTests(unittest.TestCase):
             worker.return_value.step.return_value = {'state': 'processed', 'revision': 2}
             self.assertEqual(self.post(action='worker').json['worker']['state'], 'processed')
             worker.return_value.step.assert_called_once_with(self.workspace)
+
+    def test_migration_is_owner_only_even_when_form_claims_owner(self):
+        for role in ('viewer','editor'):
+            self.rpc.call.return_value=[dict(self.member,role=role)]
+            for action in ('review','activate','migration-status'):
+                with patch('cloud_backend.migration.Migration') as migration:
+                    self.assertEqual(self.post(action=action,role='owner').status_code,403)
+                    migration.assert_not_called()
+
+    def test_owner_review_uses_bound_queue_and_requires_google_connection(self):
+        with patch('sync_config.SPREADSHEET_ID',''):
+            response=self.post(action='review')
+            self.assertEqual(response.status_code,422)
+            self.assertIn('Save the Google spreadsheet connection',response.json['error'])
+        with patch('sync_config.SPREADSHEET_ID','synthetic-workbook'), patch('shared_runtime.open_worker_book') as book, patch('cloud_backend.migration.Migration') as migration:
+            migration.return_value.preview.return_value={'next_sequence':48,'counts':[]}
+            self.assertEqual(self.post(action='review').json['next_sequence'],48)
+            self.assertEqual(migration.call_args.args[3],'queue')
+            book.assert_called_once_with('synthetic-workbook')
+
+    def test_worker_recovery_requires_owner_and_explicit_stopped_confirmation(self):
+        self.member['mode']='active'
+        with patch('shared_recovery.recover_worker') as recovery:
+            self.assertEqual(self.post(action='recover-worker').status_code,403)
+            self.member['role']='editor'
+            self.assertEqual(self.post(action='recover-worker',legacy_stopped=True).status_code,403)
+            recovery.assert_not_called()
+            self.member['role']='owner'
+            recovery.return_value={'state':'recovered','worker':str(uuid.uuid4())}
+            self.assertEqual(self.post(action='recover-worker',legacy_stopped=True).json['state'],'recovered')

@@ -3,6 +3,7 @@ from datetime import datetime
 import json
 import time
 from flask import jsonify, request, send_file
+from shared_backend import CloudError
 
 from monthly_production import (ARCHIVE, BASES, apply_plan, import_plan, migration_plan,
     monthly_workbook, preserve_formulas, read_import, rollover_plan, snapshot, tab_identity, tab_name, new_plan)
@@ -16,7 +17,7 @@ def register_monthly_routes(app, store, gate, maintenance, production_cache, loa
     initialize()
 
     def public(plan):
-        return {key: value for key, value in plan.items() if key not in ('writes', 'fingerprint', 'formula_cells')}
+        return {key: value for key, value in plan.items() if key not in ('writes', 'fingerprint', 'formula_cells', 'changes')}
 
     def save(plan):
         initialize()  # Restoring an older workspace is supported.
@@ -30,11 +31,15 @@ def register_monthly_routes(app, store, gate, maintenance, production_cache, loa
 
     @app.post('/api/monthly-maintenance/preview', endpoint='monthly_maintenance_preview')
     def preview():
+        runtime = app.extensions.get('shared_runtime')
         if not acquire():
             return jsonify(error='Wait for the current operation to finish.'), 409
         try:
             body = request.form if request.files else (request.get_json(silent=True) or {})
             kind, month = body.get('kind'), body.get('month', '2026-10')
+            if runtime and runtime.enabled:
+                from shared_monthly import SharedMonthly
+                return jsonify(save(SharedMonthly(runtime).preview(kind,month,request.files)))
             book, _ = get_book()
             before = snapshot(book)
             if kind == 'setup':
@@ -55,6 +60,8 @@ def register_monthly_routes(app, store, gate, maintenance, production_cache, loa
             else:
                 raise ValueError('Choose setup, import or rollover.')
             return jsonify(save(preserve_formulas(plan, before)))
+        except CloudError as exc:
+            return jsonify(error=str(exc),kind=exc.kind),401 if exc.kind=='auth' else 503 if exc.kind=='retry' else 409
         except ValueError as exc:
             return jsonify(error=str(exc)), 422
         except Exception:
@@ -65,6 +72,7 @@ def register_monthly_routes(app, store, gate, maintenance, production_cache, loa
 
     @app.post('/api/monthly-maintenance/apply', endpoint='monthly_maintenance_apply')
     def apply():
+        runtime = app.extensions.get('shared_runtime')
         body = request.get_json(silent=True) or {}
         if body.get('confirmed') is not True or not isinstance(body.get('id'), str):
             return jsonify(error='Review and confirm a saved preview before changing production data.'), 422
@@ -79,14 +87,22 @@ def register_monthly_routes(app, store, gate, maintenance, production_cache, loa
             if row[0] == 'applied':
                 return jsonify(json.loads(row[2]))
             plan = json.loads(row[1])
-            from tracker_sync import sync_lock
-            with sync_lock(store.root):
-                book, _ = get_book()
-                result = dict(public(plan), **apply_plan(book, plan))
+            if runtime and runtime.enabled:
+                from shared_monthly import SharedMonthly
+                result = dict(public(plan), **SharedMonthly(runtime).apply(plan))
+            else:
+                if plan.get('shared'):
+                    raise ValueError('Reconnect this preview’s shared workspace before applying it.')
+                from tracker_sync import sync_lock
+                with sync_lock(store.root):
+                    book, _ = get_book()
+                    result = dict(public(plan), **apply_plan(book, plan))
             with store.connect() as db:
                 db.execute("UPDATE monthly_operations SET status='applied',result_json=? WHERE id=?", (json.dumps(result), plan['id']))
             production_cache.invalidate()
             return jsonify(result)
+        except CloudError as exc:
+            return jsonify(error=str(exc),kind=exc.kind),401 if exc.kind=='auth' else 503 if exc.kind=='retry' else 409
         except ValueError as exc:
             return jsonify(error=str(exc)), 409
         except Exception:
@@ -113,6 +129,22 @@ def register_monthly_routes(app, store, gate, maintenance, production_cache, loa
         try:
             month = month_key(request.args.get('month', ''))
             report_workspace = app.extensions.get('report_workspace')
+            runtime = app.extensions.get('shared_runtime')
+            if runtime and runtime.enabled:
+                from report_publishing import export_reports
+                value = load_snapshot(force=True)
+                value['reports']['daily'] = [r for r in value['reports']['daily'] if r['Date'].startswith(month)]
+                value['reports']['monthly'] = [r for r in value['reports']['monthly'] if r['Month']==month]
+                rows = [r for report in value['reports']['monthly'] for r in report['rows']]
+                if not rows:
+                    return jsonify(error=f'No shared orders are available for {month}.'),404
+                for label in ('Overview','All Products'):
+                    value['sheets'][label]['rows'] = rows
+                from report_metrics import capacity_report
+                context = runtime.report_state(value['shared_revision'])
+                prefs = context['preferences']
+                capacity = capacity_report(value['reports']['daily'],context['targets'],prefs['default_capacity'],prefs['default_extended'])
+                return send_file(export_reports(value,capacity),as_attachment=True,download_name=f'Tv-Tracker-Shared-{month}.xlsx')
             if report_workspace and report_workspace.preferences()['source'] == 'import':
                 from report_publishing import export_reports
                 value = report_workspace.imported_snapshot()
@@ -148,6 +180,9 @@ def register_monthly_routes(app, store, gate, maintenance, production_cache, loa
 
     checked = [None]
     def auto_preview():
+        runtime = app.extensions.get('shared_runtime')
+        if runtime and runtime.enabled:
+            return
         """At the boundary (or next launch), prepare counts; never bypass consent."""
         now = time.monotonic()
         if (checked[0] is not None and now-checked[0] < 3600) or not acquire():

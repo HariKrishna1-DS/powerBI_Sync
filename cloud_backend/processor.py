@@ -29,7 +29,8 @@ def process_capture(claim):
     current = {identity: dict(row) for identity, row in original.items()}
     # Manual assignments/comments survive a capture; the existing Sheets merge
     # clears some operational columns, which must not erase concurrent user work.
-    manual = {identity: {c: row[c] for c in ('Comments', 'Assignee', 'Searcher', 'Shift', 'Review/QC', 'review') if c in row}
+    override_columns = ('SLA Override Status','SLA Override Out Time','SLA Override Deadline','SLA Override Completion')
+    manual = {identity: {c: row[c] for c in ('Comments', 'Assignee', 'Searcher', 'Shift', 'Review/QC', 'review', 'Reporting Month', 'Carried From',*override_columns) if c in row}
               for identity, row in current.items()}
     for raw in incoming:
         row = current.get(key(raw))
@@ -51,6 +52,14 @@ def process_capture(claim):
                 row = missing_completion(row, anchor, (old_by_key[identity], prior_time))
             row.update(manual.get(identity, {}))
             row['Free Site'], _ = sla_result(row)
+            if row.get('SLA Override Status'):
+                if (row['Free Site'] and not str(row.get('Completion Evidence','')).casefold().startswith('inferred')
+                        and row.get('Out Time')==row.get('SLA Override Out Time')
+                        and row.get('SLA Expiration')==row.get('SLA Override Deadline')):
+                    row['Free Site'] = row['SLA Override Status']
+                else:
+                    for column in override_columns:
+                        row[column] = ''
             if row != original.get(identity):
                 result.append(row)
     # Report the final result, including incremental completion/reappearance,

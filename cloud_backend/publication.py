@@ -7,6 +7,7 @@ from copy import deepcopy
 import hashlib
 import json
 import math
+import re
 import uuid
 
 from shared_backend import CloudError
@@ -15,24 +16,58 @@ from sheets_writer import SHARED_TITLE, SharedWriterGuard
 
 PROTOCOL = 'tv-tracker-supabase-v1'
 RECEIPT = '__TvTracker_CloudPublication'
+GRID_LIMIT = 10_000_000
 
 
-def projection(orders, stamp):
+def projection(orders, stamp, context=None):
     from tracker_sync import HEADERS, FULL, REMAINING, sheet_reports
     from report_metrics import capacity_report
     from report_publishing import view_matrices
     from production_rules import full_title
     rows = [deepcopy(item['data']) for item in sorted(orders, key=lambda r: r['order_key'])]
-    columns = HEADERS + sorted({key for row in rows for key in row} - set(HEADERS))
+    from monthly_production import month_key, local_datetime, tab_name
+    for row in rows:
+        if row.get('Reporting Month'):
+            row['_month'] = month_key(row['Reporting Month'])
+    columns = HEADERS + sorted({key for row in rows for key in row if not key.startswith('_')} - set(HEADERS))
     full = [row for row in rows if full_title(row)]
     rest = [row for row in rows if not full_title(row)]
     snapshot = {'sheets': {name: {'columns': columns, 'rows': selected} for name, selected in (
         ('All Products', rows), ('Overview', rows), ('Full Title', full), ('Remaining Products', rest))},
         'reports': sheet_reports({FULL: full, REMAINING: rest}), 'updated_at': stamp, 'source': 'Shared workspace'}
-    capacity = capacity_report(snapshot['reports']['daily'], year=stamp[:4])
+    from report_metrics import enrich_reports
+    enrich_reports(snapshot['reports'])
+    tracker_snapshot = snapshot
+    context = context or {}
+    prefs = context.get('preferences', {'source':'tracker','import_id':None,'default_capacity':700,'default_extended':750})
+    if prefs['source'] == 'import':
+        dataset = context.get('dataset')
+        if not isinstance(dataset, dict) or not dataset.get('rows') or not dataset.get('columns'):
+            raise CloudError('The selected shared report import is unavailable. Reports were retained.')
+        from report_workspace import dataset_snapshot
+        snapshot = dataset_snapshot(dataset, prefs['import_id'], stamp, 'shared-import')
+        enrich_reports(snapshot['reports'])
+    capacity = capacity_report(snapshot['reports']['daily'], context.get('targets'),
+        prefs.get('default_capacity'), prefs.get('default_extended'), year=stamp[:4])
+    snapshot.update(source_mode=prefs['source'], report_preferences=deepcopy(prefs), capacity=capacity)
     tables = view_matrices(snapshot, capacity)
     for title, selected in ((FULL, full), (REMAINING, rest)):
         tables[title] = [columns] + [[row.get(c, '') for c in columns] for row in selected]
+    periods = set(context.get('periods', []))
+    grouped = {}
+    for row in rows:
+        arrival = local_datetime(row.get('In-Time') or row.get('Date'))
+        period = row.get('Reporting Month') or (arrival.strftime('%Y-%m') if arrival else None)
+        if period:
+            month_key(period)
+            periods.add(period)
+            grouped.setdefault((FULL if full_title(row) else REMAINING,period), []).append(row)
+    from monthly_production import arrival_sort
+    for period in sorted(periods):
+        for base in (FULL, REMAINING):
+            selected = arrival_sort(grouped.get((base,period), []))
+            tables[tab_name(base,period)] = [columns] + [[row.get(c,'') for c in columns] for row in selected]
+    snapshot['canonical_orders'] = len(tracker_snapshot['sheets']['All Products']['rows'])
     return tables, snapshot
 
 
@@ -109,12 +144,26 @@ class SheetsPublisher:
             batch.requests.append({'updateSheetProperties': {'properties': {'sheetId':sheet.id,'hidden':True},'fields':'hidden'}})
             stages[title] = (name, sheet.id)
         self.book.batch_update({'requests':batch.requests})
+        pending, pending_size = [], 16
+        def flush():
+            nonlocal pending, pending_size
+            if pending:
+                self.book.batch_update({'requests':pending})
+                pending, pending_size = [], 16
         for title, rows in sorted(tables.items()):
             identity = stages[title][1]
             offset, encoded, size = 0, [], 0
             def write():
-                self.book.batch_update({'requests':[{'updateCells':{'start':{'sheetId':identity,'rowIndex':offset,'columnIndex':0},
-                    'rows':encoded,'fields':'userEnteredValue'}}]})
+                nonlocal pending_size
+                request = {'updateCells':{'start':{'sheetId':identity,'rowIndex':offset,'columnIndex':0},
+                    'rows':encoded,'fields':'userEnteredValue'}}
+                request_size = len(json.dumps(request).encode()) + 2
+                if request_size > 1_600_000:
+                    raise CloudError('A staged report transfer exceeds the bounded upload size.')
+                if pending and pending_size + request_size > 1_600_000:
+                    flush()
+                pending.append(request)
+                pending_size += request_size
             for row in rows:
                 if any(isinstance(cell,str) and len(cell)>50000 for cell in row):
                     raise CloudError('A report cell exceeds Google Sheets’ 50,000-character limit.')
@@ -134,10 +183,38 @@ class SheetsPublisher:
                 encoded.append(record); size+=length
             if encoded:
                 write()
+        flush()
         copied = self._read([name for name,_ in stages.values()])
         if digest({title:copied[name] for title,(name,_) in stages.items()}) != digest(tables):
             raise CloudError('Staged reports could not be verified. Visible reports were retained.', 'retry')
         return stages
+
+    def _prepare_storage(self, tables):
+        """Only disposable staging for this bound workspace can be reclaimed."""
+        prefix = '__TvTracker_Stage_' + self.workspace[:8] + '_'
+        pattern = re.compile(re.escape(prefix) + r'\d+_[a-f0-9]{8}_\d+$')
+        sheets = self.book.worksheets()
+        abandoned = [sheet for sheet in sheets if pattern.fullmatch(sheet.title)]
+        if abandoned:
+            self.book.batch_update({'requests': [{'deleteSheet': {'sheetId': sheet.id}} for sheet in abandoned]})
+            sheets = self.book.worksheets()
+            if any(pattern.fullmatch(sheet.title) for sheet in sheets):
+                raise CloudError('Temporary report cleanup could not be verified. Visible reports were retained.', 'retry')
+        existing = {sheet.title: sheet for sheet in sheets}
+        allocated = sum(sheet.row_count * sheet.col_count for sheet in sheets)
+        # Staging and destination must fit simultaneously, before any uploads.
+        peak = allocated
+        for title, rows in tables.items():
+            count, columns = max(2, len(rows)), len(rows[0])
+            peak += count * columns
+            destination_rows = count + (25 if title == 'Capacity Report' else 0)
+            if title in existing:
+                sheet = existing[title]
+                peak += max(sheet.row_count, destination_rows) * max(sheet.col_count, columns) - sheet.row_count * sheet.col_count
+            else:
+                peak += destination_rows * columns
+        if peak > GRID_LIMIT:
+            raise CloudError('The workbook lacks space for a verified atomic publication. Archive obsolete report copies or use a reviewed new workbook; current reports were retained.')
 
     def bind(self, baseline_titles, expected_digest):
         """Explicit migration only; caller must retain the reviewed baseline backup."""
@@ -182,7 +259,7 @@ class SheetsPublisher:
                 raise CloudError('Migration binding could not be verified.', 'retry')
             return receipt
 
-    def publish(self, revision, tables):
+    def publish(self, revision, tables, capacity=None):
         if type(revision) is not int or revision < 1 or not tables or len(tables) > 200:
             raise ValueError('A bounded report and positive revision are required.')
         if any(not isinstance(title, str) or not title or title.startswith('__') or not rows for title, rows in tables.items()):
@@ -190,6 +267,14 @@ class SheetsPublisher:
         self._fence()
         previous = self._receipt()
         previous_tables = self._read(previous['tabs'])
+        # A report-source switch clears obsolete generated monthly views, while
+        # preserving canonical/historical tracker tabs and unrelated worksheets.
+        from monthly_views import view_identity
+        from monthly_production import tab_identity
+        tables = dict(tables)
+        for title in previous_tables.keys()-tables.keys():
+            if view_identity(title) or tab_identity(title):
+                tables[title] = [previous_tables[title][0]] if previous_tables[title] else [['Order Number']]
         updated_titles = set(tables)
         tables = {**{title: rows for title, rows in previous_tables.items() if title not in tables}, **tables}
         current_digest = digest(tables)
@@ -203,6 +288,7 @@ class SheetsPublisher:
         existing = {sheet.title for sheet in self.book.worksheets()}
         if any(title not in previous['tabs'] and title in existing for title in updated_titles):
             raise CloudError('A new report would replace an unreviewed tab. Review migration first.', 'conflict')
+        self._prepare_storage({title: tables[title] for title in updated_titles})
         try:
             stages = self._stage(revision, {title:tables[title] for title in updated_titles}, current_digest)
         except CloudError:
@@ -222,6 +308,8 @@ class SheetsPublisher:
                 raise CloudError('A new report would replace an unreviewed tab. Review migration first.', 'conflict')
             sheet = batch.sheet(title)
             batch.capacity(sheet, max(2, len(values)), len(values[0]))
+            if title == 'Capacity Report':
+                batch.capacity(sheet, max(2, len(values)) + 25, len(values[0]))
             batch.requests.append({'repeatCell': {'range': {'sheetId': sheet.id}, 'cell': {}, 'fields': 'userEnteredValue'}})
             batch.requests.append({'copyPaste':{'source':{'sheetId':stages[title][1],'startRowIndex':0,'endRowIndex':len(values),
                 'startColumnIndex':0,'endColumnIndex':len(values[0])},'destination':{'sheetId':sheet.id,'startRowIndex':0,
@@ -240,6 +328,9 @@ class SheetsPublisher:
                         'ranges':[{'sheetId':sheet.id,'startRowIndex':1,'startColumnIndex':column,'endColumnIndex':column+1}],
                         'booleanRule':{'condition':{'type':'CUSTOM_FORMULA','values':[{'userEnteredValue':f'=AND(N("{MARKER}")=0,${letter}2="{label}")'}]},
                             'format':{'backgroundColor':sheet_color(color)}}}}})
+        if capacity is not None and 'Capacity Report' in updated_titles:
+            from report_publishing import capacity_chart_requests
+            batch.requests.extend(capacity_chart_requests(self.book, batch.sheets['Capacity Report'].id, capacity))
         receipt = {'workspace': self.workspace, 'spreadsheet': self.spreadsheet,
             'revision': revision, 'digest': digest(tables), 'tabs': sorted(tables)}
         batch.cells(batch.sheets[RECEIPT], 0, 0, [['Receipt'], [json.dumps(receipt, sort_keys=True)]])

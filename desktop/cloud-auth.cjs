@@ -47,7 +47,8 @@ function createCloudAuth({read, write, fetcher = fetch, now = () => Date.now()})
         ...(body === undefined ? {} : {body: JSON.stringify(body)})});
     } catch { throw Error('The shared workspace is unreachable. Check your connection and try again.'); }
     if (!response.ok) {
-      const error = Error(response.status === 429 ? 'Too many sign-in requests. Wait briefly before trying again.' :
+      const error = Error(response.status === 409 ? 'Shared data changed. Refresh before trying this operation again.' :
+        response.status === 429 ? 'Too many sign-in requests. Wait briefly before trying again.' :
         [400, 401, 403].includes(response.status) ? 'Sign-in or workspace access was rejected. Check your account and permissions.' :
         'The shared workspace could not complete the request. Try again shortly.');
       error.status = response.status;
@@ -90,6 +91,9 @@ function createCloudAuth({read, write, fetcher = fetch, now = () => Date.now()})
     configure: input => exclusive(async () => {
       const config = validateCloudConfig(input);
       const previous = read();
+      if(previous.cloudWorkspace && JSON.stringify(config)!==JSON.stringify(previous.cloudConfig)) {
+        throw Error('Disconnect the shared workspace before changing its project connection.');
+      }
       if (JSON.stringify(config) !== JSON.stringify(previous.cloudConfig)) {
         write({...previous, cloudConfig: config, cloudSession: null, cloudWorkspace: null, cloudWorkspaceDraft: null});
       }
@@ -124,6 +128,40 @@ function createCloudAuth({read, write, fetcher = fetch, now = () => Date.now()})
       const id=read().cloudWorkerId;
       if(id&&UUID.test(id))return id;
       const created=randomUUID();write({...read(),cloudWorkerId:created});return created;
+    }),
+    adoptWorkerIdentity: input => exclusive(async () => {
+      if (!input || !UUID.test(input.id||'') || !UUID.test(input.worker||'') || input.stopped!==true) {
+        throw Error('Stop the old office worker and verify its restored recovery backup first.');
+      }
+      const access=await token();
+      const member=verifiedWorkspaces(await request('/rest/v1/rpc/tv_list_workspaces',{},access)).find(row=>row.id===input.id);
+      const detail=await request('/rest/v1/rpc/tv_workspace_status',{p_workspace:input.id},access);
+      if(member?.role!=='owner' || member.mode!=='active' || detail?.worker!==input.worker || detail?.mode!=='active') {
+        throw Error('The restored worker identity does not match the owner-authorized active workspace.');
+      }
+      write({...read(),cloudWorkerId:input.worker});
+      return {worker:input.worker};
+    }),
+    setMember: input => exclusive(async () => {
+      if (!input || !UUID.test(input.workspace||'') || !UUID.test(input.user||'') ||
+          !['editor','viewer',null].includes(input.role)) throw Error('Use a registered user UUID and editor, viewer or removal.');
+      const access=await token();
+      const owner=verifiedWorkspaces(await request('/rest/v1/rpc/tv_list_workspaces',{},access)).find(row=>row.id===input.workspace);
+      if(owner?.role!=='owner' || input.user===read().cloudSession.user.id) throw Error('Only the owner can change another team member’s access.');
+      const body={p_workspace:input.workspace,p_user:input.user,p_role:input.role};
+      let draft=read().cloudMemberDraft;
+      if(!draft || JSON.stringify(draft.body)!==JSON.stringify(body)) {
+        draft={operation:randomUUID(),body};write({...read(),cloudMemberDraft:draft});
+      }
+      const result=await request('/rest/v1/rpc/tv_set_member',{...body,p_operation:draft.operation},access);
+      if(result?.user!==input.user || result?.role!==input.role) throw Error('Team access receipt could not be verified. Retrying retains the same operation.');
+      write({...read(),cloudMemberDraft:null});
+      return result;
+    }),
+    disconnectWorkspace: () => exclusive(async () => {
+      // Upload IDs and worker tokens stay in the local database for reconnect.
+      write({...read(),cloudWorkspace:null});
+      return status();
     }),
     createWorkspace: ({name, queueScope}) => exclusive(async () => {
       if (typeof name !== 'string' || !name.trim() || name.length > 100 ||

@@ -11,7 +11,7 @@ def register_shared_routes(app, store, gate, maintenance):
     @app.post('/api/desktop/shared/action')
     def shared_action():
         body = request.get_json(silent=True)
-        if not isinstance(body, dict) or body.get('action') not in ('inspect', 'submit', 'drain', 'worker'):
+        if not isinstance(body, dict) or body.get('action') not in ('inspect', 'submit', 'drain', 'worker', 'review', 'activate', 'migration-status', 'recover-worker'):
             return jsonify(error='Choose a valid shared workspace action.'), 422
         if maintenance.is_set() or not gate.acquire(blocking=False):
             return jsonify(error='Wait for the current workspace operation to finish.'), 409
@@ -27,9 +27,30 @@ def register_shared_routes(app, store, gate, maintenance):
             member = next((row for row in memberships if row.get('id') == workspace), None)
             if member is None:
                 return jsonify(error='This account does not have access to that workspace.'), 403
-            if member.get('mode') != 'shadow' and body['action'] != 'inspect':
+            if member.get('mode') != 'shadow' and body['action'] not in ('inspect', 'activate', 'migration-status', 'recover-worker'):
                 return jsonify(error='This migration pilot only operates on validation workspaces.'), 409
             action = body['action']
+            if action == 'recover-worker':
+                if member['role'] != 'owner' or body.get('legacy_stopped') is not True:
+                    return jsonify(error='Only the owner can recover a stopped office worker.'), 403
+                from shared_recovery import recover_worker
+                return jsonify(recover_worker(rpc, config, access, store.root.parent, workspace))
+            if action in ('review', 'activate', 'migration-status'):
+                if member['role'] != 'owner':
+                    return jsonify(error='Only the workspace owner can review or activate migration.'), 403
+                from cloud_backend.migration import Migration
+                from shared_runtime import open_worker_book
+                from sync_config import SPREADSHEET_ID
+                if not SPREADSHEET_ID:
+                    return jsonify(error='Save the Google spreadsheet connection before reviewing migration.'), 422
+                migration = Migration(rpc, open_worker_book(SPREADSHEET_ID),
+                    store.root.parent / 'migration-snapshots', member['queue_scope'])
+                if action == 'review':
+                    return jsonify(migration.preview(workspace))
+                if action == 'migration-status':
+                    return jsonify(plan=migration.latest(workspace))
+                return jsonify(migration.activate(workspace, body.get('plan', ''), body.get('worker', ''),
+                    body.get('reviewed'), body.get('legacy_stopped')))
             outbox = CloudOutbox(store)
             result = {}
             if action == 'submit':

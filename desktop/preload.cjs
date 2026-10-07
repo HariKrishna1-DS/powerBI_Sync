@@ -7,6 +7,8 @@ contextBridge.exposeInMainWorld('desktop', Object.freeze({
   signOutCloud: () => ipcRenderer.invoke('desktop:cloud-sign-out'),
   getCloudWorkspaces: () => ipcRenderer.invoke('desktop:cloud-workspaces'),
   joinCloudWorkspace: input => ipcRenderer.invoke('desktop:cloud-join',input),
+  setCloudMember: input => ipcRenderer.invoke('desktop:cloud-member',input),
+  disconnectCloudWorkspace: () => ipcRenderer.invoke('desktop:cloud-disconnect'),
   getCloudWorkerIdentity: () => ipcRenderer.invoke('desktop:cloud-worker-identity'),
   createCloudWorkspace: () => ipcRenderer.invoke('desktop:cloud-create-workspace'),
   runCloudAction: value => ipcRenderer.invoke('desktop:cloud-action', value),

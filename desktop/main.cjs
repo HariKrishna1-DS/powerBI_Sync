@@ -182,11 +182,15 @@ function registerIpc() {
   });
   handle('desktop:settings', () => publicState());
   handle('desktop:cloud-state', () => cloudAuth.status());
-  handle('desktop:cloud-configure', input => cloudAuth.configure(input));
+  handle('desktop:cloud-configure', async input => {
+    if(settings.cloudWorkspace)throw Error('Disconnect the shared workspace before changing its project connection.');
+    return cloudAuth.configure(input);
+  });
   handle('desktop:cloud-sign-in', input => cloudAuth.signIn(input));
   handle('desktop:cloud-sign-out', () => cloudAuth.signOut());
   handle('desktop:cloud-workspaces', () => cloudAuth.listWorkspaces());
   handle('desktop:cloud-worker-identity', () => cloudAuth.workerIdentity());
+  handle('desktop:cloud-member', input => cloudAuth.setMember(input));
   handle('desktop:cloud-join', async input => {
     const health=await (await engineRequest('/api/health')).json();
     if(health.running)throw Error('Wait for the current workspace operation before changing connections.');
@@ -196,15 +200,30 @@ function registerIpc() {
     finally { restarting=false;void pulseShared(); }
     return selected;
   });
+  handle('desktop:cloud-disconnect', async () => {
+    const health=await (await engineRequest('/api/health')).json();
+    if(health.running)throw Error('Wait for the current workspace operation before disconnecting.');
+    await cloudAuth.disconnectWorkspace();
+    restarting=true;
+    try {await stopBackend();await startBackend();configureSession();await window.loadURL(backendUrl);}
+    finally {restarting=false;}
+    return {disconnected:true};
+  });
   handle('desktop:cloud-create-workspace', () => cloudAuth.createWorkspace({name:'Tv Tracker',queueScope:settings.queueUrl}));
   handle('desktop:cloud-action', async input => {
-    if (!input || !['inspect','submit','drain','worker'].includes(input.action) ||
+    if (!input || !['inspect','submit','drain','worker','review','activate','migration-status','recover-worker'].includes(input.action) ||
         typeof input.workspace !== 'string' || !/^[0-9a-f-]{36}$/i.test(input.workspace)) throw Error('Choose a shared workspace and action.');
     const access = await cloudAuth.accessToken();
     const response = await engineRequest('/api/desktop/shared/action', {method:'POST',
       headers:{'Content-Type':'application/json','X-TV-Cloud-Access':access},
-      body:JSON.stringify({action:input.action, workspace:input.workspace, preview_id:input.preview_id, config:settings.cloudConfig})},120000);
-    return response.json();
+      body:JSON.stringify({action:input.action, workspace:input.workspace, preview_id:input.preview_id,
+        plan:input.plan,reviewed:input.reviewed===true,legacy_stopped:input.legacy_stopped===true,
+        worker:input.action==='activate'?await cloudAuth.workerIdentity():undefined,config:settings.cloudConfig})},120000);
+    const result=await response.json();
+    if(input.action==='recover-worker') {
+      await cloudAuth.adoptWorkerIdentity({id:input.workspace,worker:result.worker,stopped:input.legacy_stopped===true});
+    }
+    return result;
   });
   handle('desktop:preferences', () => settings.uiPreferences || {theme:'system', orderViews:[]});
   handle('desktop:save-preferences', input => {

@@ -134,3 +134,48 @@ test('office worker identity survives retries and wrong-account sign-in cannot r
   await assert.rejects(auth.signIn({email:user.email,password:'fixture'}),/another account/);
   assert.equal(read().cloudSession,undefined);
 });
+
+test('project changes require disconnection and retain the session until explicitly signed out',async()=>{
+  const {auth,read}=setup(async()=>response(session()),{cloudConfig:config,
+    cloudSession:{...session(),expires_at:5000},cloudWorkspace:{id:user.id,userId:user.id}});
+  await assert.rejects(auth.configure({...config,publishableKey:'sb_publishable_alternative123'}),/Disconnect/);
+  assert.equal(read().cloudWorkspace.id,user.id);
+  await auth.disconnectWorkspace();
+  assert.equal(read().cloudWorkspace,null);
+  assert.equal(read().cloudSession.user.id,user.id);
+  await auth.configure({...config,publishableKey:'sb_publishable_alternative123'});
+  assert.equal(read().cloudSession,null);
+});
+
+test('team grants are owner-only and an ambiguous save reuses its operation',async()=>{
+  const member={id:user.id,name:'Tv Tracker',queue_scope:'queue-23656',role:'owner',mode:'active'};
+  const calls=[];
+  const {auth}=setup(async(url,options)=>{
+    if(url.endsWith('tv_list_workspaces'))return response([member]);
+    const body=JSON.parse(options.body);calls.push(body);
+    if(calls.length===1)throw Error('lost response');
+    return response({user:body.p_user,role:body.p_role});
+  },{cloudSession:{...session(),expires_at:5000}});
+  const input={workspace:user.id,user:'00000000-0000-0000-0000-000000000002',role:'editor'};
+  await assert.rejects(auth.setMember(input),/unreachable/);
+  assert.deepEqual(await auth.setMember(input),{user:input.user,role:'editor'});
+  assert.equal(calls[0].p_operation,calls[1].p_operation);
+  member.role='viewer';
+  await assert.rejects(auth.setMember(input),/Only the owner/);
+  await assert.rejects(auth.setMember({...input,role:'owner'}),/registered user/);
+});
+
+test('worker recovery requires stopped acknowledgement and the registered owner identity',async()=>{
+  const worker='00000000-0000-0000-0000-000000000099';
+  const member={id:user.id,name:'Tv Tracker',queue_scope:'queue-23656',role:'owner',mode:'active'};
+  const {auth,read}=setup(async url=>response(url.endsWith('tv_list_workspaces')?[member]:{mode:'active',worker}),
+    {cloudSession:{...session(),expires_at:5000}});
+  const input={id:user.id,worker,stopped:true};
+  await assert.rejects(auth.adoptWorkerIdentity({...input,stopped:false}),/Stop the old/);
+  await assert.rejects(auth.adoptWorkerIdentity({...input,worker:user.id}),/does not match/);
+  assert.equal(read().cloudWorkerId,undefined);
+  await auth.adoptWorkerIdentity(input);
+  assert.equal(read().cloudWorkerId,worker);
+  member.role='editor';
+  await assert.rejects(auth.adoptWorkerIdentity(input),/does not match/);
+});
