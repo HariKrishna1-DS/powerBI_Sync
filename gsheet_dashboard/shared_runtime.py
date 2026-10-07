@@ -37,8 +37,12 @@ class SharedRuntime:
         self.requests = SharedRequests(store)
         self.cache = ProductionCache(store.root.parent / 'shared-cache.json', config['url']+'|'+config['id']+'|'+config.get('userId',''))
 
+    @property
+    def can_capture(self):
+        return not self.enabled or self.selection.get('role') in ('owner','editor')
+
     def authorize_capture(self):
-        if self.selection.get('role') not in ('owner','editor'):
+        if not self.can_capture:
             raise ValueError('This shared workspace account has read-only access.')
 
     def update_token(self, token):
@@ -154,7 +158,7 @@ class SharedRuntime:
         return receipt
 
     def status(self):
-        return {'enabled':self.enabled,'workspace':self.selection.get('id'),
+        return {'enabled':self.enabled,'workspace':self.selection.get('id'),'can_capture':self.can_capture,
             'error':self.error,'worker':self.worker_result,'office_worker':bool(self.selection.get('officeWorker'))}
 
 

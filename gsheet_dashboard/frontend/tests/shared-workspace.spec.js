@@ -93,6 +93,8 @@ test('team access and restored worker recovery require specific owner acknowledg
   await page.getByRole('button',{name:'Sign in',exact:true}).click();
   await page.getByLabel('Workspace',{exact:true}).selectOption('00000000-0000-0000-0000-000000000001');
   await page.getByText('Team access',{exact:true}).click();
+  await expect(page.getByLabel('Workspace permission',{exact:true})).toHaveValue('owner');
+  await expect(page.getByRole('option',{name:'Viewer · read only',exact:true})).toHaveCount(0);
   await page.getByLabel('Registered user UUID').fill('00000000-0000-0000-0000-000000000002');
   await expect(page.getByRole('button',{name:'Save team access',exact:true})).toBeDisabled();
   await page.getByLabel('I verified this user’s identity and the permission above.').check();
@@ -105,6 +107,6 @@ test('team access and restored worker recovery require specific owner acknowledg
   await recover.click();
   await expect(page.getByText('Recovered worker identity verified.',{exact:false})).toBeVisible();
   const actions=await page.evaluate(()=>window.cloudActions);
-  expect(actions).toContainEqual({workspace:'00000000-0000-0000-0000-000000000001',user:'00000000-0000-0000-0000-000000000002',role:'editor'});
+  expect(actions).toContainEqual({workspace:'00000000-0000-0000-0000-000000000001',user:'00000000-0000-0000-0000-000000000002',role:'owner'});
   expect(actions).toContainEqual({workspace:'00000000-0000-0000-0000-000000000001',action:'recover-worker',legacy_stopped:true});
 });

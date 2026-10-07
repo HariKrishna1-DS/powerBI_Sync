@@ -174,6 +174,41 @@ class BackendDatabaseTests(unittest.TestCase):
         self.assertIn('access denied', self.submit(user=OTHER, fails=True))
         self.assertIn('valid role', rpc('tv_set_member', [self.workspace, str(uuid.uuid4()), OWNER, None], fails=True))
 
+    def test_admitted_manager_has_full_capture_and_team_management_access(self):
+        args = [self.workspace, str(uuid.uuid4()), OTHER, 'owner']
+        self.assertEqual(rpc('tv_set_member', args)['role'], 'owner')
+        self.assertEqual(rpc('tv_set_member', args)['role'], 'owner')
+        self.assertEqual(self.submit(user=OTHER)['state'], 'accepted')
+        added = rpc('tv_set_member', [self.workspace, str(uuid.uuid4()), VIEWER, 'owner'], user=OTHER)
+        self.assertEqual(added['role'], 'owner')
+        self.assertEqual(self.submit(user=VIEWER)['state'], 'accepted')
+
+    def test_competing_admin_removals_cannot_remove_every_administrator(self):
+        rpc('tv_set_member', [self.workspace, str(uuid.uuid4()), OTHER, 'owner'])
+        # Both requests queue behind a held workspace lock, so authority must
+        # still be valid when each membership mutation actually obtains it.
+        locker = subprocess.Popen(['docker','exec','-i',CONTAINER,'psql','-XAtq','-v','ON_ERROR_STOP=1',
+            '-U','postgres','-d',DATABASE],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        locker.stdin.write(f'begin;select 1 from tv_tracker.workspaces where id={quote(self.workspace)} for update;select pg_sleep(2);commit;')
+        locker.stdin.close()
+        try:
+            self.assertEqual(locker.stdout.readline().strip(), '1')
+            def remove(actor, target):
+                try:
+                    return rpc('tv_set_member',[self.workspace,str(uuid.uuid4()),target,None],user=actor)
+                except AssertionError as error:
+                    return str(error)
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                requests=[pool.submit(remove,OWNER,OTHER),pool.submit(remove,OTHER,OWNER)]
+                results=[request.result(timeout=30) for request in requests]
+            self.assertEqual(sum(isinstance(result,dict) for result in results),1)
+            self.assertTrue(any(isinstance(result,str) and 'access denied' in result for result in results))
+            self.assertEqual(sql(f"select count(*) from tv_tracker.members where workspace_id={quote(self.workspace)} and role='owner';"),'1')
+        finally:
+            locker.wait(timeout=10)
+            locker.stdout.close()
+            locker.stderr.close()
+
     def test_owner_worker_boundary_denies_editors_viewers_and_other_workspaces(self):
         rpc('tv_set_member', [self.workspace, str(uuid.uuid4()), OTHER, 'editor'])
         self.submit()

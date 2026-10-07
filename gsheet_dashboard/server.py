@@ -613,6 +613,8 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
         return True
 
     def schedule_tick(now=None):
+        if not shared_runtime.can_capture:
+            return False
         now = now or indian_clock.now()
         if now is None:
             return False

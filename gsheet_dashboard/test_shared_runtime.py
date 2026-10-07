@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timezone
 import os
 from pathlib import Path
 import tempfile
@@ -50,11 +51,25 @@ class SharedRuntimeTests(unittest.TestCase):
 
     def test_viewer_cannot_capture_and_tokens_are_not_saved(self):
         runtime = SharedRuntime(self.store, dict(self.config,role='viewer'))
+        self.assertFalse(runtime.status()['can_capture'])
         runtime.update_token('fixture-private-access')
         with self.assertRaises(ValueError):
             runtime.submit(self.preview)
         self.assertNotIn('fixture-private-access', json.dumps(runtime.status()))
         self.assertNotIn(b'fixture-private-access', (self.root/'previews.sqlite').read_bytes())
+
+    def test_viewer_does_not_execute_an_existing_capture_schedule(self):
+        schedule = self.root.parent/'sync_schedule.json'
+        saved = json.dumps({'enabled':True,'times':['09:00']})
+        schedule.write_text(saved, encoding='utf-8')
+        runner = Mock(side_effect=AssertionError('Viewer must not open the capture browser'))
+        now = datetime(2026,10,7,10,tzinfo=timezone.utc)
+        with patch.dict(os.environ, {'DATATRACE_DESKTOP':'1','DATATRACE_DESKTOP_TOKEN':'local-fixture',
+                'DATATRACE_SHARED_WORKSPACE':json.dumps(dict(self.config,role='viewer'))}):
+            app = create_app(root=self.root,runner=runner,time_source=Mock(now=lambda:now,snapshot=lambda:{}))
+        self.assertFalse(app.extensions['schedule_tick'](now))
+        runner.assert_not_called()
+        self.assertEqual(schedule.read_text(encoding='utf-8'), saved)
 
     def test_office_failure_backs_off_while_clients_keep_receipt_checks(self):
         identity=str(uuid.uuid4())

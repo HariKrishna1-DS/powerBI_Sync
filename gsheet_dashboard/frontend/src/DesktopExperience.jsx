@@ -95,7 +95,7 @@ function Connections({onClose,running,initialTab='connections'}) {
 }
 
 const PAGES=[['overview','Overview'],['sheets','Data Sheets'],['captures','Saved captures'],['daily','Daily Orders'],['capacity','Capacity Report'],['monthly','Monthly report'],['audit','Sync activity'],['changes','Changes between captures']];
-export function DesktopTools({onNavigate,onImport,running}) {
+export function DesktopTools({onNavigate,onImport,running,readOnly=false}) {
   const sharedSetup=new URLSearchParams(location.search).get('setup')==='shared';
   const [settings,setSettings]=useState(sharedSetup),[commands,setCommands]=useState(false),[query,setQuery]=useState(''),[settingsTab,setSettingsTab]=useState(sharedSetup?'shared':'connections');
   const [updateState,setUpdateState]=useState(null),[connectionRecovery,setConnectionRecovery]=useState(null);
@@ -114,7 +114,7 @@ export function DesktopTools({onNavigate,onImport,running}) {
     window.addEventListener('datatrace:settings',open);window.addEventListener('keydown',keyboard);
     return()=>{unsubscribe?.();window.removeEventListener('datatrace:settings',open);window.removeEventListener('keydown',keyboard);};
   },[]);
-  const options=[...PAGES.map(([id,label])=>({label,action:()=>onNavigate(id)})),{label:'Import Excel or CSV',action:onImport},{label:'Connections & settings',action:()=>setSettings(true)}].filter(item=>item.label.toLowerCase().includes(query.toLowerCase()));
+  const options=[...PAGES.map(([id,label])=>({label,action:()=>onNavigate(id)})),...(!readOnly?[{label:'Import Excel or CSV',action:onImport}]:[]),{label:'Connections & settings',action:()=>setSettings(true)}].filter(item=>item.label.toLowerCase().includes(query.toLowerCase()));
   return <>{connectionRecovery&&<button className="secondary" onClick={()=>{setSettingsTab('connections');setSettings(true);}}>Review connections</button>}{['available','downloaded'].includes(updateState?.status)&&<button className="secondary" onClick={()=>{setSettingsTab('updates');setSettings(true);}}><Download size={15}/>{updateState.status==='downloaded'?'Update ready':'Update available'}</button>}<button className="quick-command" aria-label="Quick actions" onClick={()=>{setQuery('');setCommands(true);}}><Command size={15}/><span>Quick actions</span><kbd>Ctrl K</kbd></button>
     {settings&&<Connections onClose={()=>setSettings(false)} running={running} initialTab={settingsTab}/>}
     {commands&&<Dialog title="Quick actions" onClose={()=>setCommands(false)} className="command-dialog" initialFocus=".command-search input"><div className="command-search"><Command size={19}/><input aria-label="Find an action" autoFocus placeholder="Where would you like to go?" value={query} onChange={e=>setQuery(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&options[0]){e.preventDefault();setCommands(false);options[0].action();}}}/></div><div className="command-results">{options.map(item=><button key={item.label} onClick={()=>{setCommands(false);item.action();}}>{item.label}<ArrowRight size={15}/></button>)}{!options.length&&<p className="muted">No matching actions</p>}</div><div className="command-hint">Tab to move · Enter to open · Esc to close</div></Dialog>}

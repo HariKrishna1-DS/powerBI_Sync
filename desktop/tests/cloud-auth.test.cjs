@@ -156,13 +156,14 @@ test('team grants are owner-only and an ambiguous save reuses its operation',asy
     if(calls.length===1)throw Error('lost response');
     return response({user:body.p_user,role:body.p_role});
   },{cloudSession:{...session(),expires_at:5000}});
-  const input={workspace:user.id,user:'00000000-0000-0000-0000-000000000002',role:'editor'};
+  const input={workspace:user.id,user:'00000000-0000-0000-0000-000000000002',role:'owner'};
   await assert.rejects(auth.setMember(input),/unreachable/);
-  assert.deepEqual(await auth.setMember(input),{user:input.user,role:'editor'});
+  assert.deepEqual(await auth.setMember(input),{user:input.user,role:'owner'});
   assert.equal(calls[0].p_operation,calls[1].p_operation);
   member.role='viewer';
   await assert.rejects(auth.setMember(input),/Only the owner/);
-  await assert.rejects(auth.setMember({...input,role:'owner'}),/registered user/);
+  await assert.rejects(auth.setMember({...input,role:'owner'}),/Only the owner/);
+  await assert.rejects(auth.setMember({...input,role:'administrator-secret'}),/registered user/);
 });
 
 test('worker recovery requires stopped acknowledgement and the registered owner identity',async()=>{

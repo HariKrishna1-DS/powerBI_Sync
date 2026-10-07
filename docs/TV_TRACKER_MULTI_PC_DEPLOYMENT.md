@@ -5,7 +5,7 @@ Prepared 7 October 2026 for the Supabase release candidate. Follow the numbered 
 ## 1. Choose responsibilities and one office worker
 
 - Choose one Windows PC that can stay powered on, connected to the internet, signed into Windows and running Tv Tracker. This is the office worker. Closing to the tray keeps the app running; Workspace → Quit stops it.
-- Use a named owner application account on that PC. Use separate named editor accounts for operators and viewer accounts for people who only read reports.
+- This application is for the admin/manager team. Give every admitted person a separate named application account with **Admin / Manager · full app access** (database role `owner`). Everyone can capture, import, edit reports, adjust SLA/monthly settings and manage team access. Keep one registered office publisher.
 - Use **one** Supabase project, **one** production workspace and **one** Google workbook for the team. Do not create a project or workspace on each PC.
 - An operator needs an **application account in Supabase Authentication**, not a Supabase dashboard/developer account. A person can use their application account on more than one PC. Separate accounts for separate people provide a meaningful audit trail.
 - The office PC is an availability dependency: clients can retain captures locally and upload to Supabase when available, but Sheets publication waits while the worker is offline. There is no automatic second-worker takeover.
@@ -26,7 +26,7 @@ Prepared 7 October 2026 for the Supabase release candidate. Follow the numbered 
 
 1. Administrator: open the project dashboard for `qontoybecrqpbjzoajqf`. The application URL is `https://qontoybecrqpbjzoajqf.supabase.co`.
 2. Confirm the project is running, the correct region and availability plan are selected, and email/password Authentication is enabled for the application's accounts.
-3. Verify migrations `202610060001` through `202610070009` were applied in order. On this project they were applied through the dashboard SQL editor. **Do not replay them**; reconcile the Supabase CLI migration history before a later CLI `db push`. Migration 009 returns stale-save conflicts promptly rather than using a database serialization error that can trigger repeated server retries.
+3. Verify migrations `202610060001` through `202610070010` were applied in order. Migrations 001–009 are already applied on this project through the dashboard SQL editor. Migration 010 is the admin-membership concurrency fix and must pass its database tests before applying it. **Do not replay them**; reconcile the Supabase CLI migration history before a later CLI `db push`. Migration 009 returns stale-save conflicts promptly rather than using a database serialization error that can trigger repeated server retries.
 4. Keep `tv_tracker` private. Its tables have RLS enabled and no anonymous/authenticated direct table grants. Authenticated clients use restricted public RPCs with workspace membership checks. Do not expose this schema or grant blanket table access to make a client error disappear.
 5. Copy the **publishable** key from the project's API Keys page. This desktop configuration accepts `sb_publishable_…`; it rejects administrator/secret keys. Record the URL and publishable key in your deployment instructions, not a private database password.
 6. Inspect your plan's backup facilities and schedule protected exports if managed backup/restore does not meet your needs. Perform an isolated database restore rehearsal before accepting production dependency on Supabase. A local Tv Tracker workspace backup is **not** a backup of the shared PostgreSQL database.
@@ -58,13 +58,13 @@ Supabase documents [publishable versus secret keys](https://supabase.com/docs/gu
 
 ## 5. Create users and grant application access
 
-1. Administrator: Supabase dashboard → Authentication → Users. Create/invite one application user for each person. Have the user complete their password setup privately. Do not send passwords through this repository or copy the owner's app profile to other PCs.
+1. Administrator: Supabase dashboard → Authentication → Users. Create/invite one application user for each admin/manager. Have the user complete their password setup privately. Do not send passwords through this repository or copy the owner's app profile to other PCs.
 2. Copy that user's UUID from Authentication. Verify the person and UUID before granting access.
 3. Owner in Tv Tracker: Settings → Shared workspace → choose the production workspace → **Team access**.
-4. Paste the UUID, choose **Editor** (capture and change shared data) or **Viewer** (read reports), review the confirmation and save team access.
+4. Paste the UUID, choose **Admin / Manager · full app access**, review the confirmation and save team access. Repeat for every admitted team member; an account existing in Supabase Authentication alone does not grant workspace access.
 5. Give the user the project URL, publishable key, approved installer and exact queue URL. They sign in with their own application account and refresh their workspace list.
 6. For removal, choose **Remove workspace access** and save. Server RPCs check membership on each call. A disconnected PC may still have previously downloaded local data; remove/protect that local profile under your organization's offboarding policy.
-7. Do not give ordinary operators owner permissions or Supabase project-dashboard administration. Team access in this release deliberately offers editor/viewer/removal, not automatic owner promotion.
+7. Full application access is the `owner` workspace role; it does not give database passwords, service-role keys or Supabase dashboard administration. Existing limited editor/viewer memberships are retained for compatibility but are not offered for this deployment. Promote any previously restricted account through Team access after verifying its identity. Concurrent removals are serialized and cannot remove every administrator.
 
 ## 6. Review and activate production once
 
@@ -88,7 +88,7 @@ Supabase documents [publishable versus secret keys](https://supabase.com/docs/gu
 5. Refresh workspaces; select the existing **active production** workspace. If absent, ask the owner to grant membership. If still shadow, wait for activation. Do not create a replacement workspace to bypass either condition.
 6. Click **Use this shared workspace**. Do **not** select Run office worker on an operator PC.
 7. Confirm the correct workspace name and shared reports load. The Live Google Sheets link opens the bound production workbook.
-8. An editor: perform one supervised capture. Confirm local retention, accepted upload, central processing and published revision. A viewer: confirm reads work and write actions are denied.
+8. Each admin/manager: perform one supervised capture. Confirm local retention, accepted upload, central processing, published revision and access to reports/settings/team management. Confirm an account without workspace membership is denied.
 9. Repeat on all four PCs with separate users; include overlapping captures and simultaneous changes. Confirm no duplicate sequence numbers and that stale changes require refresh.
 10. Export that PC's portable backup if its local capture history/offline uploads need recovery. Do not restore another operator's workspace backup into a live client: unresolved outbox records retain their original workspace and actor receipts.
 
@@ -136,7 +136,7 @@ Received, processed and published are distinct states. Queue disappearance is in
 1. Build from the tested commit; run backend, database, desktop, UI, security and performance gates.
 2. Verify all release assets: installer, installer blockmap, Windows ZIP, source ZIP and `latest.yml` version/SHA-512/size. Publish the complete tested set together.
 3. On an isolated Windows test installation, upgrade the actual previous public version using the candidate artifact; verify settings, captures, pending operations and worker tokens survive. Test installation failure and recovery.
-4. On the four real PCs, verify editor/viewer isolation, overlapping captures, shared source/targets, monthly rollover, SLA corrections, outages, duplicate retries and stale saves. Rehearse office-worker restart/replacement without a second publisher.
+4. On the four real PCs, verify full access for admitted managers, rejection of unadmitted accounts, overlapping captures, shared source/targets, monthly rollover, SLA corrections, outages, duplicate retries and stale saves. Rehearse office-worker restart/replacement without a second publisher.
 5. Run a supervised full shift with intentional offline and sleep/resume cases. Record results, duration and recovery. Automated concurrency tests on one PC do not prove this four-PC or sustained gate.
 6. Release only after required evidence and credential/backup operational requirements are satisfied. Keep the production cutover separate from publishing an installer: an update must not silently activate or migrate a customer's workbook.
 

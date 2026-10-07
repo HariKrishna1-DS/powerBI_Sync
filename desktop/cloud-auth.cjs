@@ -144,7 +144,7 @@ function createCloudAuth({read, write, fetcher = fetch, now = () => Date.now()})
     }),
     setMember: input => exclusive(async () => {
       if (!input || !UUID.test(input.workspace||'') || !UUID.test(input.user||'') ||
-          !['editor','viewer',null].includes(input.role)) throw Error('Use a registered user UUID and editor, viewer or removal.');
+          !['owner','editor','viewer',null].includes(input.role)) throw Error('Use a registered user UUID and a valid workspace permission.');
       const access=await token();
       const owner=verifiedWorkspaces(await request('/rest/v1/rpc/tv_list_workspaces',{},access)).find(row=>row.id===input.workspace);
       if(owner?.role!=='owner' || input.user===read().cloudSession.user.id) throw Error('Only the owner can change another team member’s access.');

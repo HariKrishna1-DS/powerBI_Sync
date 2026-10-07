@@ -5,7 +5,7 @@ This version adds a Supabase-backed workspace for multiple operators. Each PC ke
 - Shared Excel reporting sources, capacity targets, monthly setup/import/rollover and SLA corrections preserve canonical tracker orders and manual fields.
 - Stale saves return a clear conflict instead of silently overwriting changes or repeatedly retrying inside PostgREST.
 - Publishing stages and verifies reports, checks workbook capacity and retains the previous visible reports on failure. Quota/network errors retain their job identity and use bounded retry delays.
-- Owners manage editor/viewer membership and protected office-worker recovery. Viewer controls match their server permissions.
+- Every admitted admin/manager has full application access, including team management and protected office-worker recovery. Individual sign-ins and audited membership grants preserve accountability; publishing remains coordinated through one office PC.
 - Existing direct Google Sheets workflows remain available. Upgrading does **not** automatically migrate or activate a production workbook.
 
 ## Setup required for shared use
