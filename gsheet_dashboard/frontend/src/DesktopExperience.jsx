@@ -1,5 +1,5 @@
 import React, {useEffect, useLayoutEffect, useRef, useState} from 'react';
-import {saveBlob} from './workspaceUtils';
+import {saveBlob, isSharedReport} from './workspaceUtils';
 import SharedWorkspace from './SharedWorkspace';
 import {ArrowRight, Check, Command, Database, Download, FolderOpen, HardDrive, KeyRound, LoaderCircle, Monitor, Plug, Settings2, ShieldCheck, Upload, WifiOff, X} from 'lucide-react';
 
@@ -13,8 +13,8 @@ export class WorkspaceBoundary extends React.Component {
 }
 
 export function OfflineNotice({snapshot}) {
-  if(snapshot?.refreshing)return <div className="offline-notice" role="status"><LoaderCircle className="spin" size={17}/><div><strong>Refreshing Google Sheets reports</strong><span>{snapshot.updated_at?`Showing the saved copy from ${new Date(snapshot.updated_at).toLocaleString()}. `:''}You can keep working while reports refresh.</span></div></div>;
-  return snapshot?.offline ? <div className="offline-notice" role="status"><WifiOff size={17}/><div><strong>Viewing a saved Google Sheets copy</strong><span>Last refreshed {new Date(snapshot.updated_at).toLocaleString()}. {snapshot.sync_error||'Reconnect to sync changes.'}</span></div></div> : null;
+  if(snapshot?.refreshing)return <div className="offline-notice" role="status"><LoaderCircle className="spin" size={17}/><div><strong>{isSharedReport(snapshot)?'Refreshing shared workspace reports':'Refreshing Google Sheets reports'}</strong><span>{snapshot.updated_at?`Showing the saved copy from ${new Date(snapshot.updated_at).toLocaleString()}. `:''}You can keep working while reports refresh.</span></div></div>;
+  return snapshot?.offline ? <div className="offline-notice" role="status"><WifiOff size={17}/><div><strong>{isSharedReport(snapshot)?'Viewing a saved shared workspace copy':'Viewing a saved Google Sheets copy'}</strong><span>Last refreshed {new Date(snapshot.updated_at).toLocaleString()}. {snapshot.sync_error||'Reconnect to sync changes.'}</span></div></div> : null;
 }
 
 export function Dialog({title, children, onClose, className='', initialFocus=''}) {
@@ -67,7 +67,7 @@ function Connections({onClose,running,initialTab='connections'}) {
       <div className="settings-body" role="tabpanel">
       {form.connectionRecovery&&<div className="notice warning" role="alert">{form.connectionRecovery.message}</div>}
       {tab==='shared'?<SharedWorkspace running={running}/>:tab==='connections'?<>
-        <div className="settings-section"><div className="settings-section-heading"><div className="settings-section-icon"><Database size={20}/></div><div><h3>Google Sheets</h3><p>Your production source of truth</p></div><span className={`connection-pill ${form.googleConfigured?'ready':''}`}>{form.googleConfigured?'Configured':'Setup needed'}</span></div>
+        <div className="settings-section"><div className="settings-section-heading"><div className="settings-section-icon"><Database size={20}/></div><div><h3>Google Sheets</h3><p>{form.cloudWorkspace?'Derived reports · key needed only on the office PC':'Your production source of truth'}</p></div><span className={`connection-pill ${form.googleConfigured?'ready':''}`}>{form.googleConfigured?'Configured':form.cloudWorkspace&&!form.cloudWorkspace.officeWorker?'Office PC only':'Setup needed'}</span></div>
           <label>Spreadsheet URL or ID<input autoFocus value={form.spreadsheetId} onChange={e=>update('spreadsheetId',e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/…" autoComplete="off"/></label>
           <div className="form-grid"><label>Full Title tracker tab<input value={form.fullTrackerTitle} onChange={e=>update('fullTrackerTitle',e.target.value)} required maxLength={100}/></label><label>Remaining Products tracker tab<input value={form.remainingTrackerTitle} onChange={e=>update('remainingTrackerTitle',e.target.value)} required maxLength={100}/></label></div>
           <div className="credential-row"><div><strong>Service-account key</strong><p>{form.serviceAccountEmail||'Import the JSON key from your Google Cloud project.'}</p></div><button type="button" className="secondary" disabled={busy} onClick={()=>action(async()=>{const value=await window.desktop.importServiceAccount();if(value){update('serviceAccountEmail',value.email);setMessage('Key selected. Save settings to apply it.');}})}><KeyRound size={16}/>{form.serviceAccountEmail?'Replace key':'Import key'}</button></div>

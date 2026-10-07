@@ -6,7 +6,7 @@ import {Dialog, OfflineNotice} from './DesktopExperience';
 import {MonthlyDownload, MonthlyMaintenance} from './MonthlyMaintenance';
 import remainingProducts from '../../remaining_products.json';
 
-import {EMPTY, DEFAULT_IGNORE, colors, str, label, normalized, badgeClass, STATUS_COLORS, statusColor, textColorForBg, api, saveBlob, csvDownload, matches, IconButton} from './workspaceUtils';
+import {EMPTY, DEFAULT_IGNORE, colors, str, label, normalized, badgeClass, productionSource, STATUS_COLORS, statusColor, textColorForBg, api, saveBlob, csvDownload, matches, IconButton} from './workspaceUtils';
 function SideDrawer({title,rows,columns,onClose}) {
   if(!title)return null;
   return <Dialog title={title} onClose={onClose} className="detail-dialog"><div className="dialog-content"><p className="muted">{rows.length.toLocaleString()} matching records</p><DataTable rows={rows} columns={columns} filters={{}} openFilter={()=>{}} filterable={false} name={title}/></div></Dialog>;
@@ -514,7 +514,7 @@ function DailyOrders({preview, running}) {
     ['Awaiting for Clarification',rows.filter(row=>normalized(row['Task Status'] ?? row.Status)==='awaiting for clarification')]
   ];
   const names=['Today Orders','Not in latest preview','Newly Orders','Unchanged','Awaiting for Clarification'];
-  return <section className="daily-orders"><OfflineNotice snapshot={snapshot}/>{snapshot&&!snapshot.offline&&<p className="report-context">Google Sheets production · {snapshot.updated_at?`Refreshed ${new Date(snapshot.updated_at).toLocaleString()}`:'Refresh time unavailable'}</p>}
+  return <section className="daily-orders"><OfflineNotice snapshot={snapshot}/>{snapshot&&!snapshot.offline&&<p className="report-context">{productionSource(snapshot)} · {snapshot.updated_at?`Refreshed ${new Date(snapshot.updated_at).toLocaleString()}`:'Refresh time unavailable'}</p>}
     {error&&<div className="notice error">{error}</div>}
     {loading?<div className="loading"><LoaderCircle className="spin"/>Loading daily orders...</div>:<>
       <div className="section-heading"><h2>Daily production orders</h2><label>Date<select aria-label="Daily orders date" value={selectedDay?.Date||''} onChange={e=>{setDate(e.target.value);setSearch('');}}>{history.map(day=><option key={day.Date}>{day.Date}</option>)}</select></label></div>
@@ -657,7 +657,7 @@ function MonthlyOrders({preview,running,revision}) {
   },[selectedMonth,deferredSearch]);
   const names=MONTHLY_SERIES.map(series=>series.name);
 
-  return <section className="daily-orders"><OfflineNotice snapshot={snapshot}/>{snapshot&&!snapshot.offline&&<p className="report-context">Google Sheets production · {snapshot.updated_at?`Refreshed ${new Date(snapshot.updated_at).toLocaleString()}`:'Refresh time unavailable'}</p>}
+  return <section className="daily-orders"><OfflineNotice snapshot={snapshot}/>{snapshot&&!snapshot.offline&&<p className="report-context">{productionSource(snapshot)} · {snapshot.updated_at?`Refreshed ${new Date(snapshot.updated_at).toLocaleString()}`:'Refresh time unavailable'}</p>}
     {error&&<div className="notice error">{error}</div>}
     {snapshot?.source_mode!=='import'&&<MonthlyMaintenance shared={snapshot?.report_preferences?.shared===true} canEdit={snapshot?.report_preferences?.shared!==true||snapshot?.report_preferences?.can_edit===true} month={selectedMonth?.Month} running={running||saving||snapshot?.offline} onChanged={()=>setRefreshId(value=>value+1)}/>}
     {loading?<div className="loading"><LoaderCircle className="spin"/>Loading monthly orders...</div>:<>

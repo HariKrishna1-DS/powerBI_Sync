@@ -52,7 +52,7 @@ export function ReportSourceControls({running, preferences, onChanged}) {
       <button className="secondary" disabled={blocked} onClick={() => action(() => api('/api/reporting/publish', {method: 'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({revision:prefs?.revision})}))}><RefreshCw size={16}/>Publish reports</button>
     </div>
     <p className="field-help" role="status">{prefs?.publish_status === 'publishing' ? 'Publishing the selected source to Google Sheets…' : prefs?.shared&&prefs.publish_status==='pending' ? 'Saved in the shared workspace. Waiting for the office worker to publish Google Sheets.' : prefs?.publish_status === 'published' ? 'This source is published to Google Sheets.' : prefs?.publish_status === 'failed' ? prefs.publish_error : 'Choose a report source. Source changes also publish its reports to Google Sheets.'}</p>
-    <p className="field-help">All updated PCs can capture and publish. Google Sheets publishing runs one job at a time; other PCs wait safely. Update every PC and stop older sync jobs before first publishing. Queue captures remain separate from imported reports.</p>
+    <p className="field-help">{prefs?.shared ? 'Permitted PCs submit captures and report changes to Supabase. The registered office PC processes them and publishes Google Sheets reports. Keep the office PC awake and connected.' : 'All updated PCs can capture and publish. Google Sheets publishing runs one job at a time; other PCs wait safely. Update every PC and stop older sync jobs before first publishing.'} Queue captures remain separate from imported reports.</p>
     {error && <p role="alert" className="notice error">{error}</p>}
     <StorageControls blocked={blocked} shared={prefs?.shared===true} onChanged={onChanged}/>
     {open && <Dialog title="Import Excel reports" onClose={() => { if (!busy) setOpen(false); }} className="report-import-dialog">
@@ -113,15 +113,15 @@ function StorageControls({blocked, shared=false, onChanged}) {
     {result && <p role="status">{result.archived_captures} captures and {result.archived_imports} imports archived. {result.backup && <><a href={`/api/reporting/archive/${encodeURIComponent(result.backup)}`} download>Download recovery archive</a><br/>{result.recovery}</>}</p>}
     {error && <p role="alert" className="notice error">{error}</p>}
     {shared?<section aria-label="Cloud history recovery"><h4>Shared history and recovery</h4><p className="field-help">The office publisher cleans up its temporary Sheets uploads after verification. The project owner manages database backups and history retention. Export a protected workspace backup before replacing the office PC.</p></section>:<CloudHistoryControls blocked={blocked || busy}/>}
-    <SharedJobControls blocked={blocked || busy}/>
+    <SharedJobControls blocked={blocked || busy} shared={shared}/>
   </details>;
 }
-function SharedJobControls({blocked}) {
+function SharedJobControls({blocked, shared=false}) {
   const [data,setData]=useState(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[confirmed,setConfirmed]=useState(false),[message,setMessage]=useState('');
   async function refresh(){setData(await api('/api/reporting/shared-job'));setConfirmed(false);}
   async function act(work){setBusy(true);setError('');setMessage('');try{await work();}catch(e){setError(e.message);}finally{setBusy(false);}}
   return <section aria-label="Shared publishing recovery"><h4>Shared publishing</h4>
-    <p className="field-help">Publishing jobs release their slot when finished. If a PC crashed or lost its connection, first stop Tv Tracker on that PC. Then review and release its interrupted slot. Never release a running job.</p>
+    <p className="field-help">{shared ? 'The registered office worker retains interrupted job ownership. Restart the same office PC to resume. Replacing that PC requires a protected worker backup and owner verification in Shared workspace settings.' : 'Publishing jobs release their slot when finished. If a PC crashed or lost its connection, first stop Tv Tracker on that PC. Then review and release its interrupted slot. Never release a running job.'}</p>
     <button className="secondary" disabled={busy} onClick={()=>act(refresh)}>Check shared publishing</button>
     {data?.shared?<p role="status">{data.cloud_job?`Office worker job: ${data.cloud_job.kind}.`:'Office worker has no claimed job.'} {data.pending_captures||0} captures queued · Published revision {data.published_revision} of {data.revision}. Restart the same office PC to resume interrupted work; its protected backup retains job ownership.</p>:data && (data.job ? <><p role="status">{data.job.computer} · {data.job.label} · Started {new Date(data.job.started).toLocaleString()}</p>
       <label className="shared-job-confirm"><input type="checkbox" checked={confirmed} disabled={busy||blocked} onChange={e=>setConfirmed(e.target.checked)}/>I have stopped Tv Tracker on the computer running this job.</label>
