@@ -91,13 +91,13 @@ class PreviewTests(unittest.TestCase):
 
     def test_second_real_pipeline_run_creates_preview_without_auto_sync(self):
         calls = []
-        def scrape(*args, **kwargs):
+        def scrape(command, cwd, env, *args):
             calls.append(1)
-            Path(kwargs['env']['DATATRACE_OUTPUT_JSON']).write_text(
+            Path(env['DATATRACE_OUTPUT_JSON']).write_text(
                 self.frame('Available' if len(calls) == 1 else 'Completed').to_json(orient='records'))
             return Mock(returncode=0)
         with patch.object(sync, 'BASE_DIR', self.root), patch.dict(sync.os.environ, {'DATATRACE_USERNAME':'test', 'DATATRACE_PASSWORD':'test'}), \
-                patch.object(sync.subprocess, 'run', side_effect=scrape), \
+                patch.object(sync, 'run_extractor', side_effect=scrape), \
                 patch.object(sync, 'sync_workbook') as upload:
             a, b = sync.run_sync(auto_sync=False), sync.run_sync(auto_sync=False)
         self.assertEqual(len(calls), 2)

@@ -1,7 +1,9 @@
 """Report source isolation, batch imports, selected-date publication and recovery."""
 from io import BytesIO
+from contextlib import contextmanager
 from pathlib import Path
 import tempfile
+import threading
 import unittest
 from unittest.mock import patch
 
@@ -26,6 +28,22 @@ def excel(rows, title='TV Orders'):
         sheet.append([record.get(c,'') for c in columns])
     stream=BytesIO();book.save(stream)
     return stream.getvalue()
+
+
+@contextmanager
+def report_app(root):
+    from server import create_app
+    prior_threads=set(threading.enumerate())
+    app=create_app(root=root)
+    try:
+        yield app
+    finally:
+        app.extensions['stop_scheduler'].set()
+        for worker in set(threading.enumerate())-prior_threads:
+            if worker.name=='report-publication':
+                worker.join(timeout=10)
+                if worker.is_alive():
+                    raise RuntimeError('Report fixture worker did not stop before cleanup.')
 
 
 class ReportBook(AtomicBook):
@@ -80,7 +98,7 @@ class PdfReportWorkspaceTests(unittest.TestCase):
         imported=read_report_files([('full.xlsx',excel([row('1'),row('2',date='10/02/2026 09:00 AM',Product='Update')]))])
         frames,capacity=report_frames(imported_snapshot(imported),{'selected_date':'2026-10-01','capacity':700,'extended_capacity':750})
         self.assertEqual(len(frames),7)
-        self.assertEqual(frames['Daily Orders'][1][0],'2026-10-01')
+        self.assertEqual(frames['Daily Status Report'][1][0],'2026-10-01')
         self.assertEqual(frames['Full_Search_OCT_2026'][0],frames['Remaining_Search_OCT_2026'][0])
         self.assertEqual(capacity['monthly'][0]['Capacity'],1400)
         self.assertEqual(len(capacity['monthly']),1)
@@ -99,9 +117,8 @@ class PdfReportWorkspaceTests(unittest.TestCase):
         self.assertEqual(sum(not book.props.get(sheet.id,{}).get('hidden',False) for sheet in book.worksheets()),7)
 
     def test_api_failed_batch_keeps_prior_source_and_local_report_survives_cloud_failure(self):
-        from server import create_app
-        with tempfile.TemporaryDirectory() as path, patch('server.target_worksheet',side_effect=RuntimeError('Offline')):
-            app=create_app(root=Path(path)/'previews');client=app.test_client()
+        with tempfile.TemporaryDirectory() as path, patch('server.target_worksheet',side_effect=RuntimeError('Offline')), report_app(Path(path)/'previews') as app:
+            client=app.test_client()
             response=client.post('/api/report-import',data={'files':[(BytesIO(excel([row('001')])),'full.xlsx')]})
             self.assertEqual(response.status_code,201)
             self.assertFalse(response.json['publication']['synced'])
@@ -137,7 +154,7 @@ class PdfReportWorkspaceTests(unittest.TestCase):
             store=PreviewStore(Path(path)/'previews')
             ReportWorkspace(store).save(mode='excel',imported=imported)
             publish_reports(book,imported_snapshot(imported),{},Path(path)/'backups')
-            before={name:book.worksheet(name).get_all_values() for name in ('All Products','Full_Search_OCT_2026','Daily Orders')}
+            before={name:book.worksheet(name).get_all_values() for name in ('All Products','Full_Search_OCT_2026','Daily Status Report')}
             saved=store.save(pd.DataFrame([row('CAPTURE-001')]),source='Queue')
             frame,_=automatic_sync_frame(store.get(saved['id']),store=store)
             sync_monthly(book,frame,store)

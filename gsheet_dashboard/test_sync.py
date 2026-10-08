@@ -146,22 +146,22 @@ class SyncTests(unittest.TestCase):
     def test_failed_scrape_never_uploads_old_files(self):
         with tempfile.TemporaryDirectory() as folder, patch.object(sync, 'BASE_DIR', Path(folder)), \
                 patch.dict(sync.os.environ, {'DATATRACE_USERNAME': 'test', 'DATATRACE_PASSWORD': 'test'}), \
-                patch.object(sync.subprocess, 'run', return_value=Mock(returncode=1)), \
+                patch.object(sync, 'run_extractor', return_value=Mock(returncode=1,stdout='Fixture extraction failed',stderr='')), \
                 patch.object(sync, 'sync_workbook') as upload, \
                 patch.object(sync, 'export_to_excel_and_csv') as export:
-            result = sync.run_sync()
+            result = sync.run_sync(auto_sync=False)
             self.assertEqual(result['scrape'], 'failed')
             upload.assert_not_called()
             export.assert_not_called()
 
     def test_extraction_retains_export_without_google_sync(self):
-        def scrape(*args, **kwargs):
-            Path(kwargs['env']['DATATRACE_OUTPUT_JSON']).write_text(
+        def scrape(command, cwd, env, *args):
+            Path(env['DATATRACE_OUTPUT_JSON']).write_text(
                 self.frame().to_json(orient='records'), encoding='utf-8')
             return Mock(returncode=0)
         with tempfile.TemporaryDirectory() as folder, patch.object(sync, 'BASE_DIR', Path(folder)), \
                 patch.dict(sync.os.environ, {'DATATRACE_USERNAME': 'test', 'DATATRACE_PASSWORD': 'test'}), \
-                patch.object(sync.subprocess, 'run', side_effect=scrape), \
+                patch.object(sync, 'run_extractor', side_effect=scrape), \
                 patch.object(sync, 'sync_workbook') as upload:
             (Path(folder) / 'sync_status.json').write_text(json.dumps({'last_success_at': 'previous'}))
             result = sync.run_sync(auto_sync=False)

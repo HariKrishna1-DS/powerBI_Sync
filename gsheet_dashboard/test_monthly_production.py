@@ -294,12 +294,14 @@ class MonthlyProductionTests(unittest.TestCase):
     def test_second_capture_appends_only_new_raw_rows(self):
         with tempfile.TemporaryDirectory() as root:
             for number in (1,2):
+                if number==2:
+                    second_start=len(self.book.batches)
                 rows=[{'Order Number':f'A{number}','Product':'Full Title','Arrival Time':'10/5/2026 9:00 AM'}]
                 preview={'id':number,'name':f'preview{number}','created':f'2026-10-05T0{number}:00:00+00:00','columns':list(rows[0]),'rows':rows}
                 frame=automatic_sync_frame(preview)[0];frame.attrs['store_root']=root
                 sync_trackers(frame,book=self.book)
             history=self.book.worksheet('Sheet1')
-            writes=[r['updateCells'] for r in self.book.batches[-1]['requests'] if 'updateCells' in r and r['updateCells'].get('start',{}).get('sheetId')==history.id]
+            writes=[r['updateCells'] for batch in self.book.batches[second_start:] for r in batch['requests'] if 'updateCells' in r and r['updateCells'].get('start',{}).get('sheetId')==history.id]
             self.assertEqual(len(writes),1)
             self.assertEqual(writes[0]['start']['rowIndex'],2)
             self.assertEqual(len(writes[0]['rows']),1)
