@@ -12,7 +12,7 @@ OUTPUT = ROOT / 'release' / VERSION / f'Tv-Tracker-{VERSION}-source.zip'
 EXCLUDE_DIRS = {'.git', '.venv', 'venv', 'env', 'ENV', 'node_modules', '__pycache__', '.pytest_cache',
                 '.test-deps', '.desktop-build', '.codex', '.agents', 'release', 'test-results',
                 'playwright-report', 'test-output', 'previews', 'dist', 'logs', 'backups', 'connection-backups',
-                '.npm-cache', '.cache', 'extractor-diagnostics', 'scratch'}
+                '.npm-cache', '.cache', 'extractor-diagnostics', 'scratch', 'runtime-data', 'output', 'cloud-archives'}
 EXCLUDE_SUFFIXES = {'.zip', '.log', '.pyc', '.pyo', '.xlsx', '.csv', '.sqlite', '.sqlite3', '.db', '.pem', '.key', '.tvbackup', '.tvcloud'}
 EXCLUDE_NAMES = {'secrets.toml', 'sync_schedule.json', 'sync_status.json', 'production-cache.json', 'desktop-ui-results.json'}
 

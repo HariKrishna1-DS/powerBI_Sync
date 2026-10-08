@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from openpyxl import Workbook, load_workbook
 from report_workspace import (ReportWorkspace, read_report_files, imported_snapshot,
-                              report_frames, publish_reports, DAILY_COLUMNS)
+                              report_frames, publish_reports, combine_sources, DAILY_COLUMNS)
 from preview_store import PreviewStore
 from test_monthly_production import AtomicBook
 from tracker_sync import FULL, REMAINING
@@ -105,6 +105,8 @@ class PdfReportWorkspaceTests(unittest.TestCase):
 
     def test_publish_hides_internal_tabs_preserves_trackers_and_reuses_chart(self):
         book=ReportBook();book.add(FULL,[row('tracker')]);book.add(REMAINING,[])
+        legacy=book.add('Capacity Report', [])
+        book.props[legacy.id]={'gridProperties':{'rowCount':500,'columnCount':13}}
         original=book.worksheet(FULL).get_all_values()
         snapshot=imported_snapshot(read_report_files([('full.xlsx',excel([row('001')]))]))
         with tempfile.TemporaryDirectory() as path:
@@ -115,6 +117,61 @@ class PdfReportWorkspaceTests(unittest.TestCase):
         self.assertTrue(book.props[book.worksheet(FULL).id]['hidden'])
         self.assertEqual(sum(len(items) for items in book.charts.values()),1)
         self.assertEqual(sum(not book.props.get(sheet.id,{}).get('hidden',False) for sheet in book.worksheets()),7)
+        self.assertEqual(book.worksheet('PR Excel').id,legacy.id)
+        self.assertEqual(str(book.worksheet('PR Excel').get_all_values()[1][0]),'46296')
+        clearing=[r['repeatCell'] for r in book.batches[-1]['requests']
+                  if 'repeatCell' in r and r['repeatCell']['range']['sheetId']==legacy.id
+                  and r['repeatCell']['fields']=='userEnteredFormat']
+        self.assertTrue(any(r['range'].get('startColumnIndex')==9 and
+                            r['range']['endColumnIndex']==13 and r['cell']=={} for r in clearing))
+        self.assertTrue(any(r['range'].get('startRowIndex')==6 and
+                            r['range'].get('endRowIndex')==500 and r['cell']=={} for r in clearing))
+
+    def test_duplicate_details_survive_reload_and_identify_both_sources(self):
+        imported=combine_sources(read_report_files([
+            ('full.xlsx',excel([row('A1'),row('A2')])),
+            ('remaining.xlsx',excel([row(' a1 ','Assign to ABS'),row('A3'),
+                                     row('A1','Completed and Delivered')],title='Updates'))])['sources'])
+        with tempfile.TemporaryDirectory() as path:
+            store=PreviewStore(Path(path)/'previews')
+            ReportWorkspace(store).save(mode='excel',imported=imported,files=imported['files'],
+                                        row_count=len(imported['rows']))
+            public=ReportWorkspace(store).public()
+        self.assertEqual((public['input_row_count'],public['row_count'],public['duplicate_row_count']),(5,3,2))
+        self.assertEqual(len(public['duplicate_orders']),2)
+        first,last=public['duplicate_orders']
+        self.assertEqual((first['Earlier file'],first['Replacement file'],first['Replacement worksheet']),
+                         ('full.xlsx','remaining.xlsx','Updates'))
+        self.assertEqual((last['Earlier file'],last['Status']),('remaining.xlsx','Completed and Delivered'))
+        self.assertEqual(imported['rows'][0]['Status'],'Completed and Delivered')
+
+    def test_single_tab_downloads_use_reference_colors_and_real_formatted_dates(self):
+        imported=read_report_files([('full.xlsx',excel([row('A1'),row('A2',date='10/02/2026 09:00 AM')]))])
+        with tempfile.TemporaryDirectory() as path:
+            root=Path(path)/'previews'
+            ReportWorkspace(PreviewStore(root)).save(mode='excel',imported=imported)
+            with report_app(root) as app:
+                client=app.test_client()
+                response=client.get('/api/export/report?sheet=PR%20Excel')
+                self.assertEqual(response.status_code,200)
+                book=load_workbook(BytesIO(response.data))
+                self.assertEqual(book.sheetnames,['PR Excel'])
+                sheet=book.active
+                self.assertEqual(sheet.max_column,9)
+                self.assertEqual((sheet['A2'].number_format,sheet['A5'].number_format),('mmm-yy','dd-mm-yy'))
+                self.assertEqual(sheet['A5'].value.strftime('%d-%m-%y'),'01-10-26')
+                for cell,color in {'A1':'DCA683','A2':'C6E0B4','A3':'8EA9DB','A4':'DCA683',
+                                   'A5':'E5E5E5','H5':'E5E5E5','B5':'FFFFFF','A7':'FFD966'}.items():
+                    self.assertEqual(sheet[cell].fill.fgColor.rgb[-6:],color,cell)
+                self.assertEqual(sheet['J1'].fill.patternType,None)
+                self.assertEqual(len(sheet._charts),1)
+                daily=load_workbook(BytesIO(client.get('/api/export/report?sheet=Daily%20Orders').data))
+                self.assertEqual(daily.sheetnames,['Daily Status Report'])
+                self.assertEqual(daily.active['A2'].number_format,'dd-mm-yy')
+                self.assertEqual(daily.active['A2'].value.strftime('%d-%m-%y'),'01-10-26')
+                self.assertEqual(daily.active['A1'].fill.fgColor.rgb[-6:],'DCA683')
+                self.assertEqual(daily.active['A2'].fill.fgColor.rgb[-6:],'E5E5E5')
+                self.assertEqual(daily.active['A4'].fill.fgColor.rgb[-6:],'FFD966')
 
     def test_api_failed_batch_keeps_prior_source_and_local_report_survives_cloud_failure(self):
         with tempfile.TemporaryDirectory() as path, patch('server.target_worksheet',side_effect=RuntimeError('Offline')), report_app(Path(path)/'previews') as app:

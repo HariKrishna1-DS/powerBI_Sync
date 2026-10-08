@@ -362,7 +362,7 @@ def apply_plan(book, plan, check=True):
     """
     from tracker_sync import text
     from datatrace_sync import write_sheet_batch
-    from tracker_formatting import format_requests
+    from tracker_formatting import format_requests, capacity_sheet_values
     from monthly_views import view_identity, keep_view_headers
     if receipt(book, plan['id']):
         return {'applied': True, 'recovered': True}
@@ -437,7 +437,8 @@ def apply_plan(book, plan, check=True):
         formula_positions = {tuple(cell) for cell in formula_cells}
         cell_rows = []
         start_row = append_from.get(title, 0)
-        for i, row in enumerate(values[start_row:], start_row):
+        sheet_values = capacity_sheet_values(values) if title == 'PR Excel' else values
+        for i, row in enumerate(sheet_values[start_row:], start_row):
             cells = []
             for j, value in enumerate(row):
                 val = {'formulaValue' if (i, j) in formula_positions else 'stringValue': text(value)}
@@ -450,9 +451,13 @@ def apply_plan(book, plan, check=True):
         requests.append({'updateCells': {**location, 'rows': cell_rows, 'fields': 'userEnteredValue'}})
         if title != LEDGER:
             rules = next((item.get('conditionalFormats', []) for item in metadata['sheets'] if item['properties']['sheetId'] == ids[title]), [])
-            requests.extend(format_requests(ids[title], values, rules))
+            requests.extend(format_requests(ids[title], values, rules, grid_shape=(
+                max(height, getattr(sheets.get(title), 'row_count', 0)),
+                max(cols, getattr(sheets.get(title), 'col_count', 0)))))
     # Renamed archive values stay untouched while status colors follow the palette.
     for old, new in plan['renames'].items():
+        if new in writes:
+            continue
         values = before[old]['values']
         rules = next((item.get('conditionalFormats', []) for item in metadata['sheets'] if item['properties']['sheetId'] == ids[new]), [])
         requests.extend(format_requests(ids[new], values, rules))

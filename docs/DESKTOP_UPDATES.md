@@ -2,9 +2,9 @@
 
 ## Users
 
-Install the Windows `.exe` from the repository's [latest release](https://github.com/HariKrishna1-DS/powerBI_Sync/releases/latest). Versions 2.1.0 and earlier require this one-time manual upgrade. Portable ZIP users can also install the `.exe` to use the normal installed-app workflow.
+Install the Windows `.exe` from the repository's [latest release](https://github.com/HariKrishna1-DS/powerBI_Sync/releases/latest). Users moving from a 2.x installation to 1.0.2 require this manual installer upgrade because the updater prevents downgrades. Portable ZIP users can also install the `.exe` to use the normal installed-app workflow.
 
-Open **Connections & settings → Updates**, or **Help → Check for updates**. Check for a published version, choose Download, then choose Restart & install after captures and syncs finish. Updates are never automatically downloaded or installed on an ordinary quit. A failed check or download leaves the current version installed; check again to retry.
+Open **Download version** in the toolbar, **Connections & settings → Updates**, or **Help → Check for updates**. Check for a published version, choose Download, then choose **Install & open** after captures and syncs finish. The updated application opens after installation. In a local browser session, Download version opens GitHub’s latest release; choose the installer under Assets and open it from Downloads. Updates are never automatically downloaded or installed on an ordinary quit. A failed check or download leaves the current version installed; check again to retry.
 
 The existing application ID and `%APPDATA%\DataTrace Studio` profile remain stable. Captures, connections, schedules, and preferences survive an upgrade. Do not delete the profile or its Local State file: Windows-encrypted settings rely on that profile. Workspace backups deliberately exclude credentials.
 
@@ -17,7 +17,7 @@ The existing application ID and `%APPDATA%\DataTrace Studio` profile remain stab
 
 ## Maintainers
 
-Work on `tv-tracker`. For a new release, bump the stable version in `desktop/package.json`, its build output directory, and `desktop/package-lock.json`, then commit and push. The desktop release workflow runs on each push but only builds/publishes a version that has no existing release. Ordinary pushes with an already published version do not change installed apps. Main stays separate.
+Work on `tv-tracker-app`. For a new release, bump the stable version in `desktop/package.json`, its build output directory, and `desktop/package-lock.json`, then commit and push. The desktop release workflow runs on each push but only builds/publishes a version that has no existing release. Ordinary pushes with an already published version do not change installed apps. Main stays separate.
 
 CI builds the frozen engine, React frontend and NSIS installer; runs engine/unit and packaged lifecycle tests; verifies the source ZIP; stages installer, blockmap, latest.yml and ZIPs in a draft; and only then publishes. Keep all generated update assets together. Never overwrite an existing version. A failed upload leaves a draft for inspection; remove or finish that draft deliberately before rerunning. `workflow_dispatch` can also retry when GitHub exposes the workflow on the default branch. Push a follow-up desktop commit to trigger it while the workflow exists only on the desktop branch.
 

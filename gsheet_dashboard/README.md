@@ -8,11 +8,11 @@ Saved local previews supply the Changes comparison. Status Report is on Data she
 
 ### Report updates from updates_traker.pdf
 
-- **Tracker report** uses the retained Google Sheets production trackers. **Import Excel report** uses a separately saved workbook dataset across Overview, Data Sheets, Daily Orders, Monthly Orders and Capacity Report. Switching sources republishes the selected reports; imported files never mark absent tracker orders completed.
+- **Tracker report** uses the retained Google Sheets production trackers. **Import Excel report** uses a separately saved workbook dataset across Overview, Data Sheets, Daily Orders, Monthly Orders and PR Excel. Switching sources republishes the selected reports; imported files never mark absent tracker orders completed.
 - Select **Import files** beside Export to upload up to 30 XLSX/CSV files together (20 MB combined, 100,000 order rows). All worksheets with Order Number and Status/Task Status headers are read. A malformed file rejects the whole batch. Duplicate order numbers use the last uploaded occurrence and the import result lists duplicate counts. Existing tracker data remains available when switching back.
 - Daily Orders uses Received, Completed, Clarification, Cancelled, Vendor Pending, In-House Pending, SLA OnTime and Missing. Assign to ABS is Vendor Pending. All other statuses outside completed, cancelled and clarification are In-House Pending. Selecting a date highlights the matching row in the Daily Status Report tab in Google Sheets.
-- Capacity Report contains monthly totals, a year-to-date total, the selected month's daily rows, and a received/completed/capacity chart. Daily targets start at 700 and 750 and can be changed in the Capacity Report screen. Targets are counted only for dates present in the source; historical sample order counts are never inserted.
-- Publishing exposes seven tabs: All Products, Full_Search_MON_YEAR, Remaining_Search_MON_YEAR, Daily Status Report, Capacity Report, Monthly Orders and Status Report. A date click updates only Daily Status Report; source publication refreshes the product reports. Both product views use the Full Search production columns. Other tabs are **hidden, not deleted**, because the existing tracker, capture receipt and recovery logic needs them. Replaced report values and sheet metadata are backed up under the workspace's `backups/reports` directory.
+- The PR Excel report contains monthly totals formatted as `MMM-YY`, a year-to-date total, the selected month's daily rows, and a received/completed/capacity chart. PR Excel and Daily Orders downloads use real Excel dates displayed as `DD-MM-YY` for daily rows. PR Excel matches the reference colours: peach headers, green monthly rows, blue year-to-date totals, grey daily date/capacity cells and yellow totals. Formatting is cleared outside the populated Google Sheets table. Daily targets start at 700 and 750 and can be changed in the Capacity Report screen. Targets are counted only for dates present in the source; historical sample order counts are never inserted.
+- Publishing exposes seven tabs: All Products, Full_Search_MON_YEAR, Remaining_Search_MON_YEAR, Daily Status Report, PR Excel, Monthly Orders and Status Report. Monthly Orders ends at SLA on Missing. A date click updates only Daily Status Report; source publication refreshes the product reports. Both product views use the Full Search production columns. Other tabs are **hidden, not deleted**, because the existing tracker, capture receipt and recovery logic needs them. Replaced report values and sheet metadata are backed up under the workspace's `backups/reports` directory.
 - A failed Sheets update keeps the imported dataset and selected mode locally and shows a retry message. Use **Publish current report** in the import dialog to retry. Export downloads the selected source with the seven report worksheets. Report mode and imported records are included in workspace backup/restore.
 
 Restart the project app after updating the files. The frontend build in `frontend/dist` includes these changes; an already installed desktop executable must be rebuilt/reinstalled separately. No live Google Sheets migration is performed by editing these source files.
@@ -21,7 +21,8 @@ Connection failures now show the original authentication/network error during pr
 
 Targeted checks: `python -m unittest test_pdf_report_workspace test_report_refinements test_preview_completion test_monthly_sla_history test_monthly_production`. The isolated browser check is `npx playwright test --config=playwright.reports.config.js` after a frontend build; it uses installed Edge and mocked data.
 
-Run `gsheet_dashboard/run.bat`, or install `gsheet_dashboard/requirements.txt`, build
+Run `gsheet_dashboard/start-local.bat` to start the existing local build under your Windows account.
+For first-time dependency setup, run `gsheet_dashboard/run.bat`, or install `gsheet_dashboard/requirements.txt`, build
 `gsheet_dashboard/frontend` with `npm run build`, and run `gsheet_dashboard/server.py`.
 The workspace normally opens at http://localhost:8510. Configure the service account
 and portal login in `gsheet_dashboard/.env` using `.env.example`. Share the configured
@@ -35,6 +36,36 @@ These settings are encrypted for your Windows account in `settings.vault.browser
 and take precedence over `.env` on restart. Blank password and key fields preserve
 the saved values. Browser connection settings are available only from localhost;
 the Workspace and Updates tabs remain in the installed desktop app.
+
+Windows credential encryption requires the local server to run under the Windows account
+that saved the connections. Use `start-local.bat` outside a restricted development sandbox;
+saved passwords and service-account JSON keys remain encrypted across server restarts.
+
+Overview shows **Duplicate Orders** in place of Imported files. Click its count to see
+the repeated Order Numbers, retained statuses, and earlier/replacement source files.
+
+## Edits to imported Google Sheets orders
+
+After an Excel report is published, edit orders in **All Products**, **Full_Search_MON_YEAR**,
+or **Remaining_Search_MON_YEAR**. Tv Tracker checks these tabs every 30 seconds while
+the local server is running. The refresh icon beside the logo checks immediately and
+refreshes all report workspaces. Added orders, removed rows, status edits and other
+field changes update the saved report dataset and republish the seven reporting tabs,
+including Daily Status Report, Monthly Orders and PR Excel.
+
+**Import Excel Changes**, below Captures, keeps a persistent history with Order Number,
+change type, column, previous/new values, source tabs and detection time. Search by
+Order Number, filter Added/Updated/Removed, or open a change to compare the full row.
+History begins when this feature first checks the Sheet; it cannot recover earlier edits.
+
+Changes are compared against the last synced version of each tab. An unchanged copy
+in another tab does not override an edit, and removing an order from one editable tab
+removes it from the report dataset. Different fields edited in different tabs are merged.
+Conflicting edits to the same field, missing order tabs, invalid headers or repeated IDs
+within a tab stop refresh and display an error for correction. Replacing a workbook
+resets that workbook's orders; edits to other saved files and added Sheet orders are
+kept. Replace all saved files resets the complete dataset. Recorded Sheet change
+history remains available after file replacements.
 
 ## Trackers and history
 
@@ -94,7 +125,7 @@ the latest raw preview for tracker totals if Google Sheets is unavailable. Chang
 compares selected local snapshots by Order Number. Local SQLite stores pass
 reports, changes and ambiguous rows. Google Sheets has no numbered preview or audit tabs.
 
-Exports are named `Production_data.xlsx`. The main Export button exports the seven selected-source report tabs, whose names fit Excel's worksheet limits. The legacy full-workbook API still supports shortening long tracker names.
+Exports are named `Production_data.xlsx`. The main Export button exports the seven selected-source report tabs, and each Daily Orders, Monthly Orders and PR Excel page also offers a single-tab download. The legacy full-workbook API still supports shortening long tracker names.
 `status_colors.json` holds the exact matching colors from the sample workbook.
 Google Sheets conditional rules color full rows and respond to manual status edits.
 Free Site cells inherit the row status color. Status Report and Excel exports
@@ -126,7 +157,7 @@ backup and cleanup if those tabs appear again. The local preview database and ra
 
 - Import files accepts repeated uploads. The same filename replaces that workbook; other saved files remain. The most recently uploaded occurrence of an Order Number wins.
 - Remove file recomputes reports from the remaining workbooks. Remove all files leaves an empty Excel report. Select Replace all saved files when uploading a complete replacement batch.
-- Imported reports include every status in Daily Orders, Monthly Orders, Capacity Report and Status Report. Tracker reports retain the tracker summaries.
+- Imported reports include every status in Daily Orders and Status Report. Monthly Orders ends at SLA on Missing; PR Excel contains capacity and production totals. Tracker reports retain the tracker summaries.
 - Imports save locally before publishing. Sync to Sheets or Publish current report retries a pending publication without re-importing.
 - Workbook access for reports does not depend on a deleted initial worksheet (gid=0). Direct worksheet operations still require an existing worksheet ID or title.
 

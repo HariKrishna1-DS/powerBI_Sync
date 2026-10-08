@@ -14,6 +14,14 @@ function SideDrawer({title,rows,columns,onClose}) {
 function MaximizedModal({title,subtitle,children,onClose}) {
   return <Dialog title={title} onClose={onClose} className="chart-dialog"><div className="dialog-content">{subtitle&&<p className="muted">{subtitle}</p>}{children}</div></Dialog>;
 }
+export function DuplicateOrdersDialog({rows,onClose}) {
+  const columns=['Order Number','Date','Product','Status','Earlier file','Earlier worksheet','Replacement file','Replacement worksheet'];
+  return <Dialog title={`Duplicate orders · ${rows.length}`} onClose={onClose} className="detail-dialog">
+    <div className="dialog-content"><p className="muted">Each row shows a repeated Order Number and the later source row retained in the reports.</p>
+      <DataTable rows={rows} columns={columns} filters={{}} openFilter={()=>{}} filterable={false} name="Duplicate orders"/>
+    </div>
+  </Dialog>;
+}
 
 function FilterPanel({column, rows, filters, setFilters, close}) {
   const [search, setSearch] = useState('');
@@ -504,6 +512,7 @@ function ImportedStatusSummary({report}) {
   return <section className="status-report"><div className="section-heading"><h3>All imported statuses</h3><span>{Object.keys(counts).length} statuses / {report.Received} orders</span></div><div className="status-report-scroll"><table className="status-report-table"><thead><tr><th>Status</th><th>Orders</th><th>Share</th></tr></thead><tbody>{Object.entries(counts).map(([name,count])=><tr key={name}><td>{name}</td><td>{count.toLocaleString()}</td><td>{report.Received?(count/report.Received*100).toFixed(1):'0.0'}%</td></tr>)}</tbody></table></div></section>;
 }
 const importedSeries=snapshot=>(snapshot?.statuses||[]).map(name=>({name:'Status: '+name,color:statusColor(name)}));
+const dailyDateLabel=value=>/^\d{4}-\d{2}-\d{2}$/.test(str(value))?`${value.slice(8,10)}-${value.slice(5,7)}-${value.slice(2,4)}`:str(value);
 
 function DailyOrders({preview, running}) {
   const [history,setHistory]=useState([]), [error,setError]=useState(''), [date,setDate]=useState(''), [search,setSearch]=useState('');
@@ -513,10 +522,10 @@ function DailyOrders({preview, running}) {
   useEffect(()=>{
     if(!highlight?.selected_date)return;
     const selected=highlight.selected_date;
-    if(highlight.publication_state==='synced'&&highlight.highlighted_date===selected){setPublishMessage(`${selected} is highlighted in Google Sheets · Daily Status Report.`);return;}
+    if(highlight.publication_state==='synced'&&highlight.highlighted_date===selected){setPublishMessage(`${dailyDateLabel(selected)} is highlighted in Google Sheets · Daily Status Report.`);return;}
     if(highlight.publication_state==='error'){setError(`Date selected locally. Google Sheets highlight needs retry: ${highlight.sync_error}`);return;}
     if(!['pending','working'].includes(highlight.publication_state))return;
-    setPublishMessage(`Highlighting ${selected} in Google Sheets · Daily Status Report…`);
+    setPublishMessage(`Highlighting ${dailyDateLabel(selected)} in Google Sheets · Daily Status Report…`);
     let active=true;
     const timer=setTimeout(()=>api('/api/report-workspace').then(data=>{if(active)setHighlight(data);}).catch(e=>{if(active)setError(e.message);}),2000);
     return()=>{active=false;clearTimeout(timer);};
@@ -526,7 +535,7 @@ function DailyOrders({preview, running}) {
     setDate(value);setSearch('');setPublishing(true);setError('');setPublishMessage('');
     try{const result=await api('/api/report-date',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date:value}),timeoutMs:180000});
       if(!result.synced&&!result.queued)setError(`Date selected locally. Google Sheets update needs retry: ${result.sync_error}`);
-      else{setHighlight({selected_date:value,publication_state:result.queued?'pending':'synced',highlighted_date:result.highlighted_date});setPublishMessage(result.queued?`Highlighting ${value} in Daily Status Report…`:`${value} is highlighted in Daily Status Report.`);}
+      else{setHighlight({selected_date:value,publication_state:result.queued?'pending':'synced',highlighted_date:result.highlighted_date});setPublishMessage(result.queued?`Highlighting ${dailyDateLabel(value)} in Daily Status Report…`:`${dailyDateLabel(value)} is highlighted in Daily Status Report.`);}
     }catch(e){setError(e.message);}finally{setPublishing(false);}
   }
   const selectedDay=history.find(day=>day.Date===date)||history[0];
@@ -553,10 +562,10 @@ function DailyOrders({preview, running}) {
   return <section className="daily-orders"><OfflineNotice snapshot={snapshot}/>{snapshot&&!snapshot.offline&&<p className="report-context">{snapshot.source||'Google Sheets'} production · {snapshot.updated_at?`Refreshed ${new Date(snapshot.updated_at).toLocaleString()}`:'Refresh time unavailable'}</p>}
     {error&&<div className="notice error" role="alert">{error}</div>}{publishMessage&&<p role="status">{publishMessage}</p>}{publishing&&<p role="status">Updating Google Sheets for the selected date…</p>}
     {loading?<div className="loading"><LoaderCircle className="spin"/>Loading daily orders...</div>:<>
-      <div className="section-heading"><h2>Daily production orders</h2><label>Date<select aria-label="Daily orders date" value={selectedDay?.Date||''} disabled={publishing} onChange={e=>chooseDate(e.target.value)}>{history.map(day=><option key={day.Date}>{day.Date}</option>)}</select></label></div>
+      <div className="section-heading"><h2>Daily production orders</h2><div className="monthly-actions"><a className="secondary" href="/api/export/report?sheet=Daily%20Orders" download>Download Daily Orders</a><label>Date<select aria-label="Daily orders date" value={selectedDay?.Date||''} disabled={publishing} onChange={e=>chooseDate(e.target.value)}>{history.map(day=><option key={day.Date} value={day.Date}>{dailyDateLabel(day.Date)}</option>)}</select></label></div></div>
       <div className="metrics">{names.map((name,index)=><div className={`metric ${['green','red','amber','gray','purple'][index%5]}`} key={name}><span>{name}</span><strong>{selectedDay?.[name]??0}</strong></div>)}</div>
       <ImportedStatusSummary report={selectedDay}/><p className="report-context">Click a date to highlight its row in the Google Sheets Daily Status Report tab.</p><DailyOrdersChart history={history} selectedDate={selectedDay?.Date} onSelect={chooseDate} series={snapshot?.mode==='excel'?importedSeries(snapshot):DAILY_SERIES}/>
-      <div className="table-scroll"><table><thead><tr>{['Date',...historyNames].map(name=><th key={name}>{name}</th>)}</tr></thead><tbody>{history.map(day=><tr key={day.Date} className={day.Date===selectedDay?.Date?'daily-date-selected':undefined}><td><button className="text-button" aria-pressed={day.Date===selectedDay?.Date} disabled={publishing} onClick={()=>chooseDate(day.Date)}>{day.Date}</button></td>{historyNames.map(name=><td key={name}>{day[name]??0}</td>)}</tr>)}</tbody></table></div>
+      <div className="table-scroll"><table><thead><tr>{['Date',...historyNames].map(name=><th key={name}>{name}</th>)}</tr></thead><tbody>{history.map(day=><tr key={day.Date} className={day.Date===selectedDay?.Date?'daily-date-selected':undefined}><td><button className="text-button" aria-pressed={day.Date===selectedDay?.Date} disabled={publishing} onClick={()=>chooseDate(day.Date)}>{dailyDateLabel(day.Date)}</button></td>{historyNames.map(name=><td key={name}>{day[name]??0}</td>)}</tr>)}</tbody></table></div>
       <div className="filter-toolbar"><div className="search-input"><Search size={16}/><input aria-label="Search daily orders" placeholder="Search all columns" value={search} onChange={e=>setSearch(e.target.value)}/></div></div>
       {selectedDay?detailGroups.map(([name,items])=><DataTable key={name} rows={items} columns={columns} filters={{}} openFilter={()=>{}} filterable={false} name={`${name} · ${items.length}`}/>):<div className="table-empty">No daily orders</div>}
     </>}
@@ -700,7 +709,7 @@ function MonthlyOrders({preview,running,reportMode='tracker'}) {
     {error&&<div className="notice error">{error}</div>}
     {reportMode==='tracker'&&<MonthlyMaintenance month={selectedMonth?.Month} running={running||saving||snapshot?.offline} onChanged={()=>setRefreshId(value=>value+1)}/>}
     {loading?<div className="loading"><LoaderCircle className="spin"/>Loading monthly orders...</div>:<>
-      <div className="section-heading"><h2>Monthly production orders</h2><div className="monthly-actions"><label>Month<select aria-label="Monthly orders date" disabled={saving} value={selectedMonth?.Month||''} onChange={e=>{setMonth(e.target.value);setSearch('');}}>{history.map(m=><option key={m.Month} value={m.Month}>{m.MonthLabel || m.Month}</option>)}</select></label><MonthlyDownload month={selectedMonth?.Month} disabled={running||saving||snapshot?.offline}/></div></div>
+      <div className="section-heading"><h2>Monthly production orders</h2><div className="monthly-actions"><a className="secondary" href="/api/export/report?sheet=Monthly%20Orders" download>Download Monthly Orders</a><label>Month<select aria-label="Monthly orders date" disabled={saving} value={selectedMonth?.Month||''} onChange={e=>{setMonth(e.target.value);setSearch('');}}>{history.map(m=><option key={m.Month} value={m.Month}>{m.MonthLabel || m.Month}</option>)}</select></label><MonthlyDownload month={selectedMonth?.Month} disabled={running||saving||snapshot?.offline}/></div></div>
       <div className="metrics">{names.slice(0,4).map((name,index)=><div className={`metric ${['green','gold','gray','purple'][index]}`} key={name}><span>{name}</span><strong>{selectedMonth?.[name]??(error?'—':0)}</strong><small>{monthlyPercentage(selectedMonth,name)} of {selectedMonth?.['Month Orders']??0} month orders</small></div>)}</div>
       <p className="report-context">SLA percentages use completed orders with an On Time or Missed result. Orders without an SLA result are excluded.</p><div className="section-heading"><h2>SLA results</h2><button className="secondary" disabled={saving} onClick={()=>setRefreshId(value=>value+1)}>Refresh SLA</button></div>
       <div className="metrics sla-metrics">{names.slice(4).map(name=>{const value=name==='SLA On Time'?'On Time':'Missing';return <button className={`metric sla-metric ${value==='On Time'?'green':'red'}`} key={name} disabled={saving} aria-pressed={slaFilter===value} onClick={()=>setSlaFilter(slaFilter===value?'':value)}><span>{name}</span><strong>{selectedMonth?.[name]??(error?'—':0)}</strong><small>{monthlyPercentage(selectedMonth,name)} of {(selectedMonth?.['SLA On Time']||0)+(selectedMonth?.['SLA Missed']||0)} SLA results</small></button>;})}</div>

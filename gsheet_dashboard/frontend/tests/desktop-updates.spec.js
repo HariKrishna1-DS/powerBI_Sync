@@ -28,9 +28,9 @@ test('check, download, and installation are three explicit user choices',async({
   await page.getByRole('button',{name:'Check for updates',exact:true}).click();
   expect(await page.evaluate(()=>window.updateCalls)).toEqual(['check']);
   await page.getByRole('button',{name:'Download 2.3.0',exact:true}).click();
-  await expect(page.getByRole('button',{name:'Restart & install 2.3.0',exact:true})).toBeEnabled();
+  await expect(page.getByRole('button',{name:'Install & open 2.3.0',exact:true})).toBeEnabled();
   expect(await page.evaluate(()=>window.updateCalls)).toEqual(['check','download']);
-  await page.getByRole('button',{name:'Restart & install 2.3.0',exact:true}).click();
+  await page.getByRole('button',{name:'Install & open 2.3.0',exact:true}).click();
   await expect(page.getByText('Closing Tv Tracker to install the update…',{exact:true})).toBeVisible();
   expect(await page.evaluate(()=>window.updateCalls)).toEqual(['check','download','install']);
   expect(errors).toEqual([]);
@@ -40,7 +40,7 @@ test('background update discovery appears outside settings and opens the update 
   await setup(page);
   await page.getByRole('button',{name:'Close dialog',exact:true}).click();
   await page.evaluate(()=>window.emitUpdate({status:'available',version:'2.4.2',message:'Version 2.4.2 is available.'}));
-  await page.getByRole('button',{name:'Update available',exact:true}).click();
+  await page.getByRole('button',{name:'Version 2.4.2 available',exact:true}).click();
   await expect(page.getByRole('button',{name:'Download 2.4.2',exact:true})).toBeVisible();
   expect(await page.evaluate(()=>window.updateCalls)).toEqual([]);
 });
@@ -61,6 +61,6 @@ test('active sync disables the restart action',async({page})=>{
   await setup(page,true);
   await page.getByRole('button',{name:'Check for updates',exact:true}).click();
   await page.getByRole('button',{name:'Download 2.3.0',exact:true}).click();
-  await expect(page.getByRole('button',{name:'Restart & install 2.3.0',exact:true})).toBeDisabled();
+  await expect(page.getByRole('button',{name:'Install & open 2.3.0',exact:true})).toBeDisabled();
   expect(await page.evaluate(()=>window.updateCalls)).toEqual(['check','download']);
 });

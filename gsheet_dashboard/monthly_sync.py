@@ -120,11 +120,11 @@ def sync_monthly(book, frame, store, on_progress=None):
     reports = sheet_reports(all_trackers, report)
     if publish_tracker_reports:
         for title, kind, period in (('Monthly Orders', 'monthly', 'Month'),):
-            headers = [period, 'Received' if kind == 'daily' else 'Month Orders', 'Completed',
-                       'Clarification', 'Cancelled', 'Vendor Pending',
-                       'In-House Pending', 'SLA OnTime', 'Missing']
-            plan['writes'][title] = matrix(reports[kind], headers)
-        plan['writes']['Capacity Report'] = capacity_report_values(reports['monthly'], reports['daily'])
+            headers = [period, 'Received', 'Completed', 'Clarification', 'Cancelled',
+                       'Vendor Pending', 'In-House Pending', 'SLA OnTime', 'SLA on Missing']
+            values = [dict(row, **{'SLA on Missing': row.get('Missing', 0)}) for row in reports[kind]]
+            plan['writes'][title] = matrix(values, headers)
+        plan['writes']['PR Excel'] = capacity_report_values(reports['monthly'], reports['daily'])
         from collections import Counter
         statuses = Counter(text(r.get('Status')) or '(Blank)' for rows in merged.values() for r in rows)
         total = sum(statuses.values())

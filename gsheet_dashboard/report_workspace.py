@@ -28,6 +28,8 @@ class ReportWorkspace:
             self.lock = threading.RLock()
         with store.connect() as db:
             db.execute('CREATE TABLE IF NOT EXISTS report_workspace (id INTEGER PRIMARY KEY, payload TEXT NOT NULL)')
+        from import_excel_changes import initialize_history
+        initialize_history(self)
 
     def read(self):
         with self.store.connect() as db:
@@ -46,10 +48,23 @@ class ReportWorkspace:
 
     def public(self):
         value = self.read()
-        public = {k: v for k, v in value.items() if k != 'imported'}
+        public = {k: v for k, v in value.items() if k not in ('imported', 'cloud_baseline')}
         public['imports'] = [{'name': s['name'], 'rows': len(s['rows']),
                               'worksheets': len(s['files']), 'legacy': s.get('legacy', False)}
                              for s in import_sources(value.get('imported'))]
+        public['input_row_count'] = sum(file.get('rows', 0) for file in value.get('files', []))
+        public['worksheet_data_rows'] = sum(file.get('rows_seen', file.get('rows', 0)) for file in value.get('files', []))
+        public['missing_order_number_rows'] = sum(file.get('missing_order_number', 0) for file in value.get('files', []))
+        public['duplicate_row_count'] = sum(file.get('duplicates', 0) for file in value.get('files', []))
+        public['row_diagnostics_available'] = bool(value.get('files')) and all(
+            'rows_seen' in file for file in value.get('files', []))
+        public['duplicate_order_numbers'] = list(dict.fromkeys(
+            number for file in value.get('files', []) for number in file.get('duplicate_order_numbers', [])))
+        imported = value.get('imported') or {}
+        public['duplicate_orders'] = imported.get('duplicate_orders')
+        if public['duplicate_orders'] is None and imported:
+            public['duplicate_orders'] = combine_sources(import_sources(imported)).get('duplicate_orders', [])
+        public['duplicate_orders'] = public['duplicate_orders'] or []
         return public
 
 
@@ -67,7 +82,7 @@ def import_sources(imported):
 
 def combine_sources(sources):
     from tracker_sync import key
-    saved, columns, files, reviews = {}, [], [], []
+    saved, owners, columns, files, reviews, duplicate_orders = {}, {}, [], [], [], []
     for source in sources:
         columns = list(dict.fromkeys(columns + source['columns']))
         reviews.extend(source.get('reviews', []))
@@ -75,19 +90,38 @@ def combine_sources(sources):
             offset = 0
             for metadata in source['files']:
                 duplicates = 0
+                duplicate_order_numbers = []
                 for row in source['rows'][offset:offset + metadata['rows']]:
-                    duplicates += key(row) in saved
-                    saved[key(row)] = row
-                files.append(dict(metadata, duplicates=duplicates))
+                    identity = key(row)
+                    if identity in saved:
+                        duplicates += 1
+                        duplicate_order_numbers.append(row.get('Order Number', ''))
+                        prior = owners[identity]
+                        duplicate_orders.append({**row,
+                            'Earlier file': prior['file'], 'Earlier worksheet': prior['sheet'],
+                            'Replacement file': metadata.get('file', source['name']),
+                            'Replacement worksheet': metadata.get('sheet', '')})
+                    saved[identity] = row
+                    owners[identity] = {'file': metadata.get('file', source['name']),
+                                        'sheet': metadata.get('sheet', '')}
+                files.append(dict(metadata, duplicates=duplicates,
+                                  duplicate_order_numbers=duplicate_order_numbers))
                 offset += metadata['rows']
         else:
             files.extend(source['files'])
             for row in source['rows']:
-                saved[key(row)] = row
+                identity = key(row)
+                if identity in saved:
+                    prior = owners[identity]
+                    duplicate_orders.append({**row,
+                        'Earlier file': prior['file'], 'Earlier worksheet': prior['sheet'],
+                        'Replacement file': source['name'], 'Replacement worksheet': ''})
+                saved[identity] = row
+                owners[identity] = {'file': source['name'], 'sheet': ''}
     if len(saved) > 100000:
         raise ValueError('The combined report exceeds 100,000 orders.')
     return {'rows': list(saved.values()), 'columns': columns, 'files': files,
-            'reviews': reviews, 'sources': sources,
+            'reviews': reviews, 'sources': sources, 'duplicate_orders': duplicate_orders,
             'created': datetime.now(timezone.utc).isoformat()}
 
 
@@ -147,7 +181,8 @@ def read_report_files(uploads):
                 found = True
                 columns = list(dict.fromkeys(columns + [c for c in headers if c]))
                 file_columns = list(dict.fromkeys(file_columns + [c for c in headers if c]))
-                count = {'file': name, 'sheet': title, 'rows': 0, 'duplicates': 0}
+                count = {'file': name, 'sheet': title, 'rows': 0, 'rows_seen': 0,
+                         'missing_order_number': 0, 'duplicates': 0}
                 for cells in iterator:
                     values = []
                     for cell in cells:
@@ -158,7 +193,11 @@ def read_report_files(uploads):
                             value = str(value).zfill(len(fmt))
                         values.append(text(value))
                     row = {h: v for h, v in zip(headers, values) if h}
+                    if not any(values):
+                        continue
+                    count['rows_seen'] += 1
                     if not key(row):
+                        count['missing_order_number'] += 1
                         continue
                     total += 1
                     if total > 100000:
@@ -224,6 +263,13 @@ def imported_snapshot(imported):
                 members[full].add(identity)
                 owners[identity] = full
             offset += metadata['rows']
+    if 'view_members' in imported:
+        members = {full: set(imported['view_members'].get(label, []))
+                   for full, label in ((True, 'Full Title'), (False, 'Remaining Products'))}
+        for row in rows:
+            identity = key(row)
+            if (identity in members[True]) != (identity in members[False]):
+                owners[identity] = identity in members[True]
     for row in rows:
         identity = key(row)
         if identity not in owners:
@@ -263,7 +309,7 @@ def capacity_report(reports, settings):
             continue
         count = sum(day['Date'].startswith(row['Month']) for day in days)
         monthly.append(dict(row, Date=row['Month'], Capacity=count * daily_capacity, **{'Ext capacity': count * extended}))
-    return {'columns': CAPACITY_COLUMNS + status_columns, 'monthly': monthly,
+    return {'columns': CAPACITY_COLUMNS, 'monthly': monthly,
             'daily': sorted([r for r in days if settings.get('mode') == 'excel' or r['Date'].startswith(month)], key=lambda r: r['Date']),
             'month': month, 'scope_label': 'All imported dates' if settings.get('mode') == 'excel' else month,
             'capacity': daily_capacity, 'extended_capacity': extended}
@@ -276,6 +322,8 @@ def report_frames(snapshot, settings):
     selected = settings.get('selected_date')
     day = next((r for r in reports['daily'] if r['Date'] == selected), None)
     day = day or next((r for r in reports['daily'] if r['Date'] != 'Undated'), None) or next(iter(reports['daily']), None)
+    if snapshot.get('mode') == 'excel':
+        day = next((r for r in reports['daily'] if r['Date'] != 'Undated'), None) or next(iter(reports['daily']), None)
     month = day['Date'][:7] if day and day['Date'] != 'Undated' else datetime.now().strftime('%Y-%m')
     detail_columns = snapshot['sheets']['Full Title']['columns']
     all_rows = snapshot['sheets']['Overview']['rows']
@@ -288,7 +336,9 @@ def report_frames(snapshot, settings):
             rows = [r for r in month_report.get('rows', []) if (' '.join(str(r.get('Product', '')).casefold().split()) in ('full title', 'full search')) == full]
         frames[view_name(full, month)] = matrix([dict(row, No=index) for index, row in enumerate(rows, 1)], detail_columns)
     status_columns = ['Status: ' + status for status in snapshot.get('statuses', [])]
-    frames['Monthly Orders'] = matrix(reports['monthly'], ['Month'] + DAILY_COLUMNS[1:] + status_columns)
+    monthly_columns = ['Month'] + DAILY_COLUMNS[1:7] + ['SLA OnTime', 'SLA on Missing']
+    monthly_rows = [dict(row, **{'SLA on Missing': row.get('Missing', 0)}) for row in reports['monthly']]
+    frames['Monthly Orders'] = matrix(monthly_rows, monthly_columns)
     daily_status_columns = DAILY_COLUMNS[:7] + ['SLA On Time', 'SLA Missing']
     daily_status = [dict(row, **{'SLA On Time': row.get('SLA OnTime', 0),
                                 'SLA Missing': row.get('Missing', 0)})
@@ -303,7 +353,7 @@ def report_frames(snapshot, settings):
     year = month[:4]
     total = {'Date': f'{year} YTD Total', **{c: sum(r.get(c, 0) for r in monthly if str(r['Date']).startswith(year)) for c in capacity['columns'][1:]}}
     daily_total = {'Date': 'Total', **{c: sum(r.get(c, 0) for r in capacity['daily']) for c in capacity['columns'][1:]}}
-    frames['Capacity Report'] = (matrix(monthly + [total], capacity['columns'])
+    frames['PR Excel'] = (matrix(monthly + [total], capacity['columns'])
                                  + matrix(capacity['daily'] + [daily_total], capacity['columns']))
     return frames, capacity
 
@@ -315,7 +365,7 @@ def publish_reports(book, snapshot, settings, backup_root, daily_only=False):
     The retired Daily Orders output is backed up locally before removal.
     """
     from datatrace_sync import sheet_cell, sheet_color
-    from tracker_formatting import format_requests
+    from tracker_formatting import format_requests, capacity_sheet_values, REPORT_COLORS
     from monthly_views import view_identity
     frames, capacity = report_frames(snapshot, settings)
     if daily_only:
@@ -331,6 +381,8 @@ def publish_reports(book, snapshot, settings, backup_root, daily_only=False):
         requests.append({'deleteSheet': {'sheetId': retired_id}})
     for title, values in frames.items():
         existing = by_title.get(title)
+        if not existing and title == 'PR Excel':
+            existing = by_title.get('Capacity Report')
         if not existing and view_identity(title):
             existing = next((s for name, s in by_title.items() if view_identity(name) == view_identity(title)), None)
         if existing:
@@ -352,17 +404,24 @@ def publish_reports(book, snapshot, settings, backup_root, daily_only=False):
             'gridProperties': {'rowCount': max(len(values) + 25, old_grid.get('rowCount', 0)),
                                'columnCount': max(cols, old_grid.get('columnCount', 0)), 'frozenRowCount': 1}},
             'fields': 'hidden,gridProperties'}})
+        sheet_values = capacity_sheet_values(values) if title in ('PR Excel', 'Daily Status Report') else values
+        output_rows = [{'values': [sheet_cell(value) for value in row]} for row in sheet_values]
         requests.append({'updateCells': {'range': {'sheetId': number},
-            'rows': [{'values': [sheet_cell(value) for value in row]} for row in values], 'fields': 'userEnteredValue'}})
+            'rows': output_rows, 'fields': 'userEnteredValue'}})
         requests.extend(format_requests(number, values, (existing or {}).get('conditionalFormats', []),
-                                        replace_rules=title == 'Status Report'))
+                                        replace_rules=title == 'Status Report', grid_shape=(
+                                            max(len(values) + 25, old_grid.get('rowCount', 0)),
+                                            max(cols, old_grid.get('columnCount', 0)))))
         # Old report fills can extend far beyond the current data. Clear those
         # blank rows as well; status rules are bounded to populated rows.
         requests.append({'repeatCell': {'range': {'sheetId': number, 'startRowIndex': len(values),
-            'endColumnIndex': cols}, 'cell': {'userEnteredFormat': {
-                'backgroundColor': sheet_color('#ffffff'),
-                'textFormat': {'foregroundColor': sheet_color('#111827')}}},
-            'fields': 'userEnteredFormat.backgroundColor,userEnteredFormat.textFormat.foregroundColor'}})
+            'endColumnIndex': cols}, 'cell': {}, 'fields': 'userEnteredFormat'}})
+        old_cols = old_grid.get('columnCount', cols)
+        if old_cols > cols:
+            requests.append({'repeatCell': {'range': {'sheetId': number,
+                'endRowIndex': max(len(values), old_grid.get('rowCount', len(values))),
+                'startColumnIndex': cols, 'endColumnIndex': old_cols},
+                'cell': {}, 'fields': 'userEnteredFormat'}})
         if title == 'Status Report' and len(values) > 1:
             requests.append({'repeatCell': {'range': {'sheetId': number, 'startRowIndex': 1,
                 'endRowIndex': len(values), 'startColumnIndex': 2, 'endColumnIndex': 3},
@@ -375,6 +434,11 @@ def publish_reports(book, snapshot, settings, backup_root, daily_only=False):
                     'cell': {'userEnteredFormat': {'backgroundColor': sheet_color('#ffffff'),
                         'textFormat': {'bold': False, 'foregroundColor': sheet_color('#111827')}}},
                     'fields': 'userEnteredFormat.backgroundColor,userEnteredFormat.textFormat.bold,userEnteredFormat.textFormat.foregroundColor'}})
+                requests.append({'repeatCell': {'range': {'sheetId': number, 'startRowIndex': 1,
+                    'endRowIndex': len(values)-1, 'startColumnIndex': 0, 'endColumnIndex': 1},
+                    'cell': {'userEnteredFormat': {'numberFormat': {'type': 'DATE', 'pattern': 'dd-MM-yy'},
+                        'backgroundColor': sheet_color('#' + REPORT_COLORS['daily'])}},
+                    'fields': 'userEnteredFormat.numberFormat,userEnteredFormat.backgroundColor'}})
             for row_index, row in enumerate(values[1:-1], 1):
                 if str(row[0]) == settings.get('selected_date'):
                     requests.append({'repeatCell': {'range': {'sheetId': number, 'startRowIndex': row_index,
@@ -382,12 +446,13 @@ def publish_reports(book, snapshot, settings, backup_root, daily_only=False):
                         'cell': {'userEnteredFormat': {'backgroundColor': sheet_color('#cfe2f3'),
                             'textFormat': {'bold': True, 'foregroundColor': sheet_color('#111827')}}},
                         'fields': 'userEnteredFormat.backgroundColor,userEnteredFormat.textFormat.bold,userEnteredFormat.textFormat.foregroundColor'}})
-            for row_index, color in ((0, '#f6b26b'), (len(values)-1, '#ffe599')):
+            for row_index, color in ((0, '#' + REPORT_COLORS['header']),
+                                     (len(values)-1, '#' + REPORT_COLORS['total'])):
                 requests.append({'repeatCell': {'range': {'sheetId': number, 'startRowIndex': row_index,
                     'endRowIndex': row_index+1, 'endColumnIndex': cols},
                     'cell': {'userEnteredFormat': {'backgroundColor': sheet_color(color), 'textFormat': {'bold': True}}},
                     'fields': 'userEnteredFormat.backgroundColor,userEnteredFormat.textFormat.bold'}})
-        if title == 'Capacity Report':
+        if title == 'PR Excel':
             last_month_row = len(capacity['monthly']) + 1
             daily_start = last_month_row + 1
             daily_end = daily_start + len(capacity['daily']) + 1
@@ -405,11 +470,6 @@ def publish_reports(book, snapshot, settings, backup_root, daily_only=False):
                 requests.append({'updateEmbeddedObjectPosition': {'objectId': chart['chartId'], 'newPosition': {'overlayPosition': {'anchorCell': {'sheetId': number, 'rowIndex': len(values)+2, 'columnIndex': 0}, 'widthPixels': 900, 'heightPixels': 350}}, 'fields': 'anchorCell,widthPixels,heightPixels'}})
             else:
                 requests.append({'addChart': {'chart': {'spec': spec, 'position': {'overlayPosition': {'anchorCell': {'sheetId': number, 'rowIndex': len(values)+2, 'columnIndex': 0}, 'widthPixels': 900, 'heightPixels': 350}}}}})
-            for start, end, color, bold in ((0, 1, '#f6b26b', True), (daily_start, daily_start+1, '#f6b26b', True), (1, last_month_row, '#d9ead3', False), (last_month_row, last_month_row+1, '#a4c2f4', True), (len(values)-1, len(values), '#ffe599', True)):
-                if end > start:
-                    requests.append({'repeatCell': {'range': {'sheetId': number, 'startRowIndex': start, 'endRowIndex': end, 'endColumnIndex': cols},
-                        'cell': {'userEnteredFormat': {'backgroundColor': sheet_color(color), 'textFormat': {'bold': bold}}},
-                        'fields': 'userEnteredFormat.backgroundColor,userEnteredFormat.textFormat.bold'}})
     if not daily_only:
         shown_ids = {req['updateSheetProperties']['properties']['sheetId'] for req in requests if req.get('updateSheetProperties', {}).get('properties', {}).get('hidden') is False}
         for item in metadata:
@@ -426,6 +486,8 @@ def publish_reports(book, snapshot, settings, backup_root, daily_only=False):
     # metadata, so no chart, tab or appended data can be duplicated.
     for title, wanted in frames.items():
         actual = book.worksheet(title).get_all_values(value_render_option='UNFORMATTED_VALUE')
+        if title in ('PR Excel', 'Daily Status Report'):
+            wanted = capacity_sheet_values(wanted)
         def normalized(matrix):
             result = []
             for row in matrix:
@@ -446,6 +508,8 @@ def publish_reports(book, snapshot, settings, backup_root, daily_only=False):
 def register_report_routes(app, workspace, gate, load_snapshot, get_book, invalidate):
     from flask import request, jsonify, send_file
     from tracker_sync import sync_lock
+    from import_excel_changes import sync_imported_tabs, editable_frames, change_history, preserve_sheet_edits, tabs_unchanged
+    import time
 
     requested = threading.Event()
     full_requested = threading.Event()
@@ -462,14 +526,24 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
                 with workspace.lock:
                     if workspace.read().get('data_revision') == revision:
                         workspace.save(publication_state='working', sync_error=None)
+                book, _ = get_book()
+                if sync_imported_tabs(workspace, book, settings):
+                    daily_only = False
+                settings = workspace.read()
+                revision = settings.get('data_revision')
                 snapshot = (imported_snapshot(settings['imported'])
                             if settings['mode'] == 'excel' and settings.get('imported')
                             else load_snapshot(force=True, tracker_only=True))
                 if snapshot.get('offline'):
                     raise RuntimeError('Reconnect Google Sheets before publishing tracker reports.')
-                book, _ = get_book()
                 if workspace.read().get('data_revision') != revision:
                     requested.set()
+                    return {'synced': False, 'queued': True}
+                if (settings.get('mode') == 'excel' and not settings.get('cloud_reset')
+                        and settings.get('cloud_baseline') and not daily_only
+                        and not tabs_unchanged(book, settings['cloud_baseline'])):
+                    requested.set()
+                    full_requested.set()
                     return {'synced': False, 'queued': True}
                 result = publish_reports(book, snapshot, settings, workspace.store.root.parent / 'backups' / 'reports', daily_only)
             with workspace.lock:
@@ -477,7 +551,9 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
                     requested.set()
                     return dict(result, synced=False, queued=True)
                 workspace.save(sync_error=None, publication_state='synced', highlighted_date=result['highlighted_date'],
-                               synced_at=datetime.now(timezone.utc).isoformat())
+                               synced_at=datetime.now(timezone.utc).isoformat(), cloud_refresh_error=None,
+                               **({'cloud_baseline': editable_frames(snapshot, settings), 'cloud_reset': False}
+                                  if settings.get('mode') == 'excel' and not daily_only else {}))
             return dict(result, synced=True)
         except Exception as exc:
             app.logger.exception('Report publication failed; saved source retained')
@@ -519,6 +595,51 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
 
     app.extensions['queue_report_publication'] = queue_publication
 
+    last_cloud_check = float('-inf')
+    def refresh_imported_reports(force=False):
+        nonlocal last_cloud_check
+        settings = workspace.read()
+        if settings.get('mode') != 'excel' or not settings.get('imported'):
+            return {'changed': False, 'mode': settings.get('mode', 'tracker')}
+        if settings.get('cloud_reset') or (not force and time.monotonic() - last_cloud_check < 30):
+            return {'changed': False, 'busy': bool(settings.get('cloud_reset'))}
+        if not gate.acquire(blocking=False):
+            return {'changed': False, 'busy': True}
+        try:
+            last_cloud_check = time.monotonic()
+            with sync_lock(workspace.store.root):
+                book, _ = get_book()
+                changed = sync_imported_tabs(workspace, book, workspace.read())
+            if changed:
+                invalidate()
+            publication = queue_publication() if changed else None
+            return {'changed': changed, 'publication': publication, **workspace.public()}
+        except Exception as exc:
+            workspace.save(cloud_refresh_error=str(exc))
+            last_cloud_check = time.monotonic() + 30
+            if force:
+                raise
+            return {'changed': False, 'sync_error': str(exc)}
+        finally:
+            gate.release()
+
+    app.extensions['refresh_imported_reports'] = refresh_imported_reports
+
+    @app.post('/api/report-refresh')
+    def refresh_imported_source():
+        result = refresh_imported_reports(force=True)
+        if result.get('busy'):
+            return jsonify(error='Wait for the current import, capture or Sheets update to finish, then refresh.'), 409
+        return jsonify(result)
+
+    @app.get('/api/import-excel-changes')
+    def imported_change_history():
+        offset = max(0, request.args.get('offset', default=0, type=int) or 0)
+        result = change_history(workspace, request.args.get('action', ''), request.args.get('search', '')[:200], offset)
+        settings = workspace.read()
+        return jsonify(**result, mode=settings['mode'], checked_at=settings.get('cloud_checked_at'),
+                       sync_error=settings.get('cloud_refresh_error'), publication_state=settings.get('publication_state'))
+
     @app.get('/api/report-workspace')
     def get_report_workspace():
         return jsonify(workspace.public())
@@ -531,7 +652,8 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
         with workspace.lock:
             if mode == 'excel' and not workspace.read().get('imported'):
                 raise ValueError('Import Excel files before selecting the Excel report.')
-            workspace.save(mode=mode, enabled=True, selected_date='')
+            workspace.save(mode=mode, enabled=True, selected_date='', cloud_baseline=None,
+                           cloud_reset=mode == 'excel', cloud_refresh_error=None)
         invalidate()
         return jsonify(**workspace.public(), publication=queue_publication())
 
@@ -541,7 +663,9 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
         # Parse before any mutation. Local report edits do not wait for cloud sync.
         uploaded = read_report_files([(file.filename, file.read()) for file in files if file.filename])
         with workspace.lock:
-            sources = [] if request.form.get('replace_all') == 'true' else import_sources(workspace.read().get('imported'))
+            previous_imported = workspace.read().get('imported')
+            replace_all = request.form.get('replace_all') == 'true'
+            sources = [] if replace_all else import_sources(previous_imported)
             uploaded_names = {s['name'].casefold() for s in uploaded['sources']}
             sources = [s for s in sources if not (s.get('legacy') and
                        {f['file'].casefold() for f in s['files']}.issubset(uploaded_names))]
@@ -552,8 +676,10 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
                 sources = [s for s in sources if s['name'].casefold() != name]
                 sources.append(source)
             imported = combine_sources(sources)
+            imported = preserve_sheet_edits(previous_imported, imported, uploaded_names, replace_all)
             workspace.save(imported=imported, files=imported['files'], row_count=len(imported['rows']),
-                           imported_at=imported['created'], mode='excel', enabled=True, selected_date='')
+                           imported_at=imported['created'], mode='excel', enabled=True, selected_date='',
+                           cloud_baseline=None, cloud_reset=True, cloud_refresh_error=None)
         invalidate()
         publication = queue_publication()
         return jsonify(**workspace.public(), reviews=imported['reviews'], replaced_files=replaced, publication=publication), 201
@@ -562,7 +688,8 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
     def remove_imported_file():
         body = request.get_json(silent=True) or {}
         with workspace.lock:
-            sources = import_sources(workspace.read().get('imported'))
+            previous_imported = workspace.read().get('imported')
+            sources = import_sources(previous_imported)
             name = body.get('file')
             if body.get('all') is True:
                 sources = []
@@ -571,9 +698,11 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
             else:
                 raise ValueError('Choose an imported file to remove.')
             imported = combine_sources(sources)
+            imported = preserve_sheet_edits(previous_imported, imported, [name] if isinstance(name, str) else [], body.get('all') is True)
             # An empty Excel report stays empty until the user selects Tracker.
             workspace.save(imported=imported, files=imported['files'], row_count=len(imported['rows']),
-                           imported_at=imported['created'], selected_date='')
+                           imported_at=imported['created'], selected_date='', cloud_baseline=None,
+                           cloud_reset=True, cloud_refresh_error=None)
         invalidate()
         return jsonify(**workspace.public(), publication=queue_publication())
 
@@ -613,9 +742,10 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
     @app.get('/api/export/report')
     def export_report():
         from openpyxl import Workbook
-        from openpyxl.styles import Font, PatternFill
+        from openpyxl.styles import Border, Font, PatternFill, Side
         from openpyxl.chart import BarChart, LineChart, Reference
         from openpyxl.chart.series import SeriesLabel
+        from tracker_formatting import REPORT_COLORS
         snapshot = load_snapshot()
         settings = workspace.read()
         month = request.args.get('month')
@@ -627,8 +757,19 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
                 raise ValueError('No orders are available for that month.')
             settings = dict(settings, selected_date=selected['Date'])
         frames, capacity = report_frames(snapshot, settings)
+        requested_sheet = request.args.get('sheet')
+        aliases = {'Daily Orders': 'Daily Status Report', 'Capacity Report': 'PR Excel'}
+        requested_sheet = aliases.get(requested_sheet, requested_sheet)
+        if requested_sheet:
+            if requested_sheet not in frames:
+                raise ValueError('Choose a report tab to download.')
+            frames = {requested_sheet: frames[requested_sheet]}
         book = Workbook()
         book.remove(book.active)
+        fills = {color: PatternFill('solid', fgColor=color) for color in
+                 ('F6B26B', 'FFFFFF', *REPORT_COLORS.values())}
+        border = Border(**{side: Side(style='thin', color='000000')
+                           for side in ('left', 'right', 'top', 'bottom')})
         for title, values in frames.items():
             sheet = book.create_sheet(title[:31])
             for row in values:
@@ -637,11 +778,83 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
                 for cell in cells:
                     if isinstance(cell.value, str):
                         cell.data_type = 's'
-            for cell in sheet[1]:
-                cell.font = Font(bold=True)
-                cell.fill = PatternFill('solid', fgColor='F6B26B')
+            if title == 'PR Excel':
+                from datetime import date
+                for row_index in range(2, len(capacity['monthly']) + 2):
+                    raw = sheet.cell(row_index, 1).value
+                    match = re.fullmatch(r'(\d{4})-(\d{2})', str(raw))
+                    if match:
+                        sheet.cell(row_index, 1).value = date(int(match[1]), int(match[2]), 1)
+                        sheet.cell(row_index, 1).number_format = 'mmm-yy'
+                daily_start = len(capacity['monthly']) + 4
+                for row_index in range(daily_start, daily_start + len(capacity['daily'])):
+                    raw = sheet.cell(row_index, 1).value
+                    try:
+                        sheet.cell(row_index, 1).value = date.fromisoformat(str(raw))
+                    except ValueError:
+                        pass
+                    else:
+                        sheet.cell(row_index, 1).number_format = 'dd-mm-yy'
+            for row in sheet.iter_rows():
+                for cell in row:
+                    cell.border = border
+                    cell.font = Font(name='Calibri', size=11, bold=cell.row == 1)
+                    cell.fill = fills['FFFFFF']
+            if title == 'PR Excel':
+                month_count = len(capacity['monthly'])
+                daily_start = month_count + 4
+                daily_total = daily_start + len(capacity['daily'])
+                for cell in sheet[1]:
+                    cell.fill = fills[REPORT_COLORS['header']]
+                for row_index in range(2, month_count + 2):
+                    for cell in sheet[row_index]:
+                        cell.fill = fills[REPORT_COLORS['monthly']]
+                for cell in sheet[month_count + 2]:
+                    cell.fill = fills[REPORT_COLORS['ytd']]
+                    cell.font = Font(name='Calibri', size=11, bold=True)
+                for cell in sheet[month_count + 3]:
+                    cell.fill = fills[REPORT_COLORS['header']]
+                    cell.font = Font(name='Calibri', size=11, bold=True)
+                for row_index in range(daily_start, daily_total):
+                    for cell in sheet[row_index]:
+                        if cell.column == 1 or cell.column in (8, 9):
+                            cell.fill = fills[REPORT_COLORS['daily']]
+                for cell in sheet[daily_total]:
+                    cell.fill = fills[REPORT_COLORS['total']]
+                    cell.font = Font(name='Calibri', size=11, bold=True)
+                sheet.column_dimensions['A'].width = 14
+                for column in range(2, len(CAPACITY_COLUMNS) + 1):
+                    sheet.column_dimensions[sheet.cell(1, column).column_letter].width = 18
+            else:
+                for cell in sheet[1]:
+                    cell.font = Font(bold=True)
+                    cell.fill = fills['F6B26B']
+                if title == 'Daily Status Report':
+                    from datetime import date
+                    for cell in sheet[1]:
+                        cell.fill = fills[REPORT_COLORS['header']]
+                    for row_index in range(2, sheet.max_row):
+                        raw = sheet.cell(row_index, 1).value
+                        try:
+                            sheet.cell(row_index, 1).value = date.fromisoformat(str(raw))
+                        except ValueError:
+                            pass
+                        else:
+                            sheet.cell(row_index, 1).number_format = 'dd-mm-yy'
+                            sheet.cell(row_index, 1).fill = fills[REPORT_COLORS['daily']]
+                    for cell in sheet[sheet.max_row]:
+                        cell.fill = fills[REPORT_COLORS['total']]
+                        cell.font = Font(name='Calibri', size=11, bold=True)
+                    sheet.column_dimensions['A'].width = 14
             sheet.freeze_panes = 'A2'
-        sheet = book['Capacity Report']
+        if 'PR Excel' not in book.sheetnames:
+            stream = BytesIO()
+            book.save(stream)
+            stream.seek(0)
+            filename = requested_sheet.replace(' ', '_') + '.xlsx' if requested_sheet else 'Production_data.xlsx'
+            return send_file(stream, as_attachment=True, download_name=filename,
+                             mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        sheet = book['PR Excel']
         start = len(capacity['monthly']) + 4
         end = start + len(capacity['daily']) - 1
         if end >= start:
@@ -652,11 +865,12 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
                 target.series[-1].title = SeriesLabel(v=CAPACITY_COLUMNS[column-1])
             chart.set_categories(Reference(sheet, min_col=1, min_row=start, max_row=end))
             chart += lines
-            sheet.add_chart(chart, f'A{len(frames["Capacity Report"])+3}')
+            sheet.add_chart(chart, f'A{len(frames["PR Excel"])+3}')
         stream = BytesIO()
         book.save(stream)
         stream.seek(0)
-        return send_file(stream, as_attachment=True, download_name='Production_data.xlsx',
+        filename = requested_sheet.replace(' ', '_') + '.xlsx' if requested_sheet else 'Production_data.xlsx'
+        return send_file(stream, as_attachment=True, download_name=filename,
                          mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
     return publish

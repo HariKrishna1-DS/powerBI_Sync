@@ -3588,6 +3588,15 @@ input[type=checkbox],input[type=range] {
 .summary-strip>.metric.amber,.summary-strip>.metric.gold,.metrics>.metric.amber,.metrics>.metric.gold { --metric-accent: var(--summary-gold); }
 .summary-strip>.metric.blue,.metrics>.metric.blue { --metric-accent: var(--summary-blue); }
 .summary-strip>.metric strong,.metrics>.metric strong { color: var(--metric-accent); }
+.summary-strip>.duplicate-metric { display: flex; flex-direction: column; align-items: flex-start; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.summary-strip>.duplicate-metric:disabled { cursor: default; }
+.brand .brand-copy { flex:1; min-width:0; }
+.brand>.icon-button { flex-shrink:0; margin-left:auto; }
+.sidebar-collapsed .brand { flex-direction:column; gap:8px; }
+.sidebar-collapsed .brand>.icon-button { margin-left:0; }
+.import-changes-workspace .change-values { min-width:220px; white-space:normal; }
+.import-changes-workspace .table-scroll td:nth-child(6) { max-width:300px; white-space:normal; }
+.summary-strip>.duplicate-metric:not(:disabled):hover { background: color-mix(in srgb,var(--summary-blue) 9%,transparent); }
 .daily-orders .metrics { padding: 12px; gap: 8px; }
 .daily-orders .metrics>.metric {
   padding: 16px 18px;
@@ -4973,3 +4982,5 @@ tr:hover td {
 .report-replace-all input[type="checkbox"] { width:auto; margin:0; }
 
 .daily-orders tr.daily-date-selected { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
+.duplicate-order-numbers { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 16px; }
+.duplicate-order-numbers code { border: 1px solid var(--border, #cbd8d5); border-radius: 5px; padding: 3px 7px; background: var(--surface-raised, #edf3f1); }

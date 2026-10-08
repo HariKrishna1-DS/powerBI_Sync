@@ -39,7 +39,10 @@ def protect(data, decrypt=False):
                        ctypes.c_void_p, ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(Blob)]
     method.restype = wintypes.BOOL
     if not method(ctypes.byref(source), None, None, None, None, 1, ctypes.byref(result)):
-        raise ValueError('Windows could not unlock or protect the saved connections.')
+        operation = 'unlock' if decrypt else 'encrypt'
+        raise ValueError(f'Windows could not {operation} the saved connections. '
+                         'Start the local server with start-local.bat under the Windows account '
+                         'that saved these settings, then retry.')
     try:
         return ctypes.string_at(result.data, result.size)
     finally:

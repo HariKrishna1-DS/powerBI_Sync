@@ -55,6 +55,7 @@ gsheet_dashboard/export-verification.xlsx
 *.tvbackup
 *.tvcloud
 cloud-archives/
+gsheet_dashboard/runtime-data/
 DataTrace_Workspace.zip
 
 # OS generated files

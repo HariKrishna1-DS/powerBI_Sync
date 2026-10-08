@@ -4,8 +4,9 @@ import {ArrowDownToLine, ArrowUpDown, ArrowRight, Bookmark, Check, ChevronLeft, 
 import {useWorkspacePreference} from './useWorkspacePreference';
 import {TableLayoutControls,useTableLayout} from './TableLayout';
 import {api, csvDownload, str, normalized, badgeClass, IconButton} from './workspaceUtils';
+const DuplicateOrdersDialog=React.lazy(()=>import('./WorkspaceViews').then(module=>({default:module.DuplicateOrdersDialog})));
 
-export const VIEW_TITLES={overview:'Overview',sheets:'Data Sheets',captures:'Capture library',changes:'Changes',daily:'Daily Orders',monthly:'Monthly Orders',capacity:'Capacity Report',audit:'Activity'};
+export const VIEW_TITLES={overview:'Overview',sheets:'Data Sheets',captures:'Capture library',changes:'Changes',importChanges:'Import Excel Changes',daily:'Daily Orders',monthly:'Monthly Orders',capacity:'Capacity Report',audit:'Activity'};
 const orderCollator=new Intl.Collator(undefined,{numeric:true,sensitivity:'base'});
 const relativeTime=value=>value?new Date(value).toLocaleString(): 'Not available';
 const attention=row=>/clarification|hold|suspend|review|missing|rejected/i.test(str(row.Status));
@@ -48,14 +49,18 @@ export function ThemeControl(){
 }
 
 export function ProductionOverview({snapshot,state,onNavigate}){
+  const [duplicatesOpen,setDuplicatesOpen]=useState(false);
   const rows=snapshot?.sheets?.Overview?.rows||snapshot?.sheets?.['All Products']?.rows||[];
+  const duplicateCount=state.report_workspace?.duplicate_row_count||0;
   const statuses=useMemo(()=>{const counts=new Map();for(const row of rows){const key=str(row.Status)||'Not set';counts.set(key,(counts.get(key)||0)+1);}return [...counts].sort((a,b)=>b[1]-a[1]);},[rows]);
   return <div className="production-overview">
     <section className="overview-welcome"><span className="eyebrow">YOUR PRODUCTION WORKSPACE</span><h2>A clear view of the work ahead.</h2><p>Review your production, resolve exceptions and keep every capture accounted for.</p><button className="text-button" onClick={()=>onNavigate('sheets')}>Explore orders <ArrowRight size={16}/></button></section>
-    <div className="summary-strip"><div className="metric green"><span>{snapshot?.mode==='excel'?'Imported orders':'Production orders'}</span><strong>{snapshot?rows.length.toLocaleString():'—'}</strong></div><div className="metric red"><span>Need attention</span><strong>{snapshot?rows.filter(attention).length.toLocaleString():'—'}</strong></div><div className="metric blue"><span>{snapshot?.mode==='excel'?'Imported files':'Saved captures'}</span><strong>{snapshot?.mode==='excel'?(state.report_workspace?.imports?.length||0):state.previews.length}</strong></div><div className="metric amber"><span>{snapshot?.mode==='excel'?'Imported worksheets':'Pending sync'}</span><strong>{snapshot?.mode==='excel'?(state.report_workspace?.files?.length||0):(state.pending_sync||0)}</strong></div></div>
+    <div className="summary-strip"><div className="metric green"><span>{snapshot?.mode==='excel'?'Imported orders':'Production orders'}</span><strong>{snapshot?rows.length.toLocaleString():'—'}</strong></div><div className="metric red"><span>Need attention</span><strong>{snapshot?rows.filter(attention).length.toLocaleString():'—'}</strong></div><button type="button" className="metric blue duplicate-metric" aria-label={`Duplicate Orders ${duplicateCount}`} disabled={!duplicateCount} onClick={()=>setDuplicatesOpen(true)}><span>Duplicate Orders</span><strong>{duplicateCount.toLocaleString()}</strong></button><div className="metric amber"><span>{snapshot?.mode==='excel'?'Imported worksheets':'Pending sync'}</span><strong>{snapshot?.mode==='excel'?(state.report_workspace?.files?.length||0):(state.pending_sync||0)}</strong></div></div>
+    {duplicatesOpen&&<React.Suspense fallback={null}><DuplicateOrdersDialog rows={state.report_workspace?.duplicate_orders||[]} onClose={()=>setDuplicatesOpen(false)}/></React.Suspense>}
     <div className="overview-columns"><section className="studio-section"><h2>Status summary</h2><p className="muted">{snapshot?.mode==='excel'?'Only orders from your imported workbooks':'All retained production orders'}</p>{statuses.length?statuses.map(([status,count])=><div className="status-summary-row" data-status={badgeClass(status)} key={status}><StatusPill value={status}/><span>{count.toLocaleString()}</span></div>):<p className="empty-copy">{snapshot?.mode==='excel'?'No imported orders. Upload Excel files to create reports.':'Connect Google Sheets to see production status.'}</p>}</section><section className="studio-section"><h2>Continue your work</h2>{(snapshot?.mode==='excel'?[['sheets','Imported orders',`${rows.length} orders from your files`],['daily','Daily report','Imported statuses and SLA'],['capacity','Capacity report','Imported orders and daily targets']]:[['captures','Capture history',`${state.previews.length} saved captures`],['daily','Daily report','Orders, completions and SLA'],['audit','Sync and activity',state.pending_sync?`${state.pending_sync} captures awaiting sync`:'Review recent operations']]).map(([view,title,detail])=><button className="continue-row" key={view} onClick={()=>onNavigate(view)}><span><strong>{title}</strong><small>{detail}</small></span><ArrowRight size={17}/></button>)}<div className="freshness-note"><Clock3 size={16}/><span>Last production refresh<br/><strong>{relativeTime(snapshot?.updated_at)}</strong></span></div></section></div>
   </div>;
 }
+
 
 export function OrdersWorkspace({snapshot,rows,columns,search,setSearch,filters,setFilters,openFilter,previews}){
   const [group,setGroup]=useState('all'),[product,setProduct]=useState('all'),[page,setPage]=useState(0),[selected,setSelected]=useState(null),[sort,setSort]=useState({column:'',direction:1}),[viewName,setViewName]=useState(''),[saving,setSaving]=useState(false),[message,setMessage]=useState('');

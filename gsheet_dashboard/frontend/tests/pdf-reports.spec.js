@@ -3,6 +3,46 @@ import {readFile} from 'node:fs/promises';
 import path from 'node:path';
 import {workspaceFixture} from './workspace-fixture.js';
 
+test('Overview duplicate count opens all repeated orders and their source files',async({page})=>{
+  const fixture=workspaceFixture(10),errors=[];
+  const duplicates=fixture.rows.slice(0,6).map(row=>({...row,Date:'2026-10-05',
+    'Earlier file':'full.xlsx','Earlier worksheet':'TV Orders',
+    'Replacement file':'remaining.xlsx','Replacement worksheet':'Updates'}));
+  const settings={mode:'excel',row_count:10,files:[],duplicate_row_count:6,duplicate_orders:duplicates};
+  page.on('pageerror',error=>errors.push(error.message));
+  await page.route('**/*',async route=>{
+    const name=new URL(route.request().url()).pathname;
+    if(name.startsWith('/api/')){
+      let body=fixture.response(name);
+      if(name==='/api/state')body={...body,report_workspace:settings};
+      if(name==='/api/report-workspace')body=settings;
+      if(name==='/api/live-sheets')body={...body,mode:'excel',source:'Imported Excel'};
+      return route.fulfill({json:body});
+    }
+    const filename=path.join(process.cwd(),'dist',name==='/'?'index.html':name.slice(1));
+    const contentType=name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':'text/html';
+    try{return route.fulfill({body:await readFile(filename),contentType});}
+    catch{return route.fulfill({status:404,body:''});}
+  });
+  await page.goto('http://localhost:8510/');
+  await page.getByRole('button',{name:'Overview',exact:true}).click();
+  const metric=page.getByRole('button',{name:'Duplicate Orders 6',exact:true});
+  await expect(metric).toBeVisible();
+  await expect(page.getByText('Imported files',{exact:true})).toHaveCount(0);
+  await metric.click();
+  const dialog=page.getByRole('dialog');
+  await expect(dialog).toContainText('Duplicate orders · 6');
+  await expect(dialog.locator('tbody tr')).toHaveCount(6);
+  for(const row of duplicates)await expect(dialog.getByRole('cell',{name:row['Order Number'],exact:true})).toBeVisible();
+  await expect(dialog).toContainText('full.xlsx');
+  await expect(dialog).toContainText('remaining.xlsx');
+  await page.screenshot({path:'test-results/duplicate-orders-dialog.png',fullPage:true});
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0);
+  await expect(metric).toBeFocused();
+  expect(errors).toEqual([]);
+});
+
 test('batch report import, source switching, daily publication and capacity view',async({page})=>{
   const fixture=workspaceFixture(10),errors=[],requests=[];
   let mode='tracker',selected='2026-10-02';
@@ -44,8 +84,9 @@ test('batch report import, source switching, daily publication and capacity view
   await page.keyboard.press('Escape');
   await page.getByRole('button',{name:'Daily Orders',exact:true}).click();
   await expect(page.getByRole('columnheader',{name:'Vendor Pending',exact:true})).toBeVisible();
-  await page.getByRole('button',{name:'2026-10-01',exact:true}).click();
-  await expect(page.getByText('2026-10-01 is highlighted in Daily Status Report.')).toBeVisible();
+  await expect(page.getByRole('option',{name:'01-10-26',exact:true})).toHaveAttribute('value','2026-10-01');
+  await page.getByRole('button',{name:'01-10-26',exact:true}).click();
+  await expect(page.getByText('01-10-26 is highlighted in Daily Status Report.')).toBeVisible();
   await page.getByRole('button',{name:'Capacity Report',exact:true}).click();
   await expect(page.getByRole('heading',{name:'Daily capacity',exact:true})).toBeVisible({timeout:15000});
   await page.screenshot({path:'test-results/pdf-capacity-report.png',fullPage:true});

@@ -7,15 +7,15 @@ import {useWorkspacePreference} from './useWorkspacePreference';
 const destinations=[['overview','Overview',Home],['sheets','Data Sheets',Table2],['daily','Daily Orders',CalendarDays],['monthly','Monthly Orders',FileSpreadsheet],['capacity','Capacity Report',FileSpreadsheet],['changes','Changes',ArrowLeftRight]];
 const dateLabel=value=>value?new Date(value).toLocaleDateString(undefined,{day:'numeric',month:'short'}):'Date unavailable';
 
-export function WorkspaceSidebar({state,selected,view,onNavigate,onSelect,onDelete,busy,snapshot,collapsed,onToggle}) {
+export function WorkspaceSidebar({state,selected,view,onNavigate,onSelect,onDelete,busy,snapshot,collapsed,onToggle,onRefresh,refreshing}) {
   const [query,setQuery]=useState('');
   const deferred=useDeferredValue(query);
   const captures=useMemo(()=>state.previews.filter(p=>`${p.name} ${dateLabel(p.created)} ${p.row_count}`.toLowerCase().includes(deferred.toLowerCase())),[state.previews,deferred]);
   const nav=(id,title,Icon)=><button key={id} title={collapsed?title:undefined} aria-label={title} aria-current={view===id?'page':undefined} className={`nav-item ${view===id?'selected':''}`} onClick={()=>onNavigate(id)}><Icon size={19}/><span>{title}</span></button>;
   return <aside className="sidebar" aria-label="Workspace sidebar">
-    <div className="brand"><div className="brand-mark"><Activity size={25}/></div><div className="brand-copy">Tv Tracker<span>Production workspace</span></div></div>
+    <div className="brand"><div className="brand-mark"><Activity size={25}/></div><div className="brand-copy">Tv Tracker<span>Production workspace</span></div><IconButton title="Refresh all workspaces from Google Sheets" className="icon-button brand-refresh" onClick={onRefresh} disabled={busy||refreshing}><RefreshCw size={17} className={refreshing?'spin':''}/></IconButton></div>
     <div className="sidebar-section-label"><span>WORKSPACE</span><IconButton title={collapsed?'Expand sidebar':'Collapse sidebar'} onClick={onToggle}>{collapsed?<PanelLeftOpen size={17}/>:<PanelLeftClose size={17}/>}</IconButton></div>
-    <nav aria-label="Workspace navigation">{destinations.map(([id,title,Icon])=>nav(id,title,Icon))}<div className="nav-subsection">{nav('captures','Captures',HardDrive)}{nav('audit','Activity',Activity)}</div></nav>
+    <nav aria-label="Workspace navigation">{destinations.map(([id,title,Icon])=>nav(id,title,Icon))}<div className="nav-subsection">{nav('captures','Captures',HardDrive)}{nav('importChanges','Import Excel Changes',ArrowLeftRight)}{nav('audit','Activity',Activity)}</div></nav>
     <section className="capture-library" aria-label="Saved capture library">
       <div className="preview-heading"><span className="nav-label">SAVED CAPTURES</span><span>{state.previews.length}</span></div>
       <label className="library-search"><Search size={14}/><input aria-label="Search saved captures" placeholder="Find a capture…" value={query} onChange={e=>setQuery(e.target.value)}/>{query&&<IconButton title="Clear capture search" onClick={()=>setQuery('')}><X size={13}/></IconButton>}</label>
@@ -34,16 +34,16 @@ export function useSidebarState(){
 
 export function WorkspaceContext({production,view,preview,snapshot,reportMode,running,stage,pending,selected,sheetUrl,onRefresh,refreshing}) {
   const report=['daily','monthly','capacity'].includes(view);
-  const source=(production||report)&&reportMode==='excel'?'Imported Excel':production?(snapshot?.offline?'Saved Google Sheets copy':snapshot?(snapshot.mode==='excel'?'Imported Excel':'Live Google Sheets'):'Google Sheets unavailable'):report?'Production report':view==='audit'?'Local activity log':'Saved capture';
-  const updated=report||view==='audit'?null:production?snapshot?.updated_at:preview?.created;
+  const source=view==='importChanges'?'Google Sheets change history':(production||report)&&reportMode==='excel'?'Imported Excel':production?(snapshot?.offline?'Saved Google Sheets copy':snapshot?(snapshot.mode==='excel'?'Imported Excel':'Live Google Sheets'):'Google Sheets unavailable'):report?'Production report':view==='audit'?'Local activity log':'Saved capture';
+  const updated=report||view==='audit'||view==='importChanges'?null:production?snapshot?.updated_at:preview?.created;
   let productionUrl;
   try{const url=new URL(sheetUrl);if(url.protocol==='https:'&&url.hostname==='docs.google.com'&&url.pathname.startsWith('/spreadsheets/d/')&&!url.username&&!url.password)productionUrl=url.href;}catch{}
   const sourceContent=<><Database size={14}/>{source}</>;
   return <div className="workspace-context" aria-label="Workspace context">
     {production&&productionUrl?<a className={`context-source source-link ${snapshot?.offline?'stale':''}`} href={productionUrl} target="_blank" rel="noopener noreferrer" title="Open the production spreadsheet in your browser">{sourceContent}<ExternalLink size={12}/></a>:<span className={`context-source ${snapshot?.offline&&production?'stale':''}`}>{sourceContent}</span>}
-    <span className="context-preview"><FileSpreadsheet size={14}/>{(production||report)&&reportMode==='excel'?'Excel report':selected?(preview.name||`preview${selected}`):'No capture selected'}</span>
-    <span className="context-freshness"><Clock3 size={14}/>{updated?`${production?'Refreshed':'Captured'} ${new Date(updated).toLocaleString(undefined,{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}`:report?'Reporting period below':view==='audit'?'Saved on this computer':'Freshness unavailable'}</span>
-    {production&&<button className="text-button context-refresh" onClick={onRefresh} disabled={refreshing||running} aria-label="Refresh production data"><RefreshCw size={14} className={refreshing?'spin':''}/>{refreshing?'Refreshing…':'Refresh'}</button>}
+    <span className="context-preview"><FileSpreadsheet size={14}/>{view==='importChanges'?'Imported order edits':(production||report)&&reportMode==='excel'?'Excel report':selected?(preview.name||`preview${selected}`):'No capture selected'}</span>
+    <span className="context-freshness"><Clock3 size={14}/>{updated?`${production?'Refreshed':'Captured'} ${new Date(updated).toLocaleString(undefined,{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}`:report?'Reporting period below':['audit','importChanges'].includes(view)?'Saved on this computer':'Freshness unavailable'}</span>
+    <button className="text-button context-refresh" onClick={onRefresh} disabled={refreshing||running} aria-label="Refresh production data"><RefreshCw size={14} className={refreshing?'spin':''}/>{refreshing?'Refreshing…':'Refresh'}</button>
     <span className={`context-job ${running?'is-running':''}`} role="status">{running?<i className="job-pulse"/>:<Check size={14}/>}<span>{running?stage||'Working…':pending?`${pending} awaiting sync`:'Ready'}</span></span>
   </div>;
 }

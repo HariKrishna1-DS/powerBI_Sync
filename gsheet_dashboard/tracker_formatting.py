@@ -1,9 +1,13 @@
 """Shared production row formatting, including Free Site cells."""
 import json
+import re
+from datetime import date
 from pathlib import Path
 
 PALETTE = json.loads(Path(__file__).with_name('status_colors.json').read_text(encoding='utf-8'))
 MARKER = 'DataTrace production formatting v3'
+REPORT_COLORS = {'header': 'DCA683', 'monthly': 'C6E0B4', 'ytd': '8EA9DB',
+                 'daily': 'E5E5E5', 'total': 'FFD966'}
 
 
 def foreground(color):
@@ -36,13 +40,70 @@ def rules_for(sheet_id, headers, row_count=None):
     return rules
 
 
-def format_requests(sheet_id, values, existing_rules=(), replace_rules=False):
+def capacity_sheet_values(values):
+    """Keep dates numeric in Sheets so their display formats also work in charts."""
+    result = []
+    for row in values:
+        cells = list(row)
+        if cells and re.fullmatch(r'\d{4}-\d{2}(?:-\d{2})?', str(cells[0])):
+            raw = str(cells[0])
+            parsed = date.fromisoformat(raw + '-01' if len(raw) == 7 else raw)
+            cells[0] = (parsed - date(1899, 12, 30)).days
+        result.append(cells)
+    return result
+
+
+def capacity_format_requests(sheet_id, values, grid_shape=None):
+    from datatrace_sync import sheet_color
+    width = len(values[0]) if values else 9
+    requests, runs = [], []
+    for index, row in enumerate(values):
+        label = str(row[0]) if row else ''
+        kind = ('header' if label == 'Date' else 'monthly' if re.fullmatch(r'\d{4}-\d{2}', label)
+                else 'daily' if re.fullmatch(r'\d{4}-\d{2}-\d{2}', label)
+                else 'ytd' if 'YTD Total' in label else 'total' if label == 'Total' else 'other')
+        if runs and runs[-1][0] == kind:
+            runs[-1][2] = index + 1
+        else:
+            runs.append([kind, index, index + 1])
+    for kind, start, end in runs:
+        region = {'sheetId': sheet_id, 'startRowIndex': start, 'endRowIndex': end,
+                  'startColumnIndex': 0, 'endColumnIndex': width}
+        if kind in ('header', 'monthly', 'ytd', 'total'):
+            requests.append({'repeatCell': {'range': region,
+                'cell': {'userEnteredFormat': {'backgroundColor': sheet_color('#' + REPORT_COLORS[kind]),
+                    'textFormat': {'bold': kind != 'monthly'}}},
+                'fields': 'userEnteredFormat.backgroundColor,userEnteredFormat.textFormat.bold'}})
+        if kind in ('monthly', 'daily'):
+            requests.append({'repeatCell': {'range': dict(region, endColumnIndex=1),
+                'cell': {'userEnteredFormat': {'numberFormat': {'type': 'DATE',
+                    'pattern': 'MMM-yy' if kind == 'monthly' else 'dd-MM-yy'}}},
+                'fields': 'userEnteredFormat.numberFormat'}})
+        if kind == 'daily':
+            for left, right in ((0, 1), (7, 9)):
+                requests.append({'repeatCell': {'range': dict(region, startColumnIndex=left, endColumnIndex=right),
+                    'cell': {'userEnteredFormat': {'backgroundColor': sheet_color('#' + REPORT_COLORS['daily'])}},
+                    'fields': 'userEnteredFormat.backgroundColor'}})
+    if grid_shape:
+        rows, columns = grid_shape
+        if columns > width:
+            requests.append({'repeatCell': {'range': {'sheetId': sheet_id, 'endRowIndex': rows,
+                'startColumnIndex': width, 'endColumnIndex': columns}, 'cell': {}, 'fields': 'userEnteredFormat'}})
+        if rows > len(values):
+            requests.append({'repeatCell': {'range': {'sheetId': sheet_id, 'startRowIndex': len(values),
+                'endRowIndex': rows, 'endColumnIndex': columns}, 'cell': {}, 'fields': 'userEnteredFormat'}})
+    return requests
+
+
+def format_requests(sheet_id, values, existing_rules=(), replace_rules=False, grid_shape=None):
     """Style app-owned output while preserving unrelated conditional rules."""
     from monthly_production import plain_format
     headers = values[0] if values else []
     requests = [{'deleteConditionalFormatRule': {'sheetId': sheet_id, 'index': i}}
                 for i in reversed(range(len(existing_rules))) if replace_rules or MARKER in json.dumps(existing_rules[i])]
     requests.extend(plain_format(sheet_id, len(values), len(headers)))
+    if headers[:1] == ['Date'] and headers[-2:] == ['Capacity', 'Ext capacity']:
+        requests.extend(capacity_format_requests(sheet_id, values, grid_shape))
     requests.extend({'addConditionalFormatRule': {'index': i, 'rule': rule}}
                     for i, rule in enumerate(rules_for(sheet_id, headers, len(values))))
     return requests

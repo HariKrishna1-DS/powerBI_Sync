@@ -34,7 +34,7 @@ function createUpdater({updater, enabled, version, notify = () => {}, prepareIns
     set({status: 'current', version: '', percent: 0, lastChecked: new Date().toISOString(), message: newer ? `Version ${version} is installed. GitHub currently publishes ${info.version}; no newer update is available.` : 'You have the latest published version.'});
   });
   updater.on('download-progress', progress => set({status: 'downloading', percent: Math.max(0, Math.min(100, Number(progress.percent) || 0)), message: 'Downloading update…'}));
-  updater.on('update-downloaded', info => set({status: 'downloaded', version: info.version, percent: 100, message: 'Update ready. Restart when your work is finished.'}));
+  updater.on('update-downloaded', info => set({status: 'downloaded', version: info.version, percent: 100, message: 'Download complete. Choose Install & open when your work is finished.'}));
   return {
     state: () => ({...state}),
     async check() {

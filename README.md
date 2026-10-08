@@ -1,24 +1,24 @@
-# Tv Tracker 1.0.1 — Windows desktop
+# Tv Tracker 1.0.2 — Windows desktop
 
 Tv Tracker is a local desktop workspace for TitleVision extraction, Google Sheets production tracking, saved captures, comparisons, and Power BI exports. Its Python and Node runtimes are bundled. No Render hosting or PostgreSQL service is required.
 
-The current project version is **1.0.1** on `tv-tracker-online`. Desktop and web app package manifests and lockfiles use this version. See [the 1.0.1 release notes](docs/TV_TRACKER_1_0_1_RELEASE.md) for the included changes and installation details.
+The current project version is **1.0.2** on `tv-tracker-app`. Desktop and web app package manifests and lockfiles use this version. See [the 1.0.2 release notes](docs/TV_TRACKER_1_0_2_RELEASE.md) for the included changes and installation details.
 
 ## Desktop branch
 
-**`tv-tracker-online`** contains this project's 1.0.1 source, based on the earlier 2.6.0 code. `tv-tracker` continues the separate desktop development history, and `main` remains the upstream browser/sync project. Review branch differences before merging them so native settings, local storage, and packaging remain compatible.
+**`tv-tracker-app`** contains this project's 1.0.2 source, based on the earlier 2.6.0 code. `main` remains the upstream browser/sync project. This application branch was previously named `tv-tracker-online`.
 
 ```powershell
 git fetch origin
-git switch tv-tracker-online
-git pull --ff-only origin tv-tracker-online
+git switch tv-tracker-app
+git pull --ff-only origin tv-tracker-app
 ```
 
 The 2.1.0 integration incorporates upstream `db0c274` plus the existing desktop implementation. See [analysis, mapping, changes and validation](docs/DESKTOP_UPSTREAM_ALIGNMENT.md).
 
 ## Install and connect
 
-Install the Windows `.exe` from the [1.0.1 release](https://github.com/HariKrishna1-DS/powerBI_Sync/releases/tag/v1.0.1), or extract the portable ZIP and open **Tv Tracker.exe**. Configure the Google spreadsheet, service-account key, and TitleVision credentials through **Connections & settings** (Ctrl+,).
+Install the Windows `.exe` from the [1.0.2 release](https://github.com/HariKrishna1-DS/powerBI_Sync/releases/tag/v1.0.2), or extract the portable ZIP and open **Tv Tracker.exe**. Configure the Google spreadsheet, service-account key, and TitleVision credentials through **Connections & settings** (Ctrl+,).
 
 The app includes a single native window, system tray, encrypted credentials, an authenticated loopback engine, dated offline reports, backup/restore, and keyboard quick actions. Internet is required for extraction and Sheets sync. Saved captures and cached production reports remain available offline. Schedules need the app running and the computer awake.
 
@@ -47,10 +47,8 @@ Imports/extractions sync automatically when configured. A failed write gets boun
 
 Build with `desktop/build.ps1`. Installer and portable output go to `release/<version>/`. Run `python make_bundle.py` to create the matching source ZIP with a SHA-256 source manifest. Dependencies are recorded in lockfiles; 2.2.0 added electron-updater for Windows releases.
 
-For a contribution, branch from `tv-tracker`, make a focused change, run the relevant Python, desktop-settings and Playwright suites, and open a pull request targeting `tv-tracker`. Keep credentials, captures, runtime data, and generated release files out of commits. The baseline XLSX files already supplied by upstream are required application inputs and are included in packages/source bundles.
+For a contribution, branch from `tv-tracker-app`, make a focused change, run the relevant Python, desktop-settings and Playwright suites, and open a pull request targeting `tv-tracker-app`. Keep credentials, captures, runtime data, and generated release files out of commits. The baseline XLSX files already supplied by upstream are required application inputs and are included in packages/source bundles.
 
 ## Tv Tracker desktop updates
 
-The desktop application is maintained on `tv-tracker`. Version 2.2.0 adds **Connections & settings → Updates** and **Help → Check for updates**. See [setup and release instructions](docs/DESKTOP_UPDATES.md) and the [implementation prompt](docs/TV_TRACKER_UPDATE_PROMPT.md). Users on 2.1.0 or earlier need one manual installer upgrade before in-app updates become available.
-
-Version 2.2.1 fixes numeric sync retries, recovered boolean comparisons, optional report details and large-workbook export performance. See the [end-to-end QC report](docs/TV_TRACKER_2_2_1_QC.md).
+Use **Download version** in the toolbar or **Connections & settings → Updates**. The installed app checks for releases, but downloads start only when you click **Download**. After downloading, choose **Install & open** to install and launch the new version. Closing the app does not install an update. See [setup and release instructions](docs/DESKTOP_UPDATES.md). Users moving from a 2.x installation to 1.0.2 need a manual installer upgrade because the updater prevents downgrades.

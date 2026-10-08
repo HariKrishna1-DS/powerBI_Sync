@@ -12,7 +12,7 @@ def capacity_report_values(monthly_reports, daily_reports=()):
     year = report['month'][:4]
     total = {'Date': f'{year} YTD Total', **{c: sum(r.get(c, 0) for r in rows if r['Date'].startswith(year)) for c in CAPACITY_COLUMNS[1:]}}
     daily_total = {'Date': 'Total', **{c: sum(r.get(c, 0) for r in report['daily']) for c in CAPACITY_COLUMNS[1:]}}
-    return matrix(rows + [total] + report['daily'] + [daily_total], CAPACITY_COLUMNS)
+    return matrix(rows + [total], CAPACITY_COLUMNS) + matrix(report['daily'] + [daily_total], CAPACITY_COLUMNS)
 
 
 def view_name(full, month):
@@ -67,7 +67,7 @@ def keep_view_headers(values, prior):
 
 def refresh_monthly_views(book):
     """Safe repair on repeat syncs, including captures committed before this feature."""
-    from tracker_sync import tracker_sources, records, FULL, sheet_reports
+    from tracker_sync import tracker_sources, records, FULL, sheet_reports, matrix
     from monthly_production import snapshot, decode, encode, new_plan, fingerprint, apply_plan, preserve_formulas
     from preview_completion import reconcile_completions
     sheets = {sheet.title: sheet for sheet in book.worksheets()}
@@ -97,18 +97,12 @@ def refresh_monthly_views(book):
         plan['writes']['Status Report'] = encode([dict(metadata, Status=s, Orders=n, Share=n/total if total else 0)
             for s, n in statuses.items()], status_headers)
         reports = sheet_reports(repaired)
-        for title, kind, period in (('Monthly Orders', 'monthly', 'Month'),):
-            if title in sheets:
-                prior = sheets[title].get_all_values()
-                by_period = {r[period]: r for r in reports[kind]}
-                report_rows = records(prior)
-                for row in report_rows:
-                    result = by_period.get(row.get(period), {})
-                    for column in ('Completed Orders', 'SLA On Time', 'SLA Missed'):
-                        if column in result:
-                            row[column] = result[column]
-                plan['writes'][title] = encode(report_rows, prior[0])
-        plan['writes']['Capacity Report'] = capacity_report_values(reports['monthly'], reports['daily'])
+        monthly_columns = ['Month', 'Received', 'Completed', 'Clarification', 'Cancelled',
+                           'Vendor Pending', 'In-House Pending', 'SLA OnTime', 'SLA on Missing']
+        monthly_rows = [dict(row, **{'SLA on Missing': row.get('Missing', 0)})
+                        for row in reports['monthly']]
+        plan['writes']['Monthly Orders'] = matrix(monthly_rows, monthly_columns)
+        plan['writes']['PR Excel'] = capacity_report_values(reports['monthly'], reports['daily'])
     def normalized(values):
         result = []
         for row in values:
@@ -125,11 +119,15 @@ def refresh_monthly_views(book):
             plan.setdefault('archive_fingerprints', {})[title] = fingerprint(prior)
     reports = sheet_reports(repaired)
     capacity_values = capacity_report_values(reports['monthly'], reports['daily'])
-    prior_capacity = sheets['Capacity Report'].get_all_values(value_render_option='UNFORMATTED_VALUE') if 'Capacity Report' in sheets else []
-    if normalized(prior_capacity) != normalized(capacity_values):
-        plan['writes']['Capacity Report'] = capacity_values
-        plan.setdefault('archive_fingerprints', {})['Capacity Report'] = fingerprint(prior_capacity)
-    if plan['writes']:
+    capacity_sheet_name = 'PR Excel' if 'PR Excel' in sheets else 'Capacity Report'
+    prior_capacity = sheets[capacity_sheet_name].get_all_values(value_render_option='UNFORMATTED_VALUE') if capacity_sheet_name in sheets else []
+    from tracker_formatting import capacity_sheet_values
+    if normalized(prior_capacity) != normalized(capacity_sheet_values(capacity_values)):
+        plan['writes']['PR Excel'] = capacity_values
+        plan.setdefault('archive_fingerprints', {})[capacity_sheet_name] = fingerprint(prior_capacity)
+    if 'Capacity Report' in sheets and 'PR Excel' not in sheets:
+        plan['renames']['Capacity Report'] = 'PR Excel'
+    if plan['writes'] or plan['renames']:
         if 'Sheet1' in sheets:
             plan.setdefault('archive_fingerprints', {})['Sheet1'] = fingerprint(raw_values)
         apply_plan(book, preserve_formulas(plan, before))

@@ -19,7 +19,8 @@ class LocalSettingsTests(unittest.TestCase):
         folder = tempfile.TemporaryDirectory()
         self.addCleanup(folder.cleanup)
         self.root = Path(folder.name)
-        environment = patch.dict(os.environ, {'DATATRACE_DESKTOP': '0', 'GOOGLE_SERVICE_ACCOUNT_JSON': '',
+        environment = patch.dict(os.environ, {'DATATRACE_DESKTOP': '0', 'DATATRACE_DATA_DIR': str(self.root),
+                                              'GOOGLE_SERVICE_ACCOUNT_JSON': '',
                                               'DATATRACE_PASSWORD': '', 'RENDER': ''})
         environment.start()
         self.addCleanup(environment.stop)
@@ -56,8 +57,10 @@ class LocalSettingsTests(unittest.TestCase):
         self.assertEqual(result.status_code, 200)
         os.environ['DATATRACE_PASSWORD'] = ''
         local_settings.load_environment(self.root)
-        self.assertEqual(os.environ['DATATRACE_PASSWORD'], 'private-fixture-password')
-        self.assertEqual(json.loads(os.environ['GOOGLE_SERVICE_ACCOUNT_JSON']), json.loads(raw))
+        self.assertTrue(os.environ['DATATRACE_PASSWORD'] == 'private-fixture-password',
+                        'The encrypted password must survive a blank-password save.')
+        self.assertTrue(json.loads(os.environ['GOOGLE_SERVICE_ACCOUNT_JSON']) == json.loads(raw),
+                        'The service-account key must survive a restart.')
         import datatrace_sync
         self.assertEqual(datatrace_sync.SPREADSHEET_ID, 'a' * 30)
 

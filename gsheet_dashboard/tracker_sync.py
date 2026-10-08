@@ -658,9 +658,13 @@ def sync_trackers(frame=None, on_progress=None, book=None):
                 requests.append({'updateCells': {'start': {'sheetId': target.id, 'rowIndex': len(prior), 'columnIndex': 0},
                     'rows': [{'values': [sheet_cell(v) for v in r]} for r in values[len(prior):]], 'fields': 'userEnteredValue'}})
             else:
+                from tracker_formatting import capacity_sheet_values, format_requests
+                sheet_values = capacity_sheet_values(values) if title == 'PR Excel' else values
                 requests.append({'updateCells': {'range': {'sheetId': target.id, 'startRowIndex': 0,
                     'endRowIndex': max(len(values), len(prior)), 'startColumnIndex': 0, 'endColumnIndex': max(len(headers), max((len(r) for r in prior), default=0))},
-                    'rows': [{'values': [sheet_cell(v) for v in row]} for row in values], 'fields': 'userEnteredValue'}})
+                    'rows': [{'values': [sheet_cell(v) for v in row]} for row in sheet_values], 'fields': 'userEnteredValue'}})
+                if title == 'PR Excel':
+                    requests.extend(format_requests(target.id, values, grid_shape=(row_count, col_count)))
         for title in TRACKERS:
             prior_headers = saved_values[title][0] if saved_values[title] else HEADERS
             headers = list(dict.fromkeys(prior_headers + HEADERS + [c for r in merged[title] for c in r]))
@@ -699,12 +703,12 @@ def sync_trackers(frame=None, on_progress=None, book=None):
                   [[s, n, n / len(all_rows) if all_rows else 0, preview, anchor.isoformat()] for s, n in statuses.items()])
             summaries = sheet_reports(merged, report)
             from monthly_views import capacity_report_values
-            for title, kind, period in (('Monthly Orders', 'monthly', 'Month'),):
-                columns = [period, 'Received' if kind == 'daily' else 'Month Orders', 'Completed Orders',
-                           'Awaiting for Clarification', 'Cancelled', 'Vendor Pending',
-                           'In-House Pending', 'Not in latest preview', 'SLA OnTime', 'Missing']
-                write(title, matrix(summaries[kind], columns))
-            write('Capacity Report', capacity_report_values(summaries['monthly'], summaries['daily']))
+            monthly_columns = ['Month', 'Received', 'Completed', 'Clarification', 'Cancelled',
+                               'Vendor Pending', 'In-House Pending', 'SLA OnTime', 'SLA on Missing']
+            monthly_rows = [dict(row, **{'SLA on Missing': row.get('Missing', 0)})
+                            for row in summaries['monthly']]
+            write('Monthly Orders', matrix(monthly_rows, monthly_columns))
+            write('PR Excel', capacity_report_values(summaries['monthly'], summaries['daily']))
         report['ambiguous_count'] = len(report['ambiguous'])
         report['not_in_latest_count'] = len(report['not_in_latest'])
         report['_expected_tracker_cells'] = {title: [
@@ -726,7 +730,7 @@ def sync_trackers(frame=None, on_progress=None, book=None):
             frame.attrs['pass_report'] = {k: v for k, v in report.items() if not k.startswith('_')}
         else:
             import_default_details(book)
-        return list(TRACKERS) + ['All Products', 'Sheet1', 'Status Report', 'Monthly Orders', 'Capacity Report']
+        return list(TRACKERS) + ['All Products', 'Sheet1', 'Status Report', 'Monthly Orders', 'PR Excel']
 
 
 def verify_tracker_cells(book, expected, actual=None):

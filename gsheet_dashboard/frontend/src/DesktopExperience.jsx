@@ -1,5 +1,6 @@
 import React, {useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {saveBlob} from './workspaceUtils';
+import {version as workspaceVersion} from '../package.json';
 import {ArrowRight, Check, Command, Database, Download, FolderOpen, HardDrive, KeyRound, LoaderCircle, Monitor, Plug, Settings2, ShieldCheck, Upload, WifiOff, X} from 'lucide-react';
 
 export class WorkspaceBoundary extends React.Component {
@@ -35,6 +36,10 @@ export function LocalWelcome({onImport}) {
 }
 
 function Updates({running}) {
+  return window.desktop?<DesktopUpdates running={running}/>:<section className="settings-section update-section"><h3>Tv Tracker downloads</h3><p className="field-help">Local workspace version {workspaceVersion}. The latest Windows application is available on GitHub.</p><div className="settings-actions"><a className="primary" href="https://github.com/HariKrishna1-DS/powerBI_Sync/releases/latest" target="_blank" rel="noopener noreferrer"><Download size={16}/>Download latest version</a></div><p className="field-help">Choose the Windows installer under Assets. After downloading, open it from your Downloads folder to install and open Tv Tracker. Downloads start only when you choose. The installed application also offers manual download and installation in this Updates tab.</p></section>;
+}
+
+function DesktopUpdates({running}) {
   const [state,setState]=useState(null),[error,setError]=useState('');
   useEffect(()=>{let active=true;const receive=value=>{if(active)setState(value);};const unsubscribe=window.desktop.onUpdateState(receive);window.desktop.getUpdateState().then(receive).catch(e=>setError(e.message));return()=>{active=false;unsubscribe();};},[]);
   async function act(method){setError('');try{setState(await window.desktop[method]());}catch(e){setError(e.message);}}
@@ -44,8 +49,8 @@ function Updates({running}) {
     {state.status==='downloading'&&<div className="update-progress"><progress aria-label="Update download progress" max="100" value={state.percent}/><span>{Math.round(state.percent)}%</span></div>}
     <div className="settings-actions">
       {!['downloaded','installing','unsupported'].includes(state.status)&&<button type="button" className="secondary" disabled={working} onClick={()=>act('checkForUpdates')}>{state.status==='checking'?<LoaderCircle size={16} className="spin"/>:<Download size={16}/>}Check for updates</button>}
-      {state.status==='available'&&<button type="button" className="primary" onClick={()=>act('downloadUpdate')}>Download {state.version}</button>}
-      {state.status==='downloaded'&&<button type="button" className="primary" disabled={running} onClick={()=>act('installUpdate')}>Restart & install {state.version}</button>}
+      {state.status==='available'&&<button type="button" className="primary" onClick={()=>act('downloadUpdate')}><Download size={16}/>Download {state.version}</button>}
+      {state.status==='downloaded'&&<button type="button" className="primary" disabled={running} onClick={()=>act('installUpdate')}><ArrowRight size={16}/>Install & open {state.version}</button>}
     </div><p className="field-help">Updates are checked automatically after startup and every six hours. Downloads and installation start only when you choose. Finish active captures and syncs before restarting. Your local workspace and saved connections are backed up before installation.</p>{state.lastChecked&&<p className="field-help">Last checked: {new Date(state.lastChecked).toLocaleString()}</p>}{error&&<p role="alert">{error}</p>}
   </section>;
 }
@@ -70,7 +75,7 @@ function Connections({onClose,running,initialTab='connections'}) {
   async function checkConnection() {await action(async()=>{if(!desktop){const value=await localRequest('check-connection',{});setMessage(`Connected to ${value.title}.${value.missingTrackers.length?` Tracker tabs not found: ${value.missingTrackers.join(', ')}.`:' Both tracker tabs are available.'}`);return;}const response=await fetch('/api/desktop/check-connection',{method:'POST',signal:AbortSignal.timeout(120000)});const value=await response.json();if(!response.ok)throw Error(value.error);setMessage(`Connected. ${value.orders.toLocaleString()} production orders are available. Next capture: preview${value.next_preview}.`);});}
   return <Dialog title="Connections & settings" onClose={close} className="settings-dialog">
     {!form?<div className="settings-body">{error?<p role="alert">{error}</p>:<p className="loading"><LoaderCircle className="spin"/>Loading settings…</p>}</div>:<form onSubmit={save}>
-      <div className="settings-tabs" role="tablist" aria-label="Settings sections"><button type="button" role="tab" aria-selected={tab==='connections'} onClick={()=>setTab('connections')}><Plug size={16}/>Connections</button>{desktop&&<><button type="button" role="tab" aria-selected={tab==='workspace'} onClick={()=>setTab('workspace')}><HardDrive size={16}/>Workspace</button><button type="button" role="tab" aria-selected={tab==='updates'} onClick={()=>setTab('updates')}><Download size={16}/>Updates</button></>}</div>
+      <div className="settings-tabs" role="tablist" aria-label="Settings sections"><button type="button" role="tab" aria-selected={tab==='connections'} onClick={()=>setTab('connections')}><Plug size={16}/>Connections</button>{desktop&&<button type="button" role="tab" aria-selected={tab==='workspace'} onClick={()=>setTab('workspace')}><HardDrive size={16}/>Workspace</button>}<button type="button" role="tab" aria-selected={tab==='updates'} onClick={()=>setTab('updates')}><Download size={16}/>Updates</button></div>
       <div className="settings-body" role="tabpanel">
       {form.connectionRecovery&&<div className="notice warning" role="alert">{form.connectionRecovery.message}</div>}
       {tab==='connections'?<>
@@ -99,7 +104,7 @@ function Connections({onClose,running,initialTab='connections'}) {
   </Dialog>;
 }
 
-const PAGES=[['overview','Overview'],['sheets','Data Sheets'],['captures','Saved captures'],['daily','Daily Orders'],['monthly','Monthly Orders'],['capacity','Capacity Report'],['audit','Sync activity'],['changes','Changes between captures']];
+const PAGES=[['overview','Overview'],['sheets','Data Sheets'],['captures','Saved captures'],['importChanges','Import Excel Changes'],['daily','Daily Orders'],['monthly','Monthly Orders'],['capacity','Capacity Report'],['audit','Sync activity'],['changes','Changes between captures']];
 export function DesktopTools({onNavigate,onImport,running}) {
   const [settings,setSettings]=useState(false),[commands,setCommands]=useState(false),[query,setQuery]=useState(''),[settingsTab,setSettingsTab]=useState('connections');
   const [updateState,setUpdateState]=useState(null),[connectionRecovery,setConnectionRecovery]=useState(null);
@@ -119,7 +124,7 @@ export function DesktopTools({onNavigate,onImport,running}) {
     return()=>{unsubscribe?.();window.removeEventListener('datatrace:settings',open);window.removeEventListener('keydown',keyboard);};
   },[]);
   const options=[...PAGES.map(([id,label])=>({label,action:()=>onNavigate(id)})),{label:'Import Excel or CSV',action:onImport},{label:'Connections & settings',action:()=>setSettings(true)}].filter(item=>item.label.toLowerCase().includes(query.toLowerCase()));
-  return <>{connectionRecovery&&<button className="secondary" onClick={()=>{setSettingsTab('connections');setSettings(true);}}>Review connections</button>}{['available','downloaded'].includes(updateState?.status)&&<button className="secondary" onClick={()=>{setSettingsTab('updates');setSettings(true);}}><Download size={15}/>{updateState.status==='downloaded'?'Update ready':'Update available'}</button>}<button className="quick-command" aria-label="Quick actions" onClick={()=>{setQuery('');setCommands(true);}}><Command size={15}/><span>Quick actions</span><kbd>Ctrl K</kbd></button>
+  return <>{connectionRecovery&&<button className="secondary" onClick={()=>{setSettingsTab('connections');setSettings(true);}}>Review connections</button>}<button className="secondary" title={updateState?.version?`Version ${updateState.version} · manual download and install`:'Check and manually download the latest Windows version'} onClick={()=>{setSettingsTab('updates');setSettings(true);}}><Download size={15}/>{updateState?.status==='downloaded'?`Version ${updateState.version} ready`:updateState?.status==='available'?`Version ${updateState.version} available`:updateState?.status==='downloading'?`Downloading ${Math.round(updateState.percent)}%`:'Download version'}</button><button className="quick-command" aria-label="Quick actions" onClick={()=>{setQuery('');setCommands(true);}}><Command size={15}/><span>Quick actions</span><kbd>Ctrl K</kbd></button>
     {settings&&<Connections onClose={()=>setSettings(false)} running={running} initialTab={settingsTab}/>}
     {commands&&<Dialog title="Quick actions" onClose={()=>setCommands(false)} className="command-dialog" initialFocus=".command-search input"><div className="command-search"><Command size={19}/><input aria-label="Find an action" autoFocus placeholder="Where would you like to go?" value={query} onChange={e=>setQuery(e.target.value)} onKeyDown={e=>{if(e.key==='Enter'&&options[0]){e.preventDefault();setCommands(false);options[0].action();}}}/></div><div className="command-results">{options.map(item=><button key={item.label} onClick={()=>{setCommands(false);item.action();}}>{item.label}<ArrowRight size={15}/></button>)}{!options.length&&<p className="muted">No matching actions</p>}</div><div className="command-hint">Tab to move · Enter to open · Esc to close</div></Dialog>}
   </>;

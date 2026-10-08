@@ -197,6 +197,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
             import tracker_sync
             import monthly_production
             import sheets_repository
+            previous_spreadsheet = sync_config.SPREADSHEET_ID
             settings = local_settings.validate(request.get_json(), local_settings.current(sync_config))
             local_settings.save(BASE_DIR, settings)
             importlib.reload(sync_config)
@@ -213,6 +214,9 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
             monthly_production.BASES = sync_config.TRACKER_TITLES
             production_cache.identity = '|'.join((sync_config.SPREADSHEET_ID, *sync_config.TRACKER_TITLES))
             production_cache.reload()
+            if settings['spreadsheetId'] != previous_spreadsheet:
+                report_workspace.save(cloud_baseline=None, cloud_reset=True, synced_at=None,
+                                      cloud_refresh_error=None)
             recovery_checked, cloud_schedule_loaded = float('-inf'), False
             connection_retry_after = float('-inf')
             invalidate_snapshot()
@@ -1308,6 +1312,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
                     if desktop_mode and not (SPREADSHEET_ID and os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON')):
                         continue
                     recover_latest_preview()
+                    app.extensions['refresh_imported_reports']()
                     auto_monthly_preview()
                     if not schedule_tick():
                         pending = store.pending_syncs()
