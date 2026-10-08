@@ -20,7 +20,7 @@ test('slow state polling stays serial and sync posts without a state preflight',
     }else if(path==='/api/previews/28'){
       await route.fulfill({json:preview});
     }else if(path==='/api/live-sheets'){
-      await route.fulfill({json:{preview_name:'preview28',sheets:{
+      await route.fulfill({json:{mode:'tracker',preview_name:'preview28',sheets:{
         'All Products':preview,'Full Title':preview,'Remaining Products':{columns:preview.columns,rows:[]},
         'Status Report':{columns:['Status','Orders'],rows:[{Status:'Available',Orders:1}]}}}});
     }else await route.fulfill({json:{}});

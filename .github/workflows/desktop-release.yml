@@ -46,13 +46,15 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Desktop tests failed' }
           node --test gsheet_dashboard/test_browser_options.cjs gsheet_dashboard/test_scraper.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Extractor fixture tests failed' }
-          Push-Location gsheet_dashboard/frontend
-          npx playwright test --config playwright.desktop.config.js
-          if ($LASTEXITCODE -ne 0) { throw 'Desktop interface tests failed' }
-          Pop-Location
           $env:PYTHONPATH = "$pwd/.desktop-build/deps;$pwd/gsheet_dashboard"
           python -m unittest discover -s gsheet_dashboard -p 'test_*.py'
           if ($LASTEXITCODE -ne 0) { throw 'Engine tests failed' }
+          Push-Location gsheet_dashboard/frontend
+          npx playwright test --config playwright.desktop.config.js
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop interface tests failed' }
+          npx playwright test --config playwright.reports.config.js
+          if ($LASTEXITCODE -ne 0) { throw 'Report interface tests failed' }
+          Pop-Location
       - name: Verify packaged lifecycle and connection recovery
         timeout-minutes: 5
         shell: pwsh

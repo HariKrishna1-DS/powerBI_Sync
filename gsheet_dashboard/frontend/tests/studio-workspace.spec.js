@@ -7,7 +7,7 @@ async function fixture(page,count=120){
   await page.route('**/api/**',route=>{
     const path=new URL(route.request().url()).pathname;
     return route.fulfill({json:path==='/api/state'?{previews:[preview],pending_sync:0,job:{running:false,stage:'Ready'},schedule:{enabled:false,times:['09:00']}}:
-      path==='/api/live-sheets'?{updated_at:'2026-10-02T05:12:00Z',sheets:{Overview:{columns:Object.keys(rows[0]),rows}}}:
+      path==='/api/live-sheets'?{mode:'tracker',updated_at:'2026-10-02T05:12:00Z',sheets:{Overview:{columns:Object.keys(rows[0]),rows}}}:
       path==='/api/previews/2'?{...preview,columns:Object.keys(rows[0]),rows}:
       path==='/api/order-history'?{events:[{preview_id:2,preview_name:'preview2',created:preview.created,status:'Search In Progress'}]}:
       path==='/api/activity'?{operations:[{id:1,kind:'capture',status:'interrupted',started:preview.created,error_code:'interrupted'}]}:{rows:[]}});

@@ -142,7 +142,7 @@ for(const theme of ['light','dark'])test(`all primary screens fit desktop and na
   await page.getByLabel('Appearance').selectOption(theme);
   for(const [width,height] of [[1280,800],[1440,900],[1920,1080],[640,900]]){
     await page.setViewportSize({width,height});
-    for(const name of ['Overview','Data Sheets','Daily Orders','Monthly report','Changes','Captures','Activity']){
+    for(const name of ['Overview','Data Sheets','Daily Orders','Monthly Orders','Changes','Captures','Activity']){
       await page.getByRole('button',{name,exact:true}).click();
       await expect(page.locator('#workspace-content h1')).toBeVisible();
       await expect(page.locator('.loading')).toHaveCount(0);
@@ -276,16 +276,16 @@ for(const theme of ['light','dark'])test(`settings forms, footer and quick actio
 for(const theme of ['light','dark'])test(`report controls and metric values align in ${theme} mode`,async({page})=>{
   await setup(page);
   await page.getByLabel('Appearance').selectOption(theme);
-  for(const name of ['Overview','Daily Orders','Monthly report']){
+  for(const name of ['Overview','Daily Orders','Monthly Orders']){
     await page.getByRole('button',{name,exact:true}).click();
     await expect(page.locator('.loading')).toHaveCount(0);
     if(name==='Daily Orders'){
-      const positions=await page.locator('.daily-orders>.metrics>.metric strong').evaluateAll(items=>items.map(item=>item.getBoundingClientRect().y));
+      const positions=await page.locator('.daily-orders>.metrics>.metric').evaluateAll(items=>items.map(item=>item.querySelector('strong').getBoundingClientRect().y-item.getBoundingClientRect().y));
       expect(Math.max(...positions)-Math.min(...positions)).toBeLessThanOrEqual(1);
       const paddings=await page.locator('.daily-orders>.metrics>.metric').evaluateAll(items=>items.map(item=>getComputedStyle(item).paddingLeft));
       expect(new Set(paddings).size).toBe(1);
     }
-    if(name==='Monthly report'){
+    if(name==='Monthly Orders'){
       const month=await page.getByLabel('Monthly orders date').boundingBox();
       const download=await page.getByRole('button',{name:'Download Excel',exact:true}).boundingBox();
       expect(download.x).toBeGreaterThan(month.x+month.width);

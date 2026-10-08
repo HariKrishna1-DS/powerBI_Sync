@@ -22,7 +22,7 @@ async function setup(page) {
     if(path==='/api/state') await route.fulfill({json:{previews:[{...preview,row_count:1}],
       job:{running:false,stage:'Ready',result:null},schedule:{enabled:false,times:['09:00']},daily_completed_ids:[]}});
     else if(path==='/api/previews/31') await route.fulfill({json:preview});
-    else if(path==='/api/live-sheets') await route.fulfill({json:{preview_name:'preview31',sheets:{
+    else if(path==='/api/live-sheets') await route.fulfill({json:{mode:'tracker',preview_name:'preview31',sheets:{
       'All Products':preview,'Full Title':preview,'Remaining Products':{columns:preview.columns,rows:[]},
       'Status Report':{columns:['Status','Orders'],rows:[{Status:'Available',Orders:1}]}}}});
     else if(path==='/api/monthly-orders') await route.fulfill({json:{rows:[report],sla_error:null}});
@@ -37,7 +37,7 @@ async function setup(page) {
     } else await route.fulfill({json:{}});
   });
   await page.goto(process.env.DASHBOARD_TEST_URL||'/');
-  await page.getByRole('button',{name:'Monthly report',exact:true}).click();
+  await page.getByRole('button',{name:'Monthly Orders',exact:true}).click();
   await expect(page.getByRole('table',{name:'SLA orders',exact:true})).toBeVisible();
   return {requests,control};
 }

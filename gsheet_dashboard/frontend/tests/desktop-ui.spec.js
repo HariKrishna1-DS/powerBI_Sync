@@ -20,7 +20,7 @@ test('first run has a keyboard-accessible setup dialog and loads no charts',asyn
 
 test('cached production is explicitly marked offline',async({page})=>{
   const frame={columns:['Order Number','Product','Status'],rows:[{'Order Number':'CACHED-ONLY',Product:'Full Title',Status:'Search In Progress'}]};
-  await page.route('**/api/**',route=>route.fulfill({json:new URL(route.request().url()).pathname==='/api/state'?empty:{offline:true,updated_at:'2026-10-01T12:00:00Z',sheets:{Overview:frame,'Full Title':frame,'Remaining Products':{columns:frame.columns,rows:[]},Changes:{columns:[],rows:[]}}}}));
+  await page.route('**/api/**',route=>route.fulfill({json:new URL(route.request().url()).pathname==='/api/state'?empty:{mode:'tracker',offline:true,updated_at:'2026-10-01T12:00:00Z',sheets:{Overview:frame,'Full Title':frame,'Remaining Products':{columns:frame.columns,rows:[]},Changes:{columns:[],rows:[]}}}}));
   await page.goto('/');
   await expect(page.getByText('Viewing a saved Google Sheets copy')).toBeVisible();
   await expect(page.getByText('Google Sheets connected',{exact:false})).toHaveCount(0);

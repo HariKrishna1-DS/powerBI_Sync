@@ -13,8 +13,8 @@ test('charts show values and selected periods, production overview is available,
   const columns=['Order Number','Product','Status'];
   const preview={id:2,name:'preview2',created:'2026-10-02T06:30:00Z',source:'Capture',row_count:3};
   const history=Array.from({length:30},(_,i)=>({Date:`2026-09-${String(i+1).padStart(2,'0')}`,Previews:['preview2'],
-    'Today Orders':i===29?297:1,'Not in latest preview':i===29?21:0,'Newly Orders':0,
-    'Unchanged':i===29?190:1,'Awaiting for Clarification':i===29?72:0,
+    'Received':i===29?297:1,'Missing':i===29?21:0,'Completed':0,
+    'In-House Pending':i===29?190:1,'Clarification':i===29?72:0,
     columns,rows,missing_ids:[],new_ids:[],unchanged_ids:[]})).reverse();
   await page.route('**/api/**',async route=>{
     const path=new URL(route.request().url()).pathname;
@@ -22,7 +22,7 @@ test('charts show values and selected periods, production overview is available,
     if(path==='/api/state')body={previews:[preview],job:{running:false,stage:'Ready'},schedule:{enabled:true,times:['12:07']},
       clock:{epoch_ms:Date.parse('2026-10-02T06:30:00Z')+performance.now()-started,synchronized:true,timezone:'Asia/Kolkata'},remaining_products:[]};
     if(path.startsWith('/api/previews/'))body={...preview,rows,columns};
-    if(path==='/api/live-sheets')body={sheets:{'All Products':{columns,rows},'Full Title':{columns,rows:rows.slice(0,1)},'Remaining Products':{columns,rows:rows.slice(1)}}};
+    if(path==='/api/live-sheets')body={mode:'tracker',sheets:{'All Products':{columns,rows},'Full Title':{columns,rows:rows.slice(0,1)},'Remaining Products':{columns,rows:rows.slice(1)}}};
     if(path==='/api/daily-orders')body={rows:history,selected_date:'2026-09-30'};
     if(path==='/api/monthly-orders')body={rows:[{Month:'2026-09',MonthLabel:'September 2026',Days:[],Previews:['preview2'],
       'Month Orders':4000,'Completed Orders':3000,'Unchanged':2900,'Awaiting for Clarification':200,'SLA On Time':90,'SLA Missed':10,
@@ -51,7 +51,7 @@ test('charts show values and selected periods, production overview is available,
   await daily.screenshot({path:'test-results/daily-chart-values.png'});
   await daily.getByRole('button',{name:'Earlier',exact:true}).click();
   await expect(page.getByLabel('Daily orders date')).toHaveValue('2026-09-27');
-  await page.getByRole('button',{name:'Monthly report',exact:true}).click();
+  await page.getByRole('button',{name:'Monthly Orders',exact:true}).click();
   const monthly=page.getByRole('region',{name:'Monthly orders bar chart'});
   await expect(monthly.locator('.recharts-label-list text').filter({hasText:/^4,000$/})).toBeVisible();
   await monthly.screenshot({path:'test-results/monthly-chart-values.png'});

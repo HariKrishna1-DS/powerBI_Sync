@@ -10,7 +10,7 @@ export function workspaceFixture(count=240) {
   function response(path,body={}) {
     if(path==='/api/state')return {previews,remaining_products:['Current Owner','Update'],pending_sync:0,job:{running:false,stage:'Ready',run_id:1},schedule:{enabled:false,times:['09:00','13:00','17:30']},clock:{synchronized:true,epoch_ms:1791178200000}};
     if(path.startsWith('/api/previews/')){const preview=previews.find(p=>p.id===Number(path.split('/')[3]));return {...preview,columns,rows:rows.slice(0,preview?.row_count||0)};}
-    if(path==='/api/live-sheets')return {updated_at:'2026-10-05T05:32:00Z',sheets:{Overview:{columns,rows},'Full Title':{columns,rows:rows.filter(r=>['Full Title','Full Search'].includes(r.Product))},'Remaining Products':{columns,rows:rows.filter(r=>['Current Owner','Update'].includes(r.Product))}}};
+    if(path==='/api/live-sheets')return {mode:'tracker',updated_at:'2026-10-05T05:32:00Z',sheets:{Overview:{columns,rows},'Full Title':{columns,rows:rows.filter(r=>['Full Title','Full Search'].includes(r.Product))},'Remaining Products':{columns,rows:rows.filter(r=>['Current Owner','Update'].includes(r.Product))}}};
     if(path==='/api/monthly-orders')return {rows:[report],updated_at:'2026-10-05T05:32:00Z'};
     if(path==='/api/daily-orders')return {rows:daily,selected_date:'2026-10-05',updated_at:'2026-10-05T05:32:00Z'};
     if(path==='/api/compare')return {previous:'preview31',latest:'preview32',method:'Matched by Order Number',record_columns:[...columns,'Comparison Status'],record_counts:{matched:228,missing:8,newly_added:20,unchanged:212},matched_rows:rows.slice(0,30).map(r=>({...r,'Comparison Status':'Unchanged'})),unmatched_rows:rows.slice(-8).map(r=>({...r,'Comparison Status':'Missing'})),added_columns:[],removed_columns:[]};

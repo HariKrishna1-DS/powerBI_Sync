@@ -30,7 +30,7 @@ test('saved preview controls daily history and monthly SLA percentages render', 
   await expect(page.getByLabel('Daily orders date')).toHaveValue('2026-09-30');
   await page.locator('.preview-select').filter({hasText:'preview1'}).click();
   await expect(page.getByLabel('Daily orders date')).toHaveValue('2026-09-29');
-  await page.getByRole('button',{name:'Monthly report',exact:true}).click();
+  await page.getByRole('button',{name:'Monthly Orders',exact:true}).click();
   await expect(page.getByRole('heading',{name:'SLA COMMENTS'})).toBeVisible();
   await expect(page.locator('.metric').filter({hasText:'SLA On Time'})).toContainText('75.0%');
   await expect(page.locator('.daily-orders')).not.toContainText('Newly Orders');

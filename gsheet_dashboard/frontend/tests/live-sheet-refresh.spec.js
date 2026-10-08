@@ -13,7 +13,7 @@ test('connected Google Sheet edits refresh visible data without replacing previe
     if(path==='/api/live-sheets'){
       calls++;
       const updated={...raw,Comment:sheetComment};
-      return route.fulfill({json:{preview_name:'preview1',sheets:{
+      return route.fulfill({json:{mode:'tracker',preview_name:'preview1',sheets:{
         'All Products':{columns:Object.keys(updated),rows:[updated]},
         'Full Title':{columns:Object.keys(updated),rows:[updated]},
         'Remaining Products':{columns:Object.keys(updated),rows:[]}}}});

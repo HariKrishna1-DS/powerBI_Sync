@@ -15,7 +15,7 @@ async function mockProduction(page, offline = false) {
     if (path === '/api/sync-reports') return route.fulfill({json: {source: 'Local sync history', report: {preview_name: 'preview1', changes: [], not_in_latest: ['RETAINED']}}});
     if (path === '/api/live-sheets') {
       if (offline) return route.fulfill({status: 502, json: {error: 'Sheets is offline'}});
-      return route.fulfill({json: {preview_name: 'preview1', source: 'Google Sheets', sheets: {
+      return route.fulfill({json: {mode:'tracker',preview_name: 'preview1', source: 'Google Sheets', sheets: {
         Overview: frame(rows), 'Full Title': frame(rows.slice(0, 1)), 'Remaining Products': frame(rows.slice(1)),
         Changes: {columns: ['Preview', 'Type', 'Order Number'], rows: [{Preview: 'preview1', Type: 'Not in latest preview', 'Order Number': 'RETAINED'}]},
       }}});
@@ -47,7 +47,7 @@ test('production views use retained Sheet orders and Sync activity reads local r
 test('a failed Sheet connection does not show raw previews as production data', async ({page}) => {
   await mockProduction(page, true);
   await page.goto('/');
-  await expect(page.getByRole('status').filter({hasText: 'Connect Google Sheets to load production reports'})).toBeVisible();
+  await expect(page.getByRole('status').filter({hasText: 'Could not refresh Google Sheets reports. Sheets is offline'})).toBeVisible();
   await expect(page.locator('.metric').filter({hasText: 'Visible orders'}).locator('strong')).toHaveText('0');
   await page.getByRole('button', {name: 'Data Sheets', exact: true}).click();
   await expect(page.getByText('RAW-ONLY', {exact: true})).toHaveCount(0);
