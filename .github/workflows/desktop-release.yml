@@ -1,9 +1,9 @@
 name: Tv Tracker desktop release
 on:
   push:
-    branches: [tv-tracker]
+    branches: [tv-tracker, tv-tracker-online]
   pull_request:
-    branches: [tv-tracker]
+    branches: [tv-tracker, tv-tracker-online]
   workflow_dispatch:
 
 permissions:
@@ -74,6 +74,10 @@ jobs:
           node desktop/verify-release.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Update manifest integrity check failed' }
           if ((Get-Item "release/$version/Tv-Tracker-$version-x64.exe").VersionInfo.ProductVersion -ne $version) { throw 'Installer product version does not match the release' }
+          Get-ChildItem -LiteralPath "release/$version" -File | Where-Object { $_.Name -like 'Tv-Tracker-*' -or $_.Name -eq 'latest.yml' } | Sort-Object Name | ForEach-Object {
+            $hash = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+            "$hash  $($_.Name)"
+          } | Set-Content -LiteralPath "release/$version/SHA256SUMS.txt" -Encoding utf8
       - name: Retain validated Windows build
         uses: actions/upload-artifact@v4
         with:
@@ -81,11 +85,12 @@ jobs:
           path: |
             release/${{ steps.build_version.outputs.number }}/Tv-Tracker-*
             release/${{ steps.build_version.outputs.number }}/latest.yml
+            release/${{ steps.build_version.outputs.number }}/SHA256SUMS.txt
           retention-days: 14
 
   publish:
     needs: build
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/tv-tracker'
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/tv-tracker' || github.ref == 'refs/heads/tv-tracker-online')
     runs-on: windows-latest
     timeout-minutes: 15
     permissions:
@@ -122,18 +127,20 @@ jobs:
         run: |
           $version = (Get-Content desktop/package.json | ConvertFrom-Json).version
           $folder = "release/$version"
-          $assets = @("$folder/Tv-Tracker-$version-x64.exe", "$folder/Tv-Tracker-$version-x64.exe.blockmap", "$folder/latest.yml", "$folder/Tv-Tracker-$version-x64.zip", "$folder/Tv-Tracker-$version-source.zip")
+          $assets = @("$folder/Tv-Tracker-$version-x64.exe", "$folder/Tv-Tracker-$version-x64.exe.blockmap", "$folder/latest.yml", "$folder/Tv-Tracker-$version-x64.zip", "$folder/Tv-Tracker-$version-source.zip", "$folder/SHA256SUMS.txt")
           $installer = "$folder/Tv-Tracker-$version-x64.exe"
-          # One-version exception requested by the owner: distribute 2.6.0 like unsigned 2.5.3.
-          # All future versions retain the existing signing requirement.
+          # Preserve the owner's unsigned 2.6.0 exception and the 1.0.1 distribution
+          # policy for the explicitly requested 1.0.2 online-branch release.
           $signature = Get-AuthenticodeSignature -LiteralPath $installer
-          $allowUnsigned260 = $version -eq '2.6.0' -and $signature.Status -eq 'NotSigned'
-          if ($signature.Status -ne 'Valid' -and -not $allowUnsigned260) {
-            throw "Public release requires a valid signing certificate. Installer signature status: $($signature.Status). The unsigned exception applies only to version 2.6.0."
+          $allowUnsigned = $signature.Status -eq 'NotSigned' -and ($version -eq '2.6.0' -or ($version -eq '1.0.2' -and $env:GITHUB_REF -eq 'refs/heads/tv-tracker-online'))
+          if ($signature.Status -ne 'Valid' -and -not $allowUnsigned) {
+            throw "Public release requires a valid signing certificate. Installer signature status: $($signature.Status). Unsigned exceptions apply only to 2.6.0 and online-branch 1.0.2."
           }
-          $signingNote = if ($signature.Status -eq 'Valid') { 'The Windows installer is digitally signed.' } else { 'The Windows installer is unsigned, following the v2.5.3 distribution policy. Windows may show an unknown-publisher warning.' }
+          $signingNote = if ($signature.Status -eq 'Valid') { 'The Windows installer is digitally signed.' } else { 'The Windows installer is unsigned. Windows may show an unknown-publisher warning.' }
           foreach ($asset in $assets) { if (!(Test-Path -LiteralPath $asset)) { throw "Missing release asset: $asset" } }
-          @("Tv Tracker $version", '', 'Install the Windows .exe once if upgrading from 2.1.0 or earlier.', 'Afterward use Connections & settings > Updates.', 'Local captures and encrypted connections are retained.', '', $signingNote, 'Installer SHA-512 is verified against latest.yml during build and update download.', '', "Source commit: $env:GITHUB_SHA") | Set-Content release-notes.txt
+          $notes = "docs/TV_TRACKER_$($version.Replace('.', '_'))_RELEASE.md"
+          $body = if (Test-Path -LiteralPath $notes) { Get-Content -LiteralPath $notes -Raw } else { "Tv Tracker $version" }
+          @($body, '', "Download Tv-Tracker-$version-x64.exe from Assets to install on Windows x64.", 'When replacing a 2.x installation with 1.0.x, install manually because the updater prevents downgrades.', 'Local captures and encrypted connections are retained.', '', $signingNote, 'Installer SHA-512 is verified against latest.yml; SHA256SUMS.txt covers all downloadable files.', '', "Build source commit: $env:GITHUB_SHA") | Set-Content release-notes.txt
           gh release create "v$version" --target "$env:GITHUB_SHA" --title "Tv Tracker $version" --draft --notes-file release-notes.txt
           if ($LASTEXITCODE -ne 0) { throw 'Draft creation failed' }
           gh release upload "v$version" @assets
