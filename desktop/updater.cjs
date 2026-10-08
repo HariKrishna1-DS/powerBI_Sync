@@ -1,9 +1,11 @@
-// Main-process-only update controller. The feed is fixed by app-update.yml.
+// Main-process-only updater. Stable releases follow GitHub's Latest designation.
+const PRODUCTION_UPDATE_FEED=Object.freeze({provider:'github',owner:'HariKrishna1-DS',repo:'powerBI_Sync',private:false});
 function createUpdater({updater, enabled, version, notify = () => {}, prepareInstall, recoverInstall = async () => {}}) {
   let state = {status: enabled ? 'idle' : 'unsupported', currentVersion: version, version: '', percent: 0, lastChecked: null, message: enabled ? 'Check for a new Windows release.' : 'Updates are available in the installed Windows app.'};
   let operation = false;
   let installPrepared = false;
   const set = value => { state = {...state, ...value}; notify({...state}); return {...state}; };
+  if (enabled) updater.setFeedURL({...PRODUCTION_UPDATE_FEED});
   updater.autoDownload = false;
   updater.autoInstallOnAppQuit = false;
   updater.allowPrerelease = false;
@@ -89,4 +91,4 @@ function scheduleUpdateChecks(controller, {delay = setTimeout, clear = clearTime
   schedule(startupMs);
   return () => { stopped = true; clear(timer); };
 }
-module.exports = {createUpdater, scheduleUpdateChecks};
+module.exports = {createUpdater, scheduleUpdateChecks, PRODUCTION_UPDATE_FEED};

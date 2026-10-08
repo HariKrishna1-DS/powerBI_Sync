@@ -5,6 +5,7 @@ const {createUpdater, scheduleUpdateChecks} = require('../updater.cjs');
 
 function fixture(options={}) {
   const updater = new EventEmitter(); let installs=0, checks=0, downloads=0, prepared=0;
+  updater.setFeedURL = options => {updater.productionFeed=options;};
   updater.checkForUpdates = async () => {checks++; updater.emit('update-available',{version:'2.3.0'});};
   updater.downloadUpdate = async () => {downloads++;updater.emit('download-progress',{percent:42});updater.emit('update-downloaded',{version:'2.3.0'});};
   updater.quitAndInstall = (silent, restart) => {assert.equal(silent,true);assert.equal(restart,true);installs++;};

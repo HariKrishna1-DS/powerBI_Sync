@@ -12,6 +12,14 @@ Date: 8 October 2026. Branch: `tv-tracker-online`.
 
 A matching JSON file hash establishes that the files are identical; it does not establish that Google accepts the key. Each PC must save an active service-account key with access to the shared spreadsheet. Credentials, encrypted settings, saved captures, and generated data are excluded from this source update.
 
+## In-app production updates
+
+Version 1.0.1 is the production baseline. The installed app checks GitHub's published **Latest** release in `HariKrishna1-DS/powerBI_Sync`, reads that release's `latest.yml`, and downloads its matching Windows installer. Version 1.0.2 and future production versions are discovered dynamically. Removed testing releases and tags without published releases do not become update candidates. Future testing builds should be prereleases; the production updater excludes prereleases and downgrades.
+
+Use **Connections & settings → Updates → Check for updates → Download → Restart and install**. Background checks also notify users when an update is available. Download and installation remain explicit choices; installing waits for active work and backs up saved settings.
+
+Each future production release must publish the installer, blockmap and matching `latest.yml`, then be marked Latest. The desktop release workflow performs this after validation. Existing 1.0.1 installations already use this GitHub repository and can discover 1.0.2 without a new configuration.
+
 ## Version and validation
 
 The desktop and frontend manifests and root lockfile records use `1.0.2`. Dependency versions and the Windows application/profile identity are unchanged.
