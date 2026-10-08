@@ -133,7 +133,7 @@ STATUS_COLORS = json.loads((ASSET_DIR / 'status_colors.json').read_text(encoding
 
 def target_worksheet(required=False):
     import gspread
-    from google.auth.exceptions import RefreshError
+    from google.auth.exceptions import RefreshError, TransportError
     from google.oauth2.service_account import Credentials
     value = os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON', 'service_account.json').strip()
     if os.environ.get('DATATRACE_DESKTOP') == '1' and (not value or not SPREADSHEET_ID):
@@ -149,6 +149,13 @@ def target_worksheet(required=False):
     except (OSError, ValueError) as exc:
         raise RuntimeError('Set GOOGLE_SERVICE_ACCOUNT_JSON to a valid service account JSON file or JSON object.') from exc
     email = info.get('client_email', 'the client_email in your service account JSON')
+    key_id = info.get('private_key_id', 'not supplied')
+    connection_action = (
+        'Replace GOOGLE_SERVICE_ACCOUNT_JSON with an active JSON key, then restart or redeploy the backend.'
+        if os.environ.get('RENDER') else
+        'In Connections & settings, choose Replace key, select an active JSON key, and Save settings. '
+        'Test the saved connection; captures blocked by authentication will resume automatically when it succeeds.'
+    )
     try:
         credentials = Credentials.from_service_account_info(
             info, scopes=['https://www.googleapis.com/auth/spreadsheets'])
@@ -170,17 +177,22 @@ def target_worksheet(required=False):
         if 'invalid jwt signature' in description:
             message = (
                 'Google Sheets authentication failed: Invalid JWT Signature. '
-                f'Replace the service-account JSON with a new active key for {email}, '
-                'update GOOGLE_SERVICE_ACCOUNT_JSON, then restart or redeploy the backend.'
+                f'Google rejected the saved key for {email} (key ID {key_id}). '
+                'The private key must match an enabled key belonging to this service account. '
+                + connection_action
             )
         elif 'reasonable timeframe' in description or 'short-lived token' in description:
             message = ('Google Sheets authentication failed: the server clock is outside the accepted range. '
                        'Synchronize the server date and time, then retry.')
         else:
             message = (f'Google Sheets authentication failed for {email}. '
-                       'Check that the service account and its key are active, update '
-                       'GOOGLE_SERVICE_ACCOUNT_JSON, then restart or redeploy the backend.')
+                       f'Check that the service account and its key are active (key ID {key_id}). '
+                       + connection_action)
         raise RuntimeError(message) from exc
+    except TransportError as exc:
+        raise RuntimeError('Google Sheets connection failed: Google could not be reached. '
+                           'Check internet access, firewall or proxy restrictions, and HTTPS certificate settings. '
+                           'Saved captures will resume syncing when the connection is restored.') from exc
     except Exception as exc:
         raise RuntimeError(
             f'Google Sheets access failed ({type(exc).__name__}). Enable the Google Sheets API, '

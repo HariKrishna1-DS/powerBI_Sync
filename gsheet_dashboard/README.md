@@ -17,6 +17,8 @@ Saved local previews supply the Changes comparison. Status Report is on Data she
 
 Restart the project app after updating the files. The frontend build in `frontend/dist` includes these changes; an already installed desktop executable must be rebuilt/reinstalled separately. No live Google Sheets migration is performed by editing these source files.
 
+Connection failures now show the original authentication/network error during preview recovery. Invalid JWT signature errors include the saved key ID so it can be checked against Google Cloud's Keys page. A matching JSON file hash confirms an identical file; it does not establish that Google still accepts that key. After a working connection is restored, captures blocked by authentication or network failures resume automatically in their original order. Rejected-key connection checks are spaced five minutes apart; validation conflicts still require review. A revoked or inactive private key must be replaced with an active JSON key from Google Cloud.
+
 Targeted checks: `python -m unittest test_pdf_report_workspace test_report_refinements test_preview_completion test_monthly_sla_history test_monthly_production`. The isolated browser check is `npx playwright test --config=playwright.reports.config.js` after a frontend build; it uses installed Edge and mocked data.
 
 Run `gsheet_dashboard/run.bat`, or install `gsheet_dashboard/requirements.txt`, build

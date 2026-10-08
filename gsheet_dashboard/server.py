@@ -148,6 +148,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
     snapshot_lock = threading.Lock()
     snapshot_cache = {'checked': float('-inf'), 'signature': None, 'snapshot': None}
     recovery_checked = float('-inf')
+    connection_retry_after = float('-inf')
     scheduler_stop = threading.Event()
     maintenance = threading.Event()
     app.extensions['stop_scheduler'] = scheduler_stop
@@ -181,7 +182,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
 
     @app.post('/api/local/settings')
     def save_local_settings():
-        nonlocal recovery_checked, cloud_schedule_loaded
+        nonlocal recovery_checked, cloud_schedule_loaded, connection_retry_after
         if not gate.acquire(blocking=False):
             return jsonify(error='Wait for the current capture or sync to finish before saving connections.'), 409
         try:
@@ -213,6 +214,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
             production_cache.identity = '|'.join((sync_config.SPREADSHEET_ID, *sync_config.TRACKER_TITLES))
             production_cache.reload()
             recovery_checked, cloud_schedule_loaded = float('-inf'), False
+            connection_retry_after = float('-inf')
             invalidate_snapshot()
             return jsonify(**local_settings.public(settings), csrfToken=local_settings_token)
         finally:
@@ -399,7 +401,10 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
                 if required:
                     if desktop_mode and not (SPREADSHEET_ID and os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON')):
                         raise RuntimeError('Open Connections & settings, enter your spreadsheet URL, import the service-account JSON key, and Save settings. Sharing the Sheet alone does not configure this app.') from exc
-                    raise RuntimeError('Could not recover existing preview numbers from Google Sheets. Test the saved connection in Connections & settings; check internet access, the account key, and spreadsheet permissions. No new capture was created.') from exc
+                    detail = (str(exc) if isinstance(exc, RuntimeError) else
+                              f'Cloud preview history could not be read ({type(exc).__name__}).')
+                    raise RuntimeError(f'Could not recover existing preview numbers from Google Sheets. {detail} '
+                                       'No new capture was created.') from exc
 
     def load_schedule():
         nonlocal cloud_schedule_loaded
@@ -1265,6 +1270,37 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
         app, report_workspace, gate, production_snapshot, lambda: target_worksheet(), production_cache.invalidate)
     app.extensions['monthly_tick'] = auto_monthly_preview
 
+    def resume_connection_sync():
+        """Retry the oldest capture after its authentication/network failure clears."""
+        nonlocal connection_retry_after
+        if clock.monotonic() < connection_retry_after:
+            return False
+        unsynced = store.unsynced_ids()
+        if not unsynced:
+            return False
+        failures = {row['preview_id']: row['error'] for row in store.failed_syncs()}
+        error = failures.get(unsynced[0], '').casefold()
+        if not any(message in error for message in (
+                'google sheets authentication failed', 'google sheets connection failed',
+                'google sheets access failed (transporterror)',
+                'set google_service_account_json to a valid service account json',
+                'open connections & settings to add your google sheet and service-account key')):
+            return False
+        if not gate.acquire(blocking=False):
+            return False
+        try:
+            target_worksheet()
+        except Exception:
+            # A rejected key or unavailable network must not cause a write loop.
+            connection_retry_after = clock.monotonic() + 300
+            return False
+        finally:
+            gate.release()
+        connection_retry_after = float('-inf')
+        return begin_sync('retry', unsynced[0])
+
+    app.extensions['resume_connection_sync'] = resume_connection_sync
+
     if start_scheduler:
         def schedule_loop():
             while not scheduler_stop.wait(15):
@@ -1277,6 +1313,8 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
                         pending = store.pending_syncs()
                         if pending:
                             begin_sync('retry', pending[0])
+                        else:
+                            resume_connection_sync()
                 except Exception:
                     app.logger.exception('Scheduled capture could not start')
         threading.Thread(target=schedule_loop, daemon=True).start()
