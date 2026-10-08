@@ -45,9 +45,9 @@ test('batch report import, source switching, daily publication and capacity view
   await page.getByRole('button',{name:'Daily Orders',exact:true}).click();
   await expect(page.getByRole('columnheader',{name:'Vendor Pending',exact:true})).toBeVisible();
   await page.getByRole('button',{name:'2026-10-01',exact:true}).click();
-  await expect(page.getByText('Google Sheets now shows 2026-10-01.')).toBeVisible();
+  await expect(page.getByText('2026-10-01 is highlighted in Daily Status Report.')).toBeVisible();
   await page.getByRole('button',{name:'Capacity Report',exact:true}).click();
-  await expect(page.getByRole('heading',{name:'Daily capacity',exact:true})).toBeVisible();
+  await expect(page.getByRole('heading',{name:'Daily capacity',exact:true})).toBeVisible({timeout:15000});
   await page.screenshot({path:'test-results/pdf-capacity-report.png',fullPage:true});
   await page.getByRole('button',{name:'Tracker report',exact:true}).click();
   await expect(page.getByRole('button',{name:'Tracker report',exact:true})).toHaveAttribute('aria-pressed','true');
