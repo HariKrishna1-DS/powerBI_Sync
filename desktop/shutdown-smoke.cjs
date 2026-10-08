@@ -13,8 +13,14 @@ const path=require('node:path');
   try{
     const page=await launch();
     await page.getByRole('heading',{name:'Clear work. Confident decisions.'}).waitFor();
-    const file=path.join(profile,'capture.csv');fs.writeFileSync(file,'Order Number,Task Status,Product\nSHUTDOWN-QC,Available,Full Title\n');
-    await page.locator('input[type=file]').setInputFiles(file);
+    const imported=await page.evaluate(async()=>{
+      const form=new FormData();
+      form.append('file',new Blob(['Order Number,Task Status,Product\nSHUTDOWN-QC,Available,Full Title\n'],{type:'text/csv'}),'capture.csv');
+      const response=await fetch('/api/import',{method:'POST',body:form});
+      return {status:response.status,body:await response.json()};
+    });
+    assert.equal(imported.status,201,JSON.stringify(imported.body));
+    await page.reload();
     await page.getByText('preview1',{exact:true}).first().waitFor();
     await page.waitForFunction(async()=>!(await fetch('/api/health').then(r=>r.json())).running);
     const origin=new URL(page.url()).origin;
