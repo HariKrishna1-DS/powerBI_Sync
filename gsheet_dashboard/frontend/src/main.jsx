@@ -159,7 +159,7 @@ function App() {
     const visible=()=>{if(!document.hidden)refresh();};
     document.addEventListener('visibilitychange',visible);
     return()=>{active=false;clearInterval(timer);document.removeEventListener('visibilitychange',visible);};
-  },[view,state.job.running,sourceKey]);
+  },[view,state.job.running,dataSourceKey]);
   async function refreshProduction(){
     if(refreshingProduction)return;
     setRefreshingProduction(true);
