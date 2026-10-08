@@ -16,6 +16,7 @@ Date: 8 October 2026. Branch: `tv-tracker-app` (previously `tv-tracker-online`).
 - Edit **All Products**, **Full_Search_<MONTH>_<YEAR>**, or **Remaining_Search_<MONTH>_<YEAR>** in Google Sheets to add, update, or remove imported orders. The application reconciles edits and republishes the derived reports.
 - A refresh button beside the Tv Tracker logo refreshes all workspaces. Automatic checks run about every 30 seconds while the application is running.
 - **Import Excel Changes**, below Captures, records added/removed orders and field changes, including Order Number, previous/new values, source tabs, and a full details view. History is saved across restarts.
+- Workspace backups include this change history, and restore validates its saved records. Backups created before this history was introduced remain supported.
 - Contradictory edits to the same field in different tabs show a conflict for resolution before publication.
 - Retry sync notices have a dismiss button.
 

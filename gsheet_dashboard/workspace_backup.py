@@ -10,7 +10,7 @@ import tempfile
 import zipfile
 
 SETTINGS = ('remaining_products.json', 'sync_schedule.json', 'production-cache.json')
-TABLES = {'previews', 'sla_corrections', 'sync_receipts', 'sync_jobs', 'sync_reports', 'sync_failures', 'operation_history', 'monthly_operations', 'report_workspace', 'sqlite_sequence'}
+TABLES = {'previews', 'sla_corrections', 'sync_receipts', 'sync_jobs', 'sync_reports', 'sync_failures', 'operation_history', 'monthly_operations', 'report_workspace', 'import_excel_changes', 'sqlite_sequence'}
 
 
 def save_safety_backup(store, reason):
@@ -92,6 +92,17 @@ def restore_backup(store, raw):
                                 raise ValueError('Invalid imported report.')
                         except (ValueError, TypeError) as exc:
                             raise ValueError('Backup contains invalid report data.') from exc
+                if ('table', 'import_excel_changes') in schema:
+                    for action, order_number, payload in connection.execute('SELECT action,order_number,payload FROM import_excel_changes'):
+                        try:
+                            value = json.loads(payload)
+                            if (action not in ('Added', 'Updated', 'Removed') or not isinstance(order_number, str) or
+                                    not order_number.strip() or not isinstance(value, dict) or
+                                    value.get('Change') != action or value.get('Order Number') != order_number or
+                                    not isinstance(value.get('Before'), dict) or not isinstance(value.get('After'), dict)):
+                                raise ValueError('Invalid imported order history.')
+                        except (ValueError, TypeError) as exc:
+                            raise ValueError('Backup contains invalid imported order history.') from exc
                 invalid = connection.execute("SELECT COUNT(*) FROM previews WHERE NOT json_valid(rows_json) OR NOT json_valid(columns_json)").fetchone()[0]
                 if invalid:
                     raise ValueError('Backup contains invalid preview data.')
