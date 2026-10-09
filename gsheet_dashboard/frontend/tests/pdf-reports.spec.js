@@ -26,6 +26,9 @@ test('Overview duplicate count opens all repeated orders and their source files'
   });
   await page.goto('http://localhost:8510/');
   await page.getByRole('button',{name:'Overview',exact:true}).click();
+  await expect(page.getByText('Filter insights',{exact:true})).toBeVisible();
+  await expect(page.locator('details.status-report.analytics-status')).toHaveAttribute('open','');
+  await expect(page.locator('details.advanced-chart')).toHaveAttribute('open','');
   const metric=page.getByRole('button',{name:'Duplicate Orders 6',exact:true});
   await expect(metric).toBeVisible();
   await expect(page.getByText('Imported files',{exact:true})).toHaveCount(0);
@@ -86,7 +89,11 @@ test('batch report import, source switching, daily publication and capacity view
   await expect(page.getByRole('columnheader',{name:'Vendor Pending',exact:true})).toBeVisible();
   await expect(page.getByRole('option',{name:'01-10-26',exact:true})).toHaveAttribute('value','2026-10-01');
   await page.getByRole('button',{name:'01-10-26',exact:true}).click();
-  await expect(page.getByText('01-10-26 is highlighted in Daily Status Report.')).toBeVisible();
+  await expect(page.getByText('01-10-26 is highlighted in Daily Status Report and filtered in All Products.')).toBeVisible();
+  await page.getByRole('button',{name:'Received 10',exact:true}).click();
+  await expect(page.locator('#daily-orders-group-0')).toBeFocused();
+  await page.getByRole('button',{name:'Completed 2',exact:true}).click();
+  await expect(page.locator('#daily-orders-group-1')).toBeFocused();
   await page.getByRole('button',{name:'Capacity Report',exact:true}).click();
   await expect(page.getByRole('heading',{name:'Daily capacity',exact:true})).toBeVisible({timeout:15000});
   await page.screenshot({path:'test-results/pdf-capacity-report.png',fullPage:true});

@@ -94,6 +94,20 @@ class PdfReportWorkspaceTests(unittest.TestCase):
         self.assertEqual(sum(report[c] for c in DAILY_COLUMNS[2:7]),report['Received'])
         self.assertEqual((report['SLA OnTime'],report['Missing']),(1,0))
 
+    def test_imported_monthly_orders_use_out_time_month_but_daily_uses_in_time(self):
+        imported=read_report_files([('full.xlsx',excel([
+            row('1','Completed and Delivered',date='9/25/2026 6:20:17 PM',
+                **{'Out Time':'10/02/2026 12:00:00 AM'}),
+            row('2','Completed and Delivered',date='9/25/2026 6:20:17 PM'),
+            row('3','Search In Progress',date='9/25/2026 6:20:17 PM',
+                **{'Out Time':'10/02/2026 12:00:00 AM'})]))])
+        reports=imported_snapshot(imported)['reports']
+        self.assertEqual([(item['Date'],item['Received'],item['Completed'])
+                          for item in reports['daily']], [('2026-09-25',3,2)])
+        self.assertEqual([(item['Month'],item['Received'],item['Completed'])
+                          for item in reports['monthly']], [('2026-10',1,1),('2026-09',2,1)])
+        self.assertEqual(reports['monthly'][1]['completed_ids'], ['2'])
+
     def test_selected_date_frames_share_schema_and_capacity_uses_real_days(self):
         imported=read_report_files([('full.xlsx',excel([row('1'),row('2',date='10/02/2026 09:00 AM',Product='Update')]))])
         frames,capacity=report_frames(imported_snapshot(imported),{'selected_date':'2026-10-01','capacity':700,'extended_capacity':750})
@@ -102,6 +116,24 @@ class PdfReportWorkspaceTests(unittest.TestCase):
         self.assertEqual(frames['Full_Search_OCT_2026'][0],frames['Remaining_Search_OCT_2026'][0])
         self.assertEqual(capacity['monthly'][0]['Capacity'],1400)
         self.assertEqual(len(capacity['monthly']),1)
+
+    def test_selected_date_filters_all_products_on_full_and_daily_publication(self):
+        imported=read_report_files([('full.xlsx',excel([
+            row('1',date='10/01/2026 09:00 AM'),
+            row('2',date='10/03/2026 09:00 AM')]))])
+        snapshot=imported_snapshot(imported)
+        book=ReportBook()
+        with tempfile.TemporaryDirectory() as path:
+            for date,daily_only in (('2026-10-01',True),('2026-10-03',True),('2026-10-01',False)):
+                publish_reports(book,snapshot,{'selected_date':date},Path(path)/'backups',daily_only=daily_only)
+                filters=[request['setBasicFilter']['filter'] for request in book.batches[-1]['requests']
+                         if 'setBasicFilter' in request]
+                self.assertEqual(len(filters),1)
+                self.assertEqual(filters[0]['range']['sheetId'],book.worksheet('All Products').id)
+                condition=next(iter(filters[0]['criteria'].values()))['condition']
+                self.assertEqual(condition['type'],'CUSTOM_FORMULA')
+                self.assertIn('DATE(2026,10,'+date[-2:].lstrip('0')+')',
+                              condition['values'][0]['userEnteredValue'])
 
     def test_publish_hides_internal_tabs_preserves_trackers_and_reuses_chart(self):
         book=ReportBook();book.add(FULL,[row('tracker')]);book.add(REMAINING,[])

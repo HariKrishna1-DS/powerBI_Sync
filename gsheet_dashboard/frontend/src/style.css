@@ -4965,7 +4965,7 @@ tr:hover td {
 }
 .report-mode button.active {
   color: var(--ink);
-  background: var(--surface-raised, #edf3f1);
+  background: var(--hover);
   font-weight: 650;
 }
 @media (max-width: 1180px) {
@@ -4983,4 +4983,8 @@ tr:hover td {
 
 .daily-orders tr.daily-date-selected { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
 .duplicate-order-numbers { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 16px; }
-.duplicate-order-numbers code { border: 1px solid var(--border, #cbd8d5); border-radius: 5px; padding: 3px 7px; background: var(--surface-raised, #edf3f1); }
+.duplicate-order-numbers code { border: 1px solid var(--line); border-radius: 5px; padding: 3px 7px; color: var(--ink); background: var(--hover); }
+.daily-orders .metrics > button.metric { cursor: pointer; text-align: left; font: inherit; }
+.daily-orders .metrics > button.metric:hover { border-color: var(--accent); }
+.daily-orders .metrics > button.metric:focus-visible,.daily-orders .table-section:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.daily-orders .table-section { scroll-margin-top: 24px; }

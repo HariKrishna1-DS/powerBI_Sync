@@ -244,8 +244,18 @@ def read_report_files(uploads):
 
 def imported_snapshot(imported):
     from tracker_sync import FULL, REMAINING, HEADERS, sheet_reports, key
-    from monthly_production import arrival_sort
-    rows = arrival_sort(imported['rows'])
+    from monthly_production import arrival_sort, local_datetime
+    rows = [dict(row) for row in imported['rows']]
+    # Completed imported orders move to the completion month only when Out Time
+    # is later than their arrival month. Daily reports retain the arrival date.
+    for row in rows:
+        if str(row.get('Status') or row.get('Task Status') or '').strip().casefold() != 'completed and delivered':
+            continue
+        completed_at = local_datetime(row.get('Out Time'))
+        arrived_at = local_datetime(row.get('In-Time')) or local_datetime(row.get('Date'))
+        if completed_at and (not arrived_at or completed_at.strftime('%Y-%m') > arrived_at.strftime('%Y-%m')):
+            row['_month'] = completed_at.strftime('%Y-%m')
+    rows = arrival_sort(rows)
     columns = list(dict.fromkeys(HEADERS + imported['columns']))
     members, owners = {True: set(), False: set()}, {}
     for source in import_sources(imported):
@@ -358,6 +368,37 @@ def report_frames(snapshot, settings):
     return frames, capacity
 
 
+def all_products_date_filter(sheet_id, values, selected_date):
+    """Show the selected received day in the shared All Products tab."""
+    if sheet_id is None or not values:
+        return None
+    headers = values[0]
+    source = 'In-Time' if 'In-Time' in headers else 'Date' if 'Date' in headers else None
+    if source is None:
+        return None
+    filter_ = {'range': {'sheetId': sheet_id, 'endRowIndex': len(values),
+                         'endColumnIndex': len(headers)}}
+    if selected_date:
+        from openpyxl.utils import get_column_letter
+
+        def date_serial(column):
+            cell = f'${get_column_letter(headers.index(column) + 1)}2'
+            return (f'IFERROR(INT({cell}),IFERROR(DATEVALUE(REGEXEXTRACT('
+                    f'TO_TEXT({cell}),"^([0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}|[^ ]+)")),0))')
+
+        received = date_serial(source)
+        if source == 'In-Time' and 'Date' in headers:
+            received = f'IF({received}>0,{received},{date_serial("Date")})'
+        if selected_date == 'Undated':
+            match = '0'
+        else:
+            date = datetime.strptime(selected_date, '%Y-%m-%d')
+            match = f'DATE({date.year},{date.month},{date.day})'
+        filter_['criteria'] = {str(headers.index(source)): {'condition': {'type': 'CUSTOM_FORMULA',
+            'values': [{'userEnteredValue': f'={received}={match}'}]}}}
+    return {'setBasicFilter': {'filter': filter_}}
+
+
 def publish_reports(book, snapshot, settings, backup_root, daily_only=False):
     """Back up replaced reports, publish atomically, and keep seven report tabs visible.
 
@@ -368,10 +409,16 @@ def publish_reports(book, snapshot, settings, backup_root, daily_only=False):
     from tracker_formatting import format_requests, capacity_sheet_values, REPORT_COLORS
     from monthly_views import view_identity
     frames, capacity = report_frames(snapshot, settings)
+    all_products_frame = frames['All Products']
     if daily_only:
         frames = {'Daily Status Report': frames['Daily Status Report']}
     metadata = book.fetch_sheet_metadata(params={'fields': 'sheets(properties,conditionalFormats,charts)'})['sheets']
     by_title = {s['properties']['title']: s for s in metadata}
+    if daily_only and 'All Products' not in by_title:
+        # An initial publication may still be pending when the date is chosen.
+        frames, capacity = report_frames(snapshot, settings)
+        daily_only = False
+    all_products_id = by_title.get('All Products', {}).get('properties', {}).get('sheetId')
     ids = {s['properties']['sheetId'] for s in metadata}
     requests, originals = [], {}
     retired = by_title.get('Daily Orders')
@@ -398,6 +445,8 @@ def publish_reports(book, snapshot, settings, backup_root, daily_only=False):
             ids.add(number)
             props = {}
             requests.append({'addSheet': {'properties': {'sheetId': number, 'title': title}}})
+        if title == 'All Products':
+            all_products_id = number
         cols = max((len(r) for r in values), default=1)
         old_grid = props.get('gridProperties', {})
         requests.append({'updateSheetProperties': {'properties': {'sheetId': number, 'hidden': False,
@@ -470,6 +519,9 @@ def publish_reports(book, snapshot, settings, backup_root, daily_only=False):
                 requests.append({'updateEmbeddedObjectPosition': {'objectId': chart['chartId'], 'newPosition': {'overlayPosition': {'anchorCell': {'sheetId': number, 'rowIndex': len(values)+2, 'columnIndex': 0}, 'widthPixels': 900, 'heightPixels': 350}}, 'fields': 'anchorCell,widthPixels,heightPixels'}})
             else:
                 requests.append({'addChart': {'chart': {'spec': spec, 'position': {'overlayPosition': {'anchorCell': {'sheetId': number, 'rowIndex': len(values)+2, 'columnIndex': 0}, 'widthPixels': 900, 'heightPixels': 350}}}}})
+    date_filter = all_products_date_filter(all_products_id, all_products_frame, settings.get('selected_date', ''))
+    if date_filter:
+        requests.append(date_filter)
     if not daily_only:
         shown_ids = {req['updateSheetProperties']['properties']['sheetId'] for req in requests if req.get('updateSheetProperties', {}).get('properties', {}).get('hidden') is False}
         for item in metadata:

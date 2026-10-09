@@ -2,7 +2,7 @@
 
 ## Users
 
-Install the Windows `.exe` from the repository's [latest release](https://github.com/HariKrishna1-DS/powerBI_Sync/releases/latest). Users moving from a 2.x installation to 1.0.2 require this manual installer upgrade because the updater prevents downgrades. Portable ZIP users can also install the `.exe` to use the normal installed-app workflow.
+Install the Windows `.exe` from the repository's [latest release](https://github.com/HariKrishna1-DS/powerBI_Sync/releases/latest). Users moving from a 2.x installation to a 1.0.x version require this manual installer upgrade because the updater prevents downgrades. Portable ZIP users can also install the `.exe` to use the normal installed-app workflow.
 
 Open **Download version** in the toolbar, **Connections & settings → Updates**, or **Help → Check for updates**. Check for a published version, choose Download, then choose **Install & open** after captures and syncs finish. The updated application opens after installation. In a local browser session, Download version opens GitHub’s latest release; choose the installer under Assets and open it from Downloads. Updates are never automatically downloaded or installed on an ordinary quit. A failed check or download leaves the current version installed; check again to retry.
 

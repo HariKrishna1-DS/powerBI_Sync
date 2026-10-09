@@ -59,7 +59,7 @@ function FilterPanel({column, rows, filters, setFilters, close}) {
   const [localProducts, setLocalProducts] = useState([]);
   const activeSelectedProducts = selectedProducts !== undefined ? selectedProducts : localProducts;
   const updateSelectedProducts = setSelectedProducts !== undefined ? setSelectedProducts : setLocalProducts;
-  const [showSlicers, setShowSlicers] = useState(false);
+  const [showSlicers, setShowSlicers] = useState(true);
 
   // Maximize Modal State
   const [maximized, setMaximized] = useState(null);
@@ -279,7 +279,7 @@ function FilterPanel({column, rows, filters, setFilters, close}) {
             {activeSlicerCount > 0 && <small style={{ color: '#147d72', fontWeight: 600 }}>{filteredRows.length.toLocaleString()} matching rows</small>}
           </div>
           <div className="slicer-grid">
-            <details className="dropdown-slicer">
+            <details className="dropdown-slicer" open>
               <summary>Client <span>{selectedClients.length ? `${selectedClients.length} selected` : 'All'}</span></summary>
               <div className="dropdown-slicer-options"><button className="text-button" onClick={()=>setSelectedClients([])}>All clients</button>
               {allClients.map(([name, count]) => (
@@ -292,7 +292,7 @@ function FilterPanel({column, rows, filters, setFilters, close}) {
               </div>
             </details>
 
-            <details className="dropdown-slicer">
+            <details className="dropdown-slicer" open>
               <summary>Online / Ground <span>{selectedOg.length ? selectedOg.join(', ') : 'All'}</span></summary>
               <div className="dropdown-slicer-options"><button className="text-button" onClick={()=>setSelectedOg([])}>All queues</button>
               {allOg.map(([name, count]) => (
@@ -305,7 +305,7 @@ function FilterPanel({column, rows, filters, setFilters, close}) {
               </div>
             </details>
 
-            <details className="dropdown-slicer">
+            <details className="dropdown-slicer" open>
               <summary>Remaining Products <span>{activeSelectedProducts.length ? `${activeSelectedProducts.length} selected` : 'All'}</span></summary>
               <fieldset disabled={savingProducts} className="dropdown-slicer-options">
                 <div style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
@@ -335,7 +335,7 @@ function FilterPanel({column, rows, filters, setFilters, close}) {
       )}
 
       {statusCol && (
-        <details className="status-report analytics-status"><summary>Status breakdown</summary>
+        <details className="status-report analytics-status" open><summary>Status breakdown</summary>
           <div className="section-heading">
             <div>
               <span className="eyebrow">CURRENT SELECTION</span>
@@ -443,12 +443,12 @@ function Chart({rows, columns, onSelect}) {
   </section>;
 }
 
-function DataTable({rows, columns, filters, openFilter, name, filterable=true, onClose}) {
+function DataTable({rows, columns, filters, openFilter, name, filterable=true, onClose, id}) {
   const [page, setPage] = useState(0), [size, setSize] = useState(50), [sort, setSort] = useState(null);
   useEffect(()=>setPage(0),[rows,size]);
   const sorted = useMemo(()=>sort ? [...rows].sort((a,b)=>str(a[sort.column]).localeCompare(str(b[sort.column]),undefined,{numeric:true})*(sort.desc?-1:1)) : rows,[rows,sort]);
   const pages = Math.max(1,Math.ceil(rows.length/size)), safePage = Math.min(page,pages-1);
-  return <section className="table-section"><div className="section-heading"><h2>{name}</h2><div className="inline"><button className="secondary" disabled={!rows.length} onClick={()=>csvDownload(sorted,columns,`${name}-filtered.csv`)}><ArrowDownToLine size={16}/>Filtered CSV</button>{onClose&&<IconButton title="Close chart details" onClick={onClose}><X size={17}/></IconButton>}</div></div>
+  return <section className="table-section" id={id} tabIndex={id?-1:undefined}><div className="section-heading"><h2>{name}</h2><div className="inline"><button className="secondary" disabled={!rows.length} onClick={()=>csvDownload(sorted,columns,`${name}-filtered.csv`)}><ArrowDownToLine size={16}/>Filtered CSV</button>{onClose&&<IconButton title="Close chart details" onClick={onClose}><X size={17}/></IconButton>}</div></div>
     <div className="table-scroll"><table><thead><tr>{columns.map(c=><th key={c}><div className="th-inner">{filterable?<button className={filters[c]?'column-button active-filter':'column-button'} title={`Filter ${c} and view unique values`} onClick={()=>openFilter(c)}>{c}<Filter size={13}/></button>:<span className="column-label">{c}</span>}<IconButton title={`Sort ${c}`} onClick={()=>setSort({column:c,desc:sort?.column===c?!sort.desc:false})}>{sort?.column===c&&sort.desc?<ArrowDown size={13}/>:<ArrowUp size={13}/>}</IconButton></div></th>)}</tr></thead><tbody>{sorted.slice(safePage*size,(safePage+1)*size).map((row,i)=><tr key={i}>{columns.map(c=><td key={c} title={str(row[c])}>{c==='Change'||c==='Comparison Status'?<span className={`badge ${badgeClass(row[c])}`}>{c==='Comparison Status'&&row[c]==='Missing'?'Missing Previews':str(row[c])}</span>:label(row[c])}</td>)}</tr>)}</tbody></table>{!rows.length&&<div className="table-empty">No matching rows</div>}</div>
     <footer className="table-footer"><span>{rows.length.toLocaleString()} rows</span><div className="inline"><label>Rows <select aria-label="Rows per page" value={size} onChange={e=>setSize(Number(e.target.value))}>{[25,50,100,250].map(n=><option key={n}>{n}</option>)}</select></label><IconButton title="Previous page" disabled={safePage===0} onClick={()=>setPage(safePage-1)}><ChevronLeft size={16}/></IconButton><span>{safePage+1} / {pages}</span><IconButton title="Next page" disabled={safePage+1===pages} onClick={()=>setPage(safePage+1)}><ChevronRight size={16}/></IconButton></div></footer>
   </section>;
@@ -522,10 +522,10 @@ function DailyOrders({preview, running}) {
   useEffect(()=>{
     if(!highlight?.selected_date)return;
     const selected=highlight.selected_date;
-    if(highlight.publication_state==='synced'&&highlight.highlighted_date===selected){setPublishMessage(`${dailyDateLabel(selected)} is highlighted in Google Sheets · Daily Status Report.`);return;}
-    if(highlight.publication_state==='error'){setError(`Date selected locally. Google Sheets highlight needs retry: ${highlight.sync_error}`);return;}
+    if(highlight.publication_state==='synced'&&highlight.highlighted_date===selected){setPublishMessage(`${dailyDateLabel(selected)} is highlighted in Daily Status Report and filtered in All Products.`);return;}
+    if(highlight.publication_state==='error'){setError(`Date selected locally. Google Sheets date update needs retry: ${highlight.sync_error}`);return;}
     if(!['pending','working'].includes(highlight.publication_state))return;
-    setPublishMessage(`Highlighting ${dailyDateLabel(selected)} in Google Sheets · Daily Status Report…`);
+    setPublishMessage(`Updating Google Sheets for ${dailyDateLabel(selected)}…`);
     let active=true;
     const timer=setTimeout(()=>api('/api/report-workspace').then(data=>{if(active)setHighlight(data);}).catch(e=>{if(active)setError(e.message);}),2000);
     return()=>{active=false;clearTimeout(timer);};
@@ -535,7 +535,7 @@ function DailyOrders({preview, running}) {
     setDate(value);setSearch('');setPublishing(true);setError('');setPublishMessage('');
     try{const result=await api('/api/report-date',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date:value}),timeoutMs:180000});
       if(!result.synced&&!result.queued)setError(`Date selected locally. Google Sheets update needs retry: ${result.sync_error}`);
-      else{setHighlight({selected_date:value,publication_state:result.queued?'pending':'synced',highlighted_date:result.highlighted_date});setPublishMessage(result.queued?`Highlighting ${dailyDateLabel(value)} in Daily Status Report…`:`${dailyDateLabel(value)} is highlighted in Daily Status Report.`);}
+      else{setHighlight({selected_date:value,publication_state:result.queued?'pending':'synced',highlighted_date:result.highlighted_date});setPublishMessage(result.queued?`Updating Google Sheets for ${dailyDateLabel(value)}…`:`${dailyDateLabel(value)} is highlighted in Daily Status Report and filtered in All Products.`);}
     }catch(e){setError(e.message);}finally{setPublishing(false);}
   }
   const selectedDay=history.find(day=>day.Date===date)||history[0];
@@ -556,18 +556,23 @@ function DailyOrders({preview, running}) {
   const names=DAILY_SERIES.map(item=>item.name);
   const statusNames=snapshot?.mode==='excel'?(snapshot.statuses||[]):[];
   const historyNames=[...names,...statusNames.map(name=>'Status: '+name)];
-  const detailGroups=snapshot?.mode==='excel'?[
-    ['Received',rows],...statusNames.map(name=>[name,rows.filter(row=>(str(row.Status||row['Task Status']).trim()||'(Blank)')===name)]),...groups.slice(-2)
+  const detailGroups=snapshot?.mode==='excel'?[...groups,
+    ...statusNames.map(name=>[name,rows.filter(row=>(str(row.Status||row['Task Status']).trim()||'(Blank)')===name)])
   ]:groups;
+  function showGroup(index){
+    const section=document.getElementById(`daily-orders-group-${index}`);
+    section?.scrollIntoView({behavior:'smooth',block:'start'});
+    section?.focus({preventScroll:true});
+  }
   return <section className="daily-orders"><OfflineNotice snapshot={snapshot}/>{snapshot&&!snapshot.offline&&<p className="report-context">{snapshot.source||'Google Sheets'} production · {snapshot.updated_at?`Refreshed ${new Date(snapshot.updated_at).toLocaleString()}`:'Refresh time unavailable'}</p>}
     {error&&<div className="notice error" role="alert">{error}</div>}{publishMessage&&<p role="status">{publishMessage}</p>}{publishing&&<p role="status">Updating Google Sheets for the selected date…</p>}
     {loading?<div className="loading"><LoaderCircle className="spin"/>Loading daily orders...</div>:<>
       <div className="section-heading"><h2>Daily production orders</h2><div className="monthly-actions"><a className="secondary" href="/api/export/report?sheet=Daily%20Orders" download>Download Daily Orders</a><label>Date<select aria-label="Daily orders date" value={selectedDay?.Date||''} disabled={publishing} onChange={e=>chooseDate(e.target.value)}>{history.map(day=><option key={day.Date} value={day.Date}>{dailyDateLabel(day.Date)}</option>)}</select></label></div></div>
-      <div className="metrics">{names.map((name,index)=><div className={`metric ${['green','red','amber','gray','purple'][index%5]}`} key={name}><span>{name}</span><strong>{selectedDay?.[name]??0}</strong></div>)}</div>
-      <ImportedStatusSummary report={selectedDay}/><p className="report-context">Click a date to highlight its row in the Google Sheets Daily Status Report tab.</p><DailyOrdersChart history={history} selectedDate={selectedDay?.Date} onSelect={chooseDate} series={snapshot?.mode==='excel'?importedSeries(snapshot):DAILY_SERIES}/>
+      <div className="metrics">{names.map((name,index)=><button type="button" className={`metric ${['green','red','amber','gray','purple'][index%5]}`} key={name} aria-controls={`daily-orders-group-${index}`} disabled={!selectedDay} onClick={()=>showGroup(index)}><span>{name}</span><strong>{selectedDay?.[name]??0}</strong></button>)}</div>
+      <ImportedStatusSummary report={selectedDay}/><p className="report-context">Click a date to highlight it in Daily Status Report and filter the Google Sheets All Products tab to that day.</p><DailyOrdersChart history={history} selectedDate={selectedDay?.Date} onSelect={chooseDate} series={snapshot?.mode==='excel'?importedSeries(snapshot):DAILY_SERIES}/>
       <div className="table-scroll"><table><thead><tr>{['Date',...historyNames].map(name=><th key={name}>{name}</th>)}</tr></thead><tbody>{history.map(day=><tr key={day.Date} className={day.Date===selectedDay?.Date?'daily-date-selected':undefined}><td><button className="text-button" aria-pressed={day.Date===selectedDay?.Date} disabled={publishing} onClick={()=>chooseDate(day.Date)}>{dailyDateLabel(day.Date)}</button></td>{historyNames.map(name=><td key={name}>{day[name]??0}</td>)}</tr>)}</tbody></table></div>
       <div className="filter-toolbar"><div className="search-input"><Search size={16}/><input aria-label="Search daily orders" placeholder="Search all columns" value={search} onChange={e=>setSearch(e.target.value)}/></div></div>
-      {selectedDay?detailGroups.map(([name,items])=><DataTable key={name} rows={items} columns={columns} filters={{}} openFilter={()=>{}} filterable={false} name={`${name} · ${items.length}`}/>):<div className="table-empty">No daily orders</div>}
+      {selectedDay?detailGroups.map(([name,items],index)=><DataTable key={`${name}-${index}`} id={`daily-orders-group-${index}`} rows={items} columns={columns} filters={{}} openFilter={()=>{}} filterable={false} name={`${name} · ${items.length}`}/>):<div className="table-empty">No daily orders</div>}
     </>}
   </section>;
 }
@@ -723,6 +728,6 @@ function MonthlyOrders({preview,running,reportMode='tracker'}) {
 }
 
 
-export function AdvancedChart(props){const [open,setOpen]=useState(false);return <details className="analytics-status advanced-chart" onToggle={e=>setOpen(e.currentTarget.open)}><summary>Custom chart · group, format and spacing</summary>{open&&<Chart {...props}/>}</details>;}
+export function AdvancedChart(props){const [open,setOpen]=useState(true);return <details className="analytics-status advanced-chart" open={open} onToggle={e=>setOpen(e.currentTarget.open)}><summary>Custom chart · group, format and spacing</summary>{open&&<Chart {...props}/>}</details>;}
 
 export {DataTable, FilterPanel, DailyOrders, MonthlyOrders, OverviewDashboard, SideDrawer};
