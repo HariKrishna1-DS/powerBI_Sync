@@ -102,8 +102,8 @@ test('chart drilldowns reflect active filters and native dialogs restore keyboar
   await setup(page);
   await page.getByRole('button',{name:'Overview',exact:true}).click();
   await page.getByRole('button',{name:'Clear chart filters',exact:true}).click();
-  await page.getByRole('button',{name:'Chart filters',exact:true}).click();
-  await page.locator('.dropdown-slicer summary').filter({hasText:'Client'}).click();
+  await expect(page.locator('.slicer-panel')).toBeVisible();
+  await expect(page.locator('.dropdown-slicer').filter({hasText:'Client'})).toHaveAttribute('open','');
   await page.getByRole('checkbox',{name:'Northstar Title & Escrow 80'}).check();
   await page.getByRole('button',{name:'Online: 60 (75.0%)',exact:true}).click();
   const dialog=page.getByRole('dialog',{name:'Online/ Ground: Online',exact:true});
