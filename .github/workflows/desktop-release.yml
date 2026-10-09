@@ -131,12 +131,12 @@ jobs:
           $folder = "release/$version"
           $assets = @("$folder/Tv-Tracker-$version-x64.exe", "$folder/Tv-Tracker-$version-x64.exe.blockmap", "$folder/latest.yml", "$folder/Tv-Tracker-$version-x64.zip", "$folder/Tv-Tracker-$version-source.zip", "$folder/SHA256SUMS.txt")
           $installer = "$folder/Tv-Tracker-$version-x64.exe"
-          # Preserve the owner's unsigned 2.6.0 exception and the 1.0.1 distribution
-          # policy for the explicitly requested 1.0.2 application-branch release.
+          # Preserve the owner's unsigned 2.6.0 exception and explicitly
+          # authorized 1.0.2 and 1.0.3 application-branch releases.
           $signature = Get-AuthenticodeSignature -LiteralPath $installer
-          $allowUnsigned = $signature.Status -eq 'NotSigned' -and ($version -eq '2.6.0' -or ($version -eq '1.0.2' -and $env:GITHUB_REF -eq 'refs/heads/tv-tracker-app'))
+          $allowUnsigned = $signature.Status -eq 'NotSigned' -and ($version -eq '2.6.0' -or ($version -in @('1.0.2', '1.0.3') -and $env:GITHUB_REF -eq 'refs/heads/tv-tracker-app'))
           if ($signature.Status -ne 'Valid' -and -not $allowUnsigned) {
-            throw "Public release requires a valid signing certificate. Installer signature status: $($signature.Status). Unsigned exceptions apply only to 2.6.0 and application-branch 1.0.2."
+            throw "Public release requires a valid signing certificate. Installer signature status: $($signature.Status). Unsigned exceptions apply only to 2.6.0 and application-branch 1.0.2/1.0.3."
           }
           $signingNote = if ($signature.Status -eq 'Valid') { 'The Windows installer is digitally signed.' } else { 'The Windows installer is unsigned. Windows may show an unknown-publisher warning.' }
           foreach ($asset in $assets) { if (!(Test-Path -LiteralPath $asset)) { throw "Missing release asset: $asset" } }

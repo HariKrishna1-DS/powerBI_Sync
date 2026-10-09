@@ -18,3 +18,5 @@ The root README and architecture guide now describe the Windows desktop flow, lo
 The report workspace regression suite covers the completion-month rule and selected-date filter request. The report interface suite covers metric navigation and expanded sections. The release workflow builds and validates the Windows installer and source package before publishing a GitHub release.
 
 Installed applications receive these changes only through a newly built version. Existing per-user settings, captures, and report data remain in the same profile during an upgrade.
+
+The Windows installer is unsigned for this version; Windows may show an unknown-publisher warning. The release includes update-manifest and SHA-256 checksums for downloaded assets.
