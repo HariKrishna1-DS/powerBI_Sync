@@ -120,10 +120,10 @@ test('schedule confirms writes and does not claim success after failure',async({
   await page.route('**/api/sync-schedule',route=>route.fulfill({status:503,json:{error:'Schedule storage unavailable'}}));
   await page.getByRole('button',{name:'Save AutoLogin Trigger',exact:true}).click();
   await expect(page.getByRole('alert')).toContainText('Schedule storage unavailable');
-  await expect(page.getByText('Schedule saved. Times are in IST.',{exact:true})).toHaveCount(0);
+  await expect(page.getByText('Schedule saved. Times are in IST on the selected days.',{exact:true})).toHaveCount(0);
   await page.route('**/api/sync-schedule',route=>route.fulfill({json:route.request().postDataJSON()}));
   await page.getByRole('button',{name:'Save AutoLogin Trigger',exact:true}).click();
-  await expect(page.getByText('Schedule saved. Times are in IST.',{exact:true})).toBeVisible();
+  await expect(page.getByText('Schedule saved. Times are in IST on the selected days.',{exact:true})).toBeVisible();
 });
 
 test('failed product preference save retains the last confirmed selection',async({page})=>{
