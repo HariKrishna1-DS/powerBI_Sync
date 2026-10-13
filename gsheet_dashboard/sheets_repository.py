@@ -81,7 +81,8 @@ class Batch:
 
     def sheet(self, title, aliases=()):
         if title not in self.sheets:
-            old = next((name for name in aliases if name in self.sheets), None)
+            old = next((name for name in self.sheets if name.casefold() == title.casefold()), None)
+            old = old or next((name for name in aliases if name in self.sheets), None)
             if old:
                 sheet = self.sheets.pop(old)
                 self.values[title] = self.values.pop(old) if old in self.values else sheet.get_all_values()

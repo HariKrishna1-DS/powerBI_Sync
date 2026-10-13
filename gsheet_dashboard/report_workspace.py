@@ -383,8 +383,18 @@ def all_products_date_filter(sheet_id, values, selected_date):
 
         def date_serial(column):
             cell = f'${get_column_letter(headers.index(column) + 1)}2'
-            return (f'IFERROR(INT({cell}),IFERROR(DATEVALUE(REGEXEXTRACT('
-                    f'TO_TEXT({cell}),"^([0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}|[^ ]+)")),0))')
+            raw = f'TO_TEXT({cell})'
+            # Tracker dates are month/day/year strings. DATEVALUE interprets them
+            # using the spreadsheet locale, which can silently select another day.
+            iso = f'DATE(VALUE(LEFT({raw},4)),VALUE(MID({raw},6,2)),VALUE(MID({raw},9,2)))'
+            month = f'VALUE(REGEXEXTRACT({raw},"^([0-9]{{1,2}})/"))'
+            day = f'VALUE(REGEXEXTRACT({raw},"^[0-9]{{1,2}}/([0-9]{{1,2}})/"))'
+            year = f'VALUE(REGEXEXTRACT({raw},"^[0-9]{{1,2}}/[0-9]{{1,2}}/([0-9]{{2,4}})"))'
+            year = f'IF({year}<100,IF({year}>=69,1900+{year},2000+{year}),{year})'
+            american = f'DATE({year},{month},{day})'
+            return (f'IFERROR(IF(ISNUMBER({cell}),INT({cell}),'
+                    f'IF(REGEXMATCH({raw},"^[0-9]{{4}}-[0-9]{{2}}-[0-9]{{2}}"),{iso},'
+                    f'IF(REGEXMATCH({raw},"^[0-9]{{1,2}}/[0-9]{{1,2}}/[0-9]{{2,4}}"),{american},0))),0)')
 
         received = date_serial(source)
         if source == 'In-Time' and 'Date' in headers:
@@ -399,7 +409,7 @@ def all_products_date_filter(sheet_id, values, selected_date):
     return {'setBasicFilter': {'filter': filter_}}
 
 
-def publish_reports(book, snapshot, settings, backup_root, daily_only=False):
+def publish_reports(book, snapshot, settings, backup_root, daily_only=False, _collision_retry=0):
     """Back up replaced reports, publish atomically, and keep seven report tabs visible.
 
     Internal tracker/history tabs are hidden because sync and recovery need them.
@@ -411,7 +421,10 @@ def publish_reports(book, snapshot, settings, backup_root, daily_only=False):
     frames, capacity = report_frames(snapshot, settings)
     all_products_frame = frames['All Products']
     if daily_only:
-        frames = {'Daily Status Report': frames['Daily Status Report']}
+        # The tracker sync can refresh All Products between report publications.
+        # Publish the rows and filter together so a date never filters stale data.
+        frames = {'All Products': all_products_frame,
+                  'Daily Status Report': frames['Daily Status Report']}
     metadata = book.fetch_sheet_metadata(params={'fields': 'sheets(properties,conditionalFormats,charts)'})['sheets']
     by_title = {s['properties']['title']: s for s in metadata}
     if daily_only and 'All Products' not in by_title:
@@ -428,6 +441,8 @@ def publish_reports(book, snapshot, settings, backup_root, daily_only=False):
         requests.append({'deleteSheet': {'sheetId': retired_id}})
     for title, values in frames.items():
         existing = by_title.get(title)
+        if not existing:
+            existing = next((s for name, s in by_title.items() if name.casefold() == title.casefold()), None)
         if not existing and title == 'PR Excel':
             existing = by_title.get('Capacity Report')
         if not existing and view_identity(title):
@@ -533,7 +548,16 @@ def publish_reports(book, snapshot, settings, backup_root, daily_only=False):
     backup = backup_root / f'reports-{datetime.now().strftime("%Y%m%d-%H%M%S-%f")}.json.gz'
     with gzip.open(backup, 'wt', encoding='utf-8') as stream:
         json.dump({'metadata': metadata, 'values': originals}, stream)
-    book.batch_update({'requests': requests})
+    try:
+        book.batch_update({'requests': requests})
+    except Exception as exc:
+        # Another installation may have created a tab after metadata was read.
+        # Sheets batch updates are atomic, so rebuild once against fresh tabs.
+        from gspread.exceptions import APIError
+        message = str(exc).casefold()
+        if isinstance(exc, APIError) and 'addsheet' in message and 'already exists' in message and not _collision_retry:
+            return publish_reports(book, snapshot, settings, backup_root, daily_only, _collision_retry=1)
+        raise
     # A failed/lost reply leaves the source saved and retryable. Each retry rereads
     # metadata, so no chart, tab or appended data can be duplicated.
     for title, wanted in frames.items():
@@ -765,9 +789,9 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
     @app.post('/api/report-date')
     def choose_report_date():
         date = (request.get_json(silent=True) or {}).get('date', '')
-        if not isinstance(date, str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}|Undated', date):
+        if not isinstance(date, str) or (date and not re.fullmatch(r'\d{4}-\d{2}-\d{2}|Undated', date)):
             raise ValueError('Choose a report date.')
-        if not any(row['Date'] == date for row in load_snapshot()['reports']['daily']):
+        if date and not any(row['Date'] == date for row in load_snapshot()['reports']['daily']):
             raise ValueError('That date is no longer in the selected report source.')
         workspace.save(selected_date=date, enabled=True)
         return jsonify(date=date, **queue_publication(daily_only=True))

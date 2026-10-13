@@ -412,7 +412,9 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
 
     def load_schedule():
         nonlocal cloud_schedule_loaded
-        default = {'enabled': False, 'time': '09:00', 'times': ['09:00'], 'last_triggered_date': None, 'triggered_today': [], 'timezone': 'Asia/Kolkata'}
+        default = {'enabled': False, 'time': '09:00', 'times': ['09:00'], 'days': list(range(7)),
+                   'last_triggered_date': None, 'triggered_today': [], 'timezone': 'Asia/Kolkata',
+                   'cleared_attempt_at': None, 'cleared_success_at': None}
         if os.environ.get('RENDER') and not cloud_schedule_loaded:
             try:
                 book, _ = target_worksheet()
@@ -441,6 +443,11 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
                 elif 'time' in saved and saved['time']:
                     default['times'] = [str(saved['time']).strip()]
                     default['time'] = default['times'][0]
+                days = saved.get('days')
+                if isinstance(days, list) and days and all(type(day) is int and 0 <= day <= 6 for day in days):
+                    default['days'] = sorted(set(days))
+                else:
+                    default['days'] = list(range(7))
         except (OSError, ValueError):
             pass
         default['timezone'] = 'Asia/Kolkata'
@@ -457,6 +464,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
         times = sorted(list(dict.fromkeys([str(t).strip() for t in times if str(t).strip()])))
         schedule['times'] = times
         schedule['time'] = times[0] if times else '09:00'
+        schedule['days'] = sorted(set(schedule.get('days', range(7))))
         temporary = schedule_path.with_suffix('.tmp')
         temporary.write_text(json.dumps(schedule, indent=2), encoding='utf-8')
         temporary.replace(schedule_path)
@@ -665,7 +673,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
         now = now.astimezone(IST)
         with schedule_lock:
             schedule = load_schedule()
-            if not schedule['enabled']:
+            if not schedule['enabled'] or now.weekday() not in schedule['days']:
                 return False
             today = now.date().isoformat()
             triggered = schedule.get('triggered_today', []) if schedule.get('last_triggered_date') == today else []
@@ -713,7 +721,15 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
             job['running'] = job['running'] or bool(queued_ids)
         with schedule_lock:
             schedule = load_schedule()
-        schedule.update(journal.scheduled_summary())
+        summary = journal.scheduled_summary()
+        if (schedule.get('cleared_attempt_at') and summary['last_attempt'] and
+                summary['last_attempt'] <= schedule['cleared_attempt_at']):
+            for key in ('last_attempt', 'last_status', 'last_finished', 'last_error_code'):
+                summary[key] = None
+        if (schedule.get('cleared_success_at') and summary['last_success'] and
+                summary['last_success'] <= schedule['cleared_success_at']):
+            summary['last_success'] = None
+        schedule.update(summary)
         if request.args.get('light') == '1':
             job = compact_job(job)
         remaining_products = []
@@ -1100,13 +1116,20 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
             validated_times = ['09:00']
         validated_times = sorted(list(dict.fromkeys(validated_times)))
 
+        raw_days = body.get('days', list(range(7)))
+        if (not isinstance(raw_days, list) or not raw_days or
+                any(type(day) is not int or day < 0 or day > 6 for day in raw_days)):
+            raise ValueError('Choose at least one day from Monday through Sunday.')
+        validated_days = sorted(set(raw_days))
+
         now = indian_clock.now()
         if enabled and now is None:
             return jsonify(error='Indian time is still synchronizing. Try saving the schedule again shortly.'), 503
         with schedule_lock:
             current = load_schedule()
-            changed = current['enabled'] != enabled or current.get('times') != validated_times
-            current.update(enabled=enabled, times=validated_times, time=validated_times[0])
+            changed = (current['enabled'] != enabled or current.get('times') != validated_times or
+                       current.get('days') != validated_days)
+            current.update(enabled=enabled, times=validated_times, time=validated_times[0], days=validated_days)
             if (changed or enabled) and now is not None:
                 already_triggered = current.get('triggered_today', []) if current.get('last_triggered_date') == now.date().isoformat() else []
                 current['last_triggered_date'] = now.date().isoformat()
@@ -1116,9 +1139,66 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
             schedule_tick()
         return jsonify(current)
 
+    @app.post('/api/sync-schedule/clear-history')
+    def clear_schedule_history():
+        kind = (request.get_json(silent=True) or {}).get('kind')
+        if kind not in ('attempt', 'success'):
+            raise ValueError('Choose attempt or success history to clear.')
+        with schedule_lock:
+            schedule = load_schedule()
+            schedule[f'cleared_{kind}_at'] = journal.now()
+            save_schedule(schedule)
+        return jsonify(cleared=kind)
+
     @app.get('/api/previews/<int:number>')
     def preview(number):
         return jsonify(store.get(number))
+
+    @app.post('/api/previews/reconcile')
+    def reconcile_preview_numbers():
+        """Move pending local captures past conflicting cloud preview numbers."""
+        if not gate.acquire(blocking=False):
+            return jsonify(error='Wait for the current capture or sync to finish.'), 409
+        try:
+            from tracker_sync import archive_value_matches, records, sync_lock, text
+            from workspace_backup import save_safety_backup
+
+            with sync_lock(store.root):
+                book, _ = target_worksheet()
+                sheets = {sheet.title: sheet for sheet in book.worksheets()}
+                archive = sheets.get('Sheet1')
+                if archive is None:
+                    raise ValueError('Google Sheets has no raw preview history to reconcile.')
+                cloud = {}
+                for row in records(archive.get_all_values(value_render_option='UNFORMATTED_VALUE')):
+                    match = re.fullmatch(r'preview([1-9]\d*)', text(row.get('Preview')))
+                    if match:
+                        cloud.setdefault(int(match[1]), []).append(row)
+                highest_cloud = max(cloud, default=0)
+                first_conflict = None
+                for number in store.unsynced_ids():
+                    if number > highest_cloud:
+                        break
+                    local = store.get(number)
+                    remote = cloud.get(number)
+                    if remote and not local['rows'] and len(remote) == 1 and not any(
+                            text(remote[0].get(column)) for column in local['columns']):
+                        remote = []  # A single blank archive row marks an empty capture.
+                    if (remote is None or len(local['rows']) != len(remote) or any(
+                            not archive_value_matches(row.get(column, ''), saved.get(column, ''))
+                            for row, saved in zip(local['rows'], remote)
+                            for column in local['columns'])):
+                        first_conflict = number
+                        break
+                if first_conflict is None:
+                    return jsonify(mapping={}, message='Pending captures already have unique cloud numbers.')
+                backup = save_safety_backup(store, 'before-update')
+                mapping = store.rebase_unsynced(first_conflict, highest_cloud)
+            invalidate_snapshot()
+            return jsonify(mapping=mapping, recovery_backup=backup.name,
+                           message='Pending captures were given new numbers after the existing Google Sheets history.')
+        finally:
+            gate.release()
 
     @app.delete('/api/previews/<int:number>')
     def delete_preview(number):

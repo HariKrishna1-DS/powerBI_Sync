@@ -133,6 +133,7 @@ STATUS_COLORS = json.loads((ASSET_DIR / 'status_colors.json').read_text(encoding
 
 def target_worksheet(required=False):
     import gspread
+    from gspread.exceptions import APIError, SpreadsheetNotFound
     from google.auth.exceptions import RefreshError, TransportError
     from google.oauth2.service_account import Credentials
     value = os.getenv('GOOGLE_SERVICE_ACCOUNT_JSON', 'service_account.json').strip()
@@ -171,6 +172,32 @@ def target_worksheet(required=False):
                 raise RuntimeError(f'The configured worksheet gid={WORKSHEET_GID} no longer exists. Select an existing worksheet for this direct-sheet operation.')
             sheet = None
         return book, sheet
+    except PermissionError as exc:
+        # gspread.open_by_key converts every Sheets 403 into PermissionError.
+        # Keep the API reason so an enabled key is not mistaken for a disabled key.
+        google_error = getattr(exc.__cause__, 'error', {})
+        detail = str(google_error.get('message', '')).strip() if isinstance(google_error, dict) else ''
+        lowered = detail.casefold()
+        reasons = [item.get('reason', '') for key in ('errors', 'details')
+                   for item in (google_error.get(key) or []) if isinstance(item, dict)] if isinstance(google_error, dict) else []
+        if ('sheets api' in lowered and ('disabled' in lowered or 'not been used' in lowered)
+                or any(reason.casefold() in ('accessnotconfigured', 'service_disabled') for reason in reasons)):
+            raise RuntimeError(
+                f'Google Sheets API access is disabled for the imported key project {info.get("project_id", "(unknown)")}. '
+                'Enable Google Sheets API in that project, wait a few minutes, then test the connection again.') from exc
+        message = (f'Google returned 403 for spreadsheet {SPREADSHEET_ID} using {email}. '
+                   'Check that this exact spreadsheet is shared with that service-account email as Editor '
+                   'and that the Google Sheets API is enabled in the key project.')
+        if detail:
+            message += f' Google says: {detail[:500]}'
+        raise RuntimeError(message) from exc
+    except SpreadsheetNotFound as exc:
+        raise RuntimeError(
+            f'Google could not find spreadsheet {SPREADSHEET_ID} for {email}. '
+            'Check the saved spreadsheet URL and share that spreadsheet with the service account as Editor.') from exc
+    except APIError as exc:
+        detail = str(exc.error.get('message', '')).strip() if isinstance(exc.error, dict) else ''
+        raise RuntimeError(f'Google Sheets returned HTTP {exc.code} for {email}: {detail[:500] or "Request failed."}') from exc
     except RefreshError as exc:
         details = next((arg for arg in exc.args if isinstance(arg, dict)), {})
         description = str(details.get('error_description', '')).casefold()
@@ -193,11 +220,12 @@ def target_worksheet(required=False):
         raise RuntimeError('Google Sheets connection failed: Google could not be reached. '
                            'Check internet access, firewall or proxy restrictions, and HTTPS certificate settings. '
                            'Saved captures will resume syncing when the connection is restored.') from exc
+    except RuntimeError:
+        raise
     except Exception as exc:
         raise RuntimeError(
-            f'Google Sheets access failed ({type(exc).__name__}). Enable the Google Sheets API, '
-            f'check credentials and worksheet gid={WORKSHEET_GID}, and share '
-            f'{TARGET_GSHEET_URL} with {email} as Editor.') from exc
+            f'Google Sheets connection failed ({type(exc).__name__}) for {email}. '
+            f'Check the saved spreadsheet URL {TARGET_GSHEET_URL} and key project {info.get("project_id", "(unknown)")}.') from exc
 
 
 def validate_queue(df):

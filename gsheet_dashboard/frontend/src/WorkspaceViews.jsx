@@ -520,22 +520,22 @@ function DailyOrders({preview, running}) {
   const [highlight,setHighlight]=useState(null);
   useEffect(()=>{let active=true;setLoading(true);api(`/api/daily-orders${preview.id?`?preview_id=${preview.id}`:''}`).then(data=>{if(active){setHistory(data.rows);setSnapshot(data);setHighlight(data);setDate(current=>data.rows.some(row=>row.Date===current)?current:data.selected_date||'');setError('');}}).catch(e=>{if(active){setHistory([]);setError(e.message);}}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[preview.id,running]);
   useEffect(()=>{
-    if(!highlight?.selected_date)return;
-    const selected=highlight.selected_date;
-    if(highlight.publication_state==='synced'&&highlight.highlighted_date===selected){setPublishMessage(`${dailyDateLabel(selected)} is highlighted in Daily Status Report and filtered in All Products.`);return;}
-    if(highlight.publication_state==='error'){setError(`Date selected locally. Google Sheets date update needs retry: ${highlight.sync_error}`);return;}
+    if(!highlight)return;
+    const selected=highlight.selected_date||'';
+    if(highlight.publication_state==='synced'&&(highlight.highlighted_date||'')===selected){setPublishMessage(selected?`${dailyDateLabel(selected)} is highlighted in Daily Status Report and filtered in All Products.`:'Daily Status Report highlight cleared; All Products shows every order.');return;}
+    if(highlight.publication_state==='error'){setError(`Google Sheets date update needs retry: ${highlight.sync_error}`);return;}
     if(!['pending','working'].includes(highlight.publication_state))return;
-    setPublishMessage(`Updating Google Sheets for ${dailyDateLabel(selected)}…`);
+    setPublishMessage(selected?`Updating Google Sheets for ${dailyDateLabel(selected)}…`:'Restoring all orders in Google Sheets…');
     let active=true;
     const timer=setTimeout(()=>api('/api/report-workspace').then(data=>{if(active)setHighlight(data);}).catch(e=>{if(active)setError(e.message);}),2000);
     return()=>{active=false;clearTimeout(timer);};
   },[highlight]);
   async function chooseDate(value){
-    if(!value||publishing)return;
+    if(publishing)return;
     setDate(value);setSearch('');setPublishing(true);setError('');setPublishMessage('');
     try{const result=await api('/api/report-date',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date:value}),timeoutMs:180000});
-      if(!result.synced&&!result.queued)setError(`Date selected locally. Google Sheets update needs retry: ${result.sync_error}`);
-      else{setHighlight({selected_date:value,publication_state:result.queued?'pending':'synced',highlighted_date:result.highlighted_date});setPublishMessage(result.queued?`Updating Google Sheets for ${dailyDateLabel(value)}…`:`${dailyDateLabel(value)} is highlighted in Daily Status Report and filtered in All Products.`);}
+      if(!result.synced&&!result.queued)setError(`Google Sheets date update needs retry: ${result.sync_error}`);
+      else{setHighlight({selected_date:value,publication_state:result.queued?'pending':'synced',highlighted_date:result.highlighted_date});setPublishMessage(result.queued?(value?`Updating Google Sheets for ${dailyDateLabel(value)}…`:'Restoring all orders in Google Sheets…'):(value?`${dailyDateLabel(value)} is highlighted in Daily Status Report and filtered in All Products.`:'Daily Status Report highlight cleared; All Products shows every order.'));}
     }catch(e){setError(e.message);}finally{setPublishing(false);}
   }
   const selectedDay=history.find(day=>day.Date===date)||history[0];
@@ -567,7 +567,7 @@ function DailyOrders({preview, running}) {
   return <section className="daily-orders"><OfflineNotice snapshot={snapshot}/>{snapshot&&!snapshot.offline&&<p className="report-context">{snapshot.source||'Google Sheets'} production · {snapshot.updated_at?`Refreshed ${new Date(snapshot.updated_at).toLocaleString()}`:'Refresh time unavailable'}</p>}
     {error&&<div className="notice error" role="alert">{error}</div>}{publishMessage&&<p role="status">{publishMessage}</p>}{publishing&&<p role="status">Updating Google Sheets for the selected date…</p>}
     {loading?<div className="loading"><LoaderCircle className="spin"/>Loading daily orders...</div>:<>
-      <div className="section-heading"><h2>Daily production orders</h2><div className="monthly-actions"><a className="secondary" href="/api/export/report?sheet=Daily%20Orders" download>Download Daily Orders</a><label>Date<select aria-label="Daily orders date" value={selectedDay?.Date||''} disabled={publishing} onChange={e=>chooseDate(e.target.value)}>{history.map(day=><option key={day.Date} value={day.Date}>{dailyDateLabel(day.Date)}</option>)}</select></label></div></div>
+      <div className="section-heading"><h2>Daily production orders</h2><div className="monthly-actions"><a className="secondary" href="/api/export/report?sheet=Daily%20Orders" download>Download Daily Orders</a><button type="button" className="secondary" disabled={publishing||!history.length} onClick={()=>chooseDate('')}>Reset date</button><label>Date<select aria-label="Daily orders date" value={selectedDay?.Date||''} disabled={publishing} onChange={e=>chooseDate(e.target.value)}>{history.map(day=><option key={day.Date} value={day.Date}>{dailyDateLabel(day.Date)}</option>)}</select></label></div></div>
       <div className="metrics">{names.map((name,index)=><button type="button" className={`metric ${['green','red','amber','gray','purple'][index%5]}`} key={name} aria-controls={`daily-orders-group-${index}`} disabled={!selectedDay} onClick={()=>showGroup(index)}><span>{name}</span><strong>{selectedDay?.[name]??0}</strong></button>)}</div>
       <ImportedStatusSummary report={selectedDay}/><p className="report-context">Click a date to highlight it in Daily Status Report and filter the Google Sheets All Products tab to that day.</p><DailyOrdersChart history={history} selectedDate={selectedDay?.Date} onSelect={chooseDate} series={snapshot?.mode==='excel'?importedSeries(snapshot):DAILY_SERIES}/>
       <div className="table-scroll"><table><thead><tr>{['Date',...historyNames].map(name=><th key={name}>{name}</th>)}</tr></thead><tbody>{history.map(day=><tr key={day.Date} className={day.Date===selectedDay?.Date?'daily-date-selected':undefined}><td><button className="text-button" aria-pressed={day.Date===selectedDay?.Date} disabled={publishing} onClick={()=>chooseDate(day.Date)}>{dailyDateLabel(day.Date)}</button></td>{historyNames.map(name=><td key={name}>{day[name]??0}</td>)}</tr>)}</tbody></table></div>

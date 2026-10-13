@@ -32,9 +32,13 @@ The password and service-account JSON are encrypted with Windows DPAPI through E
 
 Internet is required for extraction and Google Sheets operations. Previously saved captures and production copies remain readable without it. The application does not solve portal CAPTCHA or MFA automatically; normal portal access is still required.
 
+Each Windows user has a separate Tv Tracker profile and must save that user's spreadsheet URL and service-account JSON key in Connections & settings. Share that exact spreadsheet with the `client_email` from the imported key as Editor, and enable the Google Sheets API in the key's Google Cloud project. An enabled key alone does not grant spreadsheet access. After saving, use **Test saved Google Sheets connection**; the app reports Google's 403 reason when access is denied. Imported Excel rows remain local until the report publication status says Google Sheets updated.
+
 ## Scheduling and closing
 
 Schedule times use India Standard Time anchored to Google HTTPS time and advanced by a monotonic clock. Until an initial network-time synchronization succeeds, schedules cannot be enabled or triggered; manual capture remains available. An established time anchor continues during a temporary outage. The computer must be awake and Tv Tracker must be running. Closing the window keeps it in the system tray by default; double-click the tray icon to reopen it. **Workspace → Quit** or the tray's **Quit** stops the app and local engine. An active job prompts before cancellation. Settings → Workspace can disable tray behavior or enable launch at Windows sign-in. Only one instance uses a given profile.
+
+AutoLogin Trigger can repeat every day, Monday through Friday, Saturday and Sunday, or on selected custom days. The selected days apply to all saved times. If the computer misses several times on one selected day, it makes one catch-up attempt when the app is running again that day; older days are skipped. The X beside Last attempt or Last success clears that value from the schedule panel, while Sync activity retains the operation record. Next run remains visible and is not cancelled by clearing history.
 
 ## Data, backup, and migration
 

@@ -37,9 +37,15 @@ const indianDateTime = new Intl.DateTimeFormat('en-IN', {
   timeZone:'Asia/Kolkata', day:'2-digit', month:'short', year:'numeric',
   hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:true
 });
+const WEEK_DAYS=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+const ALL_DAYS=WEEK_DAYS.map((_,day)=>day);
+const WEEKDAYS=[0,1,2,3,4];
+const WEEKENDS=[5,6];
+const sameDays=(left,right)=>left.length===right.length&&left.every((day,index)=>day===right[index]);
+const dayPreset=days=>sameDays(days,ALL_DAYS)?'all':sameDays(days,WEEKDAYS)?'weekdays':sameDays(days,WEEKENDS)?'weekends':'custom';
 const reportCount=(report,key)=>report?.[`${key}_count`]??(Array.isArray(report?.[key])?report[key].length:Number(report?.[key])||0);
 
-function TriggerClock({schedule, clock}) {
+function TriggerClock({schedule, clock, onClearHistory, clearingHistory}) {
   const [elapsed,setElapsed]=useState(()=>performance.now());
   useEffect(()=>{const timer=setInterval(()=>setElapsed(performance.now()),1000);return()=>clearInterval(timer);},[]);
   if (!clock?.synchronized || clock.epoch_ms == null) return <div className="trigger-clock"><span>Indian time (IST)</span><strong data-testid="indian-clock">Synchronizing Indian time…</strong><span>Scheduled runs wait for network time.</span></div>;
@@ -48,19 +54,25 @@ function TriggerClock({schedule, clock}) {
   const day=new Date(now+offset).toISOString().slice(0,10);
   const midnight=Date.parse(`${day}T00:00:00+05:30`);
   const triggered=schedule?.last_triggered_date===day?(schedule.triggered_today||[]):[];
-  const candidates=(schedule?.times||[]).map(time=>{
-    const [hour,minute]=time.split(':').map(Number);
-    const timestamp=midnight+(hour*60+minute)*60000;
-    return triggered.includes(time)?timestamp+86400000:timestamp;
-  });
+  const days=schedule?.days?.length?schedule.days:ALL_DAYS;
+  const weekday=(new Date(now+offset).getUTCDay()+6)%7;
+  const candidates=[];
+  for(let dayOffset=0;dayOffset<=7;dayOffset++){
+    if(!days.includes((weekday+dayOffset)%7))continue;
+    for(const time of schedule?.times||[]){
+      if(dayOffset===0&&triggered.includes(time))continue;
+      const [hour,minute]=time.split(':').map(Number);
+      candidates.push(midnight+dayOffset*86400000+(hour*60+minute)*60000);
+    }
+  }
   const next=candidates.length?Math.min(...candidates):null;
   return <div className="trigger-clock">
     <span>Indian time (IST) · Network synchronized</span>
     <strong data-testid="indian-clock">{indianDateTime.format(now)} IST</strong>
     <span data-testid="next-trigger">{schedule?.enabled&&next?
       `Next run: ${indianDateTime.format(next)} IST${next<now?' (pending)':''}`:'Schedule paused'}</span>
-    {schedule?.last_attempt&&<span>Last attempt: {indianDateTime.format(new Date(schedule.last_attempt))} · {schedule.last_status}</span>}
-    <span>Last success: {schedule?.last_success?`${indianDateTime.format(new Date(schedule.last_success))} IST`:'No successful scheduled run recorded'}</span>
+    {schedule?.last_attempt&&<div className="trigger-history-row"><span>Last attempt: {indianDateTime.format(new Date(schedule.last_attempt))} · {schedule.last_status}</span><IconButton title="Clear last attempt from this panel" disabled={clearingHistory} onClick={()=>onClearHistory('attempt')}><X size={13}/></IconButton></div>}
+    {schedule?.last_success?<div className="trigger-history-row"><span>Last success: {indianDateTime.format(new Date(schedule.last_success))} IST</span><IconButton title="Clear last success from this panel" disabled={clearingHistory} onClick={()=>onClearHistory('success')}><X size={13}/></IconButton></div>:!schedule?.cleared_success_at&&<span>Last success: No successful scheduled run recorded</span>}
   </div>;
 }
 
@@ -76,7 +88,7 @@ function App() {
   const [reportMode,setReportMode]=useState('tracker'), [reportRevision,setReportRevision]=useState(0), [reportImportOpen,setReportImportOpen]=useState(false);
   const [previous,setPrevious]=useState(''), [diff,setDiff]=useState(null), [keys,setKeys]=useState([]), [ignore,setIgnore]=useState(DEFAULT_IGNORE), [compareBusy,setCompareBusy]=useState(false), [compareError,setCompareError]=useState('');
   const [filters,setFilters]=useState({}), [filterColumn,setFilterColumn]=useState(null), [search,setSearch]=useState(''), [error,setError]=useState(''), [pending,setPending]=useState(false), [loading,setLoading]=useState(false), [uploading,setUploading]=useState(false);
-  const [chartSelection,setChartSelection]=useState(null), [scheduleDraft,setScheduleDraft]=useState({enabled:false,times:['09:00'],newTime:'10:00'}), [savingSchedule,setSavingSchedule]=useState(false);
+  const [chartSelection,setChartSelection]=useState(null), [scheduleDraft,setScheduleDraft]=useState({enabled:false,times:['09:00'],days:ALL_DAYS,repeatMode:'all',newTime:'10:00'}), [savingSchedule,setSavingSchedule]=useState(false), [clearingHistory,setClearingHistory]=useState(false);
   const [selectedRemainingProducts, setSelectedRemainingProducts] = useState([]);
   const [savingProducts,setSavingProducts]=useState(false);
   const [loadedSheets,setLiveSheets]=useState(null), [liveSheetError,setLiveSheetError]=useState('');
@@ -114,6 +126,15 @@ function App() {
     setScheduleDraft(prev => ({ ...prev, times: updated }));
   }
 
+  function setRepeatDays(preset) {
+    const days=preset==='weekdays'?WEEKDAYS:preset==='weekends'?WEEKENDS:ALL_DAYS;
+    setScheduleDraft(prev=>({...prev,repeatMode:preset,days:preset==='custom'?prev.days:days.slice()}));
+  }
+
+  function toggleRepeatDay(day) {
+    setScheduleDraft(prev=>({ ...prev, repeatMode:'custom', days:prev.days.includes(day)?prev.days.filter(value=>value!==day):[...prev.days,day].sort((a,b)=>a-b) }));
+  }
+
   const handleProductSelectionChange = async (newSelection) => {
     if(savingProducts)return;
     setSavingProducts(true);
@@ -134,7 +155,8 @@ function App() {
     setState(next);setConnectionError('');setReportMode(next.report_workspace?.mode||'tracker');jobRunning.current=next.job.running;
     if(next.schedule&&!scheduleLoaded.current){
       const times = next.schedule.times && next.schedule.times.length ? next.schedule.times : [next.schedule.time || '09:00'];
-      setScheduleDraft(prev => ({ ...prev, enabled: !!next.schedule.enabled, times: times }));
+      const days=next.schedule.days||ALL_DAYS;
+      setScheduleDraft(prev => ({ ...prev, enabled: !!next.schedule.enabled, times, days, repeatMode:dayPreset(days) }));
       scheduleLoaded.current=true;
     }
     if(Array.isArray(next.remaining_products)&&!remainingLoaded.current){setSelectedRemainingProducts(next.remaining_products);remainingLoaded.current=true;}
@@ -288,20 +310,37 @@ function App() {
     await refresh();
   }catch(e){setError(e.message);}finally{setPending(false);}}
   async function retryFailed(id){setPending(true);setError('');try{await api('/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({preview:id})});await refresh();}catch(e){setError(e.message);}finally{setPending(false);}}
-  async function saveSchedule(enabled=true, times=scheduleDraft.times){
+  async function resolvePreviewConflict(id){setPending(true);setError('');try{
+    const result=await api('/api/previews/reconcile',{method:'POST'});
+    const renumbered=Object.values(result.mapping||{}).map(Number).sort((a,b)=>a-b);
+    const next=renumbered.at(-1)||id;
+    if(renumbered.length){setSelected(next);setPrevious(String(renumbered.at(-2)||''));setDeleteMessage(`Pending captures renumbered to follow Google Sheets history. Recovery copy: ${result.recovery_backup}. Syncing through preview${next} now.`);}
+    await api('/api/sync',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({preview:next})});
+    await refresh();
+  }catch(e){setError(e.message);}finally{setPending(false);}}
+  async function saveSchedule(enabled=true, times=scheduleDraft.times, days=scheduleDraft.days){
     setSavingSchedule(true);
     setScheduleMessage('');
     setError('');
     try{
-      const saved=await api('/api/sync-schedule',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled,times})});
-      setScheduleDraft(prev=>({...prev,enabled:saved.enabled,times:saved.times||[saved.time]}));
-      setScheduleMessage(saved.enabled?'Schedule saved. Times are in IST.':'Schedule paused.');
+      const saved=await api('/api/sync-schedule',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({enabled,times,days})});
+      setScheduleDraft(prev=>({...prev,enabled:saved.enabled,times:saved.times||[saved.time],days:saved.days||ALL_DAYS}));
+      setScheduleMessage(saved.enabled?'Schedule saved. Times are in IST on the selected days.':'Schedule paused.');
       await refresh();
     }catch(e){
       setError(e.message);
     }finally{
       setSavingSchedule(false);
     }
+  }
+
+  async function clearScheduleHistory(kind){
+    setClearingHistory(true);
+    setError('');
+    try{
+      await api('/api/sync-schedule/clear-history',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({kind})});
+      await refresh();
+    }catch(e){setError(e.message);}finally{setClearingHistory(false);}
   }
 
   function choosePrevious(value){setPrevious(value);if(!value)return;const index=state.previews.findIndex(p=>p.id===Number(value));const newer=state.previews[index-1];if(newer)setSelected(newer.id);}
@@ -314,8 +353,8 @@ function App() {
     <WorkspaceSidebar state={state} selected={selected} view={view} onNavigate={navigate} collapsed={sidebarCollapsed} onToggle={()=>{if(sidebarReady)setSidebarCollapsed(!sidebarCollapsed).catch(()=>{});}} snapshot={liveSheets} busy={running} onRefresh={refreshProduction} refreshing={refreshingProduction} onDelete={deletePreview} onSelect={id=>{setSelected(id);navigate('captures');const index=state.previews.findIndex(p=>p.id===id);setPrevious(String(state.previews[index+1]?.id||''));}}/>
     <main ref={mainScroll}><header className="topbar"><div className="breadcrumb"><span>Workspace</span><ChevronRight size={13}/><strong>{VIEW_TITLES[view]}</strong></div><div className="inline"><ReportControls mode={reportMode} running={running} open={reportImportOpen} setOpen={setReportImportOpen} onChanged={reportsChanged} onBusy={setUploading} workspaceState={state.report_workspace}/><DesktopTools onNavigate={navigate} onImport={()=>setReportImportOpen(true)} running={running}/><span className={`run-state ${running?'running':''}`}>{running&&<LoaderCircle size={14} className="spin"/>}{pending&&!state.job.running?'Starting…':state.job.stage}</span><button className="secondary" onClick={()=>setReportImportOpen(true)} disabled={uploading}><Upload size={16}/>{uploading?'Importing…':'Import files'}</button><button className="secondary" onClick={exportSheets} disabled={exporting||running} title="Download the selected report source as Excel">{exporting?<LoaderCircle size={16} className="spin"/>:<ArrowDownToLine size={16}/>} {exporting?'Exporting...':'Export'}</button></div></header>
       <div className="content" id="workspace-content" tabIndex={-1}><div className="page-heading"><div><span className="eyebrow">TITLE PRODUCTION</span><h1>{VIEW_TITLES[view]}</h1><p className="muted">{productionView?(view==='sheets'?'Keep every order in view.':'Your production, clearly organized.'):(preview.name?`${preview.name} · ${new Date(preview.created).toLocaleString()}`:'Your local production workspace')}</p></div><div className="page-actions"><button className="secondary" onClick={syncSheets} disabled={running||loading||compareBusy||!!compareError}>{state.job.action==='sync'&&running?<LoaderCircle size={17} className="spin"/>:<CloudUpload size={17}/>}<span>{state.job.action==='sync'&&running?'Syncing…':'Sync to Sheets'}</span></button><details className="sync-schedule"><summary><Clock3 size={16}/><span>AutoLogin Trigger</span><span className={`schedule-state ${state.schedule?.enabled?'enabled':''}`}>{state.schedule?.enabled?'On':'Paused'}</span></summary><div>
-        <TriggerClock schedule={state.schedule} clock={state.clock}/>
-        <button className="secondary" disabled={savingSchedule||!state.schedule} onClick={()=>saveSchedule(!state.schedule?.enabled,state.schedule?.times||[state.schedule?.time||'09:00'])}>{state.schedule?.enabled?'Pause schedule':'Resume schedule'}</button>
+        <TriggerClock schedule={state.schedule} clock={state.clock} onClearHistory={clearScheduleHistory} clearingHistory={clearingHistory}/>
+        <button className="secondary" disabled={savingSchedule||!state.schedule} onClick={()=>saveSchedule(!state.schedule?.enabled,state.schedule?.times||[state.schedule?.time||'09:00'],state.schedule?.days||ALL_DAYS)}>{state.schedule?.enabled?'Pause schedule':'Resume schedule'}</button>
         <div className="schedule-times-label">Scheduled times (IST):</div>
         <div className="schedule-times-list">
           {(scheduleDraft.times || []).map(t => (
@@ -331,13 +370,14 @@ function App() {
           <label>Indian Standard Time (UTC+05:30)<input aria-label="New trigger time" type="time" value={scheduleDraft.newTime || '10:00'} onChange={e => setScheduleDraft({ ...scheduleDraft, newTime: e.target.value })}/></label>
           <button type="button" className="add-time-btn" title="Add trigger time" onClick={addTriggerTime}><Plus size={15}/>Add</button>
         </div>
-        <button className="primary" onClick={()=>saveSchedule()} disabled={savingSchedule||!scheduleDraft.times.length}>{savingSchedule?'Saving…':'Save AutoLogin Trigger'}</button>
+        <div className="schedule-repeat"><label htmlFor="schedule-repeat-mode">Repeat on</label><select id="schedule-repeat-mode" value={scheduleDraft.repeatMode} onChange={e=>setRepeatDays(e.target.value)}><option value="all">Every day</option><option value="weekdays">Mon–Fri</option><option value="weekends">Sat–Sun</option><option value="custom">Custom days</option></select>{scheduleDraft.repeatMode==='custom'&&<div className="schedule-day-options" aria-label="Custom schedule days">{WEEK_DAYS.map((name,day)=><label key={name}><input type="checkbox" checked={scheduleDraft.days.includes(day)} onChange={()=>toggleRepeatDay(day)}/>{name}</label>)}</div>}<small>These days apply to every scheduled time.</small></div>
+        <button className="primary" onClick={()=>saveSchedule()} disabled={savingSchedule||!scheduleDraft.times.length||!scheduleDraft.days.length}>{savingSchedule?'Saving…':'Save AutoLogin Trigger'}</button>
         {scheduleMessage&&<p className="schedule-feedback" role="status"><Check size={14}/>{scheduleMessage}</p>}{state.schedule?.last_triggered_date&&<small>Last triggered {state.schedule.last_triggered_date}</small>}
       </div></details><button className="primary" onClick={extract} disabled={running}>{state.job.action==='extract'&&running?<LoaderCircle size={17} className="spin"/>:<Camera size={17}/>}<span>{state.job.action==='extract'&&running?'Extracting…':'Extract Queue'}</span></button>{state.job.running&&state.job.action==='extract'&&<button className="secondary" onClick={cancelExtraction} disabled={cancelling||state.job.cancel_requested}><X size={17}/>{cancelling||state.job.cancel_requested?'Cancelling…':'Cancel extraction'}</button>}</div></div>
       <WorkspaceContext reportMode={reportMode} view={view} production={productionView} preview={preview} snapshot={liveSheets} running={running} stage={pending&&!state.job.running?'Starting…':state.job.stage} pending={state.pending_sync} selected={selected} sheetUrl={state.sheet_url} onRefresh={refreshProduction} refreshing={refreshingProduction}/>
       {sidebarError&&<div className="notice warning" role="alert">{sidebarError}</div>}
       {deleteMessage&&<div className="notice" role="status">{deleteMessage}<IconButton title="Dismiss recovery message" onClick={()=>setDeleteMessage('')}><X size={16}/></IconButton></div>}
-      {(state.failed_syncs||[]).map(failure=><DismissibleNotice key={`failed-sync-${failure.preview_id}`} noticeId={`failed-sync-${failure.preview_id}`} className="notice warning" role="alert"><strong>{failure.preview_name} retained locally.</strong> {failure.error}<button className="secondary" disabled={running} onClick={()=>retryFailed(failure.preview_id)}>Retry sync</button></DismissibleNotice>)}
+      {(state.failed_syncs||[]).map(failure=><DismissibleNotice key={`failed-sync-${failure.preview_id}`} noticeId={`failed-sync-${failure.preview_id}`} className="notice warning" role="alert"><strong>{failure.preview_name} retained locally.</strong> {failure.error}{/preview name already (identifies|belongs to) a different saved snapshot/i.test(failure.error)?<button className="secondary" disabled={running||pending} onClick={()=>resolvePreviewConflict(failure.preview_id)}>Resolve numbering & retry</button>:<button className="secondary" disabled={running||pending} onClick={()=>retryFailed(failure.preview_id)}>Retry sync</button>}</DismissibleNotice>)}
       {view==='audit'&&<div className="notice">Local sync activity · {syncAudit?.preview_name||'No sync report yet'}</div>}
       {view==='audit'&&auditError&&<div className="notice error">{auditError}</div>}
       {error&&<div className="notice error" role="alert">{error}<IconButton title="Dismiss error" onClick={()=>setError('')}><X size={16}/></IconButton></div>}
@@ -345,7 +385,7 @@ function App() {
       {liveSheetError&&(!state.capabilities?.desktop||state.capabilities?.google_configured)&&<div className="notice warning" role="status">{reportMode==='excel'?'Imported Excel reports are saved locally.':'Could not refresh Google Sheets reports.'} {liveSheetError}</div>}
       {reportMode==='excel'&&state.report_workspace?.cloud_refresh_error&&<DismissibleNotice noticeId={`import-cloud-${state.report_workspace.cloud_refresh_error}`} className="notice warning" role="alert">{state.report_workspace.cloud_refresh_error}</DismissibleNotice>}
       {liveSheets?.cache_warning&&productionView&&<div className="notice warning" role="status">{liveSheets.cache_warning}</div>}
-      {productionView&&<OfflineNotice snapshot={liveSheets}/>}{liveCurrent&&!liveSheets.offline&&<DismissibleNotice key={`connected-${state.job.run_id}`} noticeId={`connected-${state.job.run_id}`} role="status"><Check size={14}/>{reportMode==='excel'?'Imported Excel report · all uploaded dates':'Google Sheets connected · all retained tracker orders'}{liveSheets.updated_at&&<span> · Refreshed {new Date(liveSheets.updated_at).toLocaleTimeString()}</span>}</DismissibleNotice>}
+      {productionView&&<OfflineNotice snapshot={liveSheets}/>}{liveCurrent&&!liveSheets.offline&&reportMode==='excel'&&state.report_workspace?.publication_state!=='synced'&&<div className="notice warning" role="status">Imported Excel report is saved locally. {state.report_workspace?.publication_state==='error'?'Google Sheets update failed; open Report details to retry.':'Google Sheets update is still pending.'}</div>}{liveCurrent&&!liveSheets.offline&&(reportMode!=='excel'||state.report_workspace?.publication_state==='synced')&&<DismissibleNotice key={`connected-${state.job.run_id}`} noticeId={`connected-${state.job.run_id}`} role="status"><Check size={14}/>{reportMode==='excel'?'Imported Excel report · Google Sheets updated':'Google Sheets connected · all retained tracker orders'}{liveSheets.updated_at&&<span> · Refreshed {new Date(liveSheets.updated_at).toLocaleTimeString()}</span>}</DismissibleNotice>}
       {result?.error&&<DismissibleNotice key={`error-${state.job.run_id}`} noticeId={`error-${state.job.run_id}`} className="notice warning" role="status">{result.preview_name&&<strong>{result.preview_name} saved. </strong>}{result.error}</DismissibleNotice>}
       {result?.cancelled&&!running&&<DismissibleNotice key={`cancelled-${state.job.run_id}`} noticeId={`cancelled-${state.job.run_id}`} role="status">Extraction cancelled. {result.saved_locally?`${result.preview_name} remains saved locally for sync.`:'Existing captures and imported reports are retained.'}</DismissibleNotice>}
       {result&&!result.error&&!result.cancelled&&!running&&<DismissibleNotice key={`result-${state.job.run_id}`} noticeId={`result-${state.job.run_id}`} className="notice success"><Check size={16}/>{result.action==='sync'?`${result.preview_name} synced · ${result.rows} rows · ${result.worksheets?.length||0} Google Sheets tabs updated`:`${result.preview_name} saved locally · ${result.rows} rows · Google Sheets sync pending`}</DismissibleNotice>}

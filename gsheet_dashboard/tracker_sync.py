@@ -505,13 +505,26 @@ def sync_trackers(frame=None, on_progress=None, book=None):
             worksheets[REMAINING] = worksheets.pop(OLD_REMAINING)
         def sheet(title):
             from monthly_views import view_identity
-            if title not in worksheets and view_identity(title):
-                alias = next((name for name in list(worksheets) if view_identity(name) == view_identity(title)), None)
+            if title not in worksheets:
+                identity = view_identity(title)
+                alias = next((name for name in list(worksheets) if name.casefold() == title.casefold() or
+                              (identity and view_identity(name) == identity)), None)
                 if alias:
                     worksheets[title] = worksheets.pop(alias)
                     worksheets[title].update_title(title)
             if title not in worksheets:
-                worksheets[title] = book.add_worksheet(title=title, rows=1, cols=1)
+                try:
+                    worksheets[title] = book.add_worksheet(title=title, rows=1, cols=1)
+                except Exception as exc:
+                    from gspread.exceptions import APIError
+                    if not isinstance(exc, APIError) or 'already exists' not in str(exc).casefold():
+                        raise
+                    # A second writer created this tab after our metadata read.
+                    existing = next((item for item in book.worksheets()
+                                     if item.title.casefold() == title.casefold()), None)
+                    if existing is None:
+                        raise
+                    worksheets[title] = existing
             return worksheets[title]
         history_sheet = sheet('Sheet1')
         history_values = history_sheet.get_all_values(value_render_option='UNFORMATTED_VALUE')

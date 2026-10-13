@@ -4,6 +4,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import shutil
 import sqlite3
 
 import pandas as pd
@@ -199,6 +200,59 @@ class PreviewStore:
     def pending_count(self):
         with self.connect() as db:
             return db.execute("SELECT COUNT(*) FROM previews LEFT JOIN sync_jobs ON preview_id=id WHERE state IS NULL OR state!='synced'").fetchone()[0]
+
+    def rebase_unsynced(self, first_id, cloud_max):
+        """Give a conflicting pending suffix fresh numbers, preserving every capture."""
+        copied = []
+        originals = []
+        mapping = {}
+        try:
+            with self.connect() as db:
+                db.execute('BEGIN IMMEDIATE')
+                pending = [row[0] for row in db.execute(
+                    "SELECT id FROM previews LEFT JOIN sync_jobs ON preview_id=id "
+                    "WHERE id>=? AND (state IS NULL OR state!='synced') ORDER BY id", (first_id,))]
+                if not pending or pending[0] != first_id:
+                    raise ValueError('The conflicting preview is no longer pending. Refresh captures and try again.')
+                if db.execute("SELECT 1 FROM previews JOIN sync_jobs ON preview_id=id "
+                              "WHERE id>? AND state='synced' LIMIT 1", (first_id,)).fetchone():
+                    raise ValueError('A newer local capture is already synced. Review both histories before renumbering.')
+                for old in pending:
+                    if db.execute('SELECT 1 FROM sync_receipts WHERE preview_id=?', (old,)).fetchone() or db.execute(
+                            'SELECT 1 FROM sync_reports WHERE preview_id=? AND committed=1', (old,)).fetchone():
+                        raise ValueError(f'preview{old} has a cloud receipt; review its history before renumbering.')
+                next_id = max(cloud_max, db.execute('SELECT COALESCE(MAX(id),0) FROM previews').fetchone()[0])
+                for old in pending:
+                    while True:
+                        next_id += 1
+                        if not any((self.root / f'preview{next_id}.{ext}').exists() for ext in ('csv', 'xlsx')):
+                            break
+                    mapping[old] = next_id
+                for old, new in mapping.items():
+                    for ext in ('csv', 'xlsx'):
+                        source = self.root / f'preview{old}.{ext}'
+                        if source.exists():
+                            target = self.root / f'preview{new}.{ext}'
+                            copied.append(target)
+                            shutil.copy2(source, target)
+                            originals.append(source)
+                for old, new in mapping.items():
+                    db.execute('UPDATE previews SET id=? WHERE id=?', (new, old))
+                    db.execute('DELETE FROM sync_jobs WHERE preview_id=?', (old,))
+                    db.execute("INSERT INTO sync_jobs(preview_id,state) VALUES(?,'pending')", (new,))
+                    db.execute('DELETE FROM sync_failures WHERE preview_id=?', (old,))
+                    db.execute('DELETE FROM sync_reports WHERE preview_id=?', (old,))
+                db.execute("UPDATE sqlite_sequence SET seq=MAX(seq,?) WHERE name='previews'", (next_id,))
+        except Exception:
+            for path in copied:
+                path.unlink(missing_ok=True)
+            raise
+        for path in originals:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+        return mapping
 
 
 def rows_after_last_order(previous, latest):

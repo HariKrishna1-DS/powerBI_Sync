@@ -8,7 +8,7 @@ from monthly_production import (ARCHIVE, BASES, active_locations, apply_plan, ar
     snapshot, tab_identity, tab_name, fingerprint)
 
 
-def sync_monthly(book, frame, store, on_progress=None):
+def sync_monthly(book, frame, store, on_progress=None, _tab_retry=0):
     from tracker_sync import (HEADERS, IST, key, records, matrix, text, merge_trackers,
                               sheet_reports, archive_value_matches)
     from tracker_formatting import ensure_tracker_formatting
@@ -133,7 +133,15 @@ def sync_monthly(book, frame, store, on_progress=None):
     store.stage_sync_report(number, digest, report)
     if on_progress:
         on_progress('Saving monthly production, backups and capture receipt')
-    apply_plan(book, preserve_formulas(ensure_pairs(plan, before), before))
+    try:
+        apply_plan(book, preserve_formulas(ensure_pairs(plan, before), before))
+    except Exception as exc:
+        from gspread.exceptions import APIError
+        if isinstance(exc, APIError) and 'addsheet' in str(exc).casefold() and 'already exists' in str(exc).casefold() and not _tab_retry:
+            # Another installation created a tab after the plan read Sheets.
+            # The rejected batch changed nothing; rebuild once from fresh data.
+            return sync_monthly(book, frame, store, on_progress, _tab_retry=1)
+        raise
     ensure_tracker_formatting(book)
     store.commit_sync_report(number, digest)
     frame.attrs['pass_report'] = report

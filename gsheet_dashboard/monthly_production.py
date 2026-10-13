@@ -413,8 +413,10 @@ def apply_plan(book, plan, check=True):
         append_from[LEDGER] = len(old_ledger)
     metadata = book.fetch_sheet_metadata(params={'fields': 'sheets(properties,conditionalFormats)'})
     for title, values in writes.items():
-        if title not in ids and view_identity(title):
-            alias = next((name for name in list(ids) if view_identity(name) == view_identity(title)), None)
+        if title not in ids:
+            identity = view_identity(title)
+            alias = next((name for name in list(ids) if name.casefold() == title.casefold() or
+                          (identity and view_identity(name) == identity)), None)
             if alias:
                 ids[title] = ids.pop(alias)
                 sheets[title] = sheets.pop(alias)
