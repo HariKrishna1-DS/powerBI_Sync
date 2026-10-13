@@ -5,6 +5,7 @@ described here. Google Sheets supplies the live tracker and report data. Saved l
 previews supply the Changes comparison. Status Report is on Data sheets.
 
 ## Run
+"PS C:\Users\Harikrishna\Desktop\powerBI_Sync-tv-tracker\powerBI_Sync-tv-tracker> .\gsheet_dashboard\start-local.bat"
 
 Run `gsheet_dashboard/run.bat`, or install `gsheet_dashboard/requirements.txt`, build
 `gsheet_dashboard/frontend` with `npm run build`, and run `gsheet_dashboard/server.py`.
