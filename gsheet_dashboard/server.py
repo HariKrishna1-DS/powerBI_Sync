@@ -386,7 +386,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
 
     def recover_latest_preview(required=False):
         nonlocal recovery_checked
-        if root is not None or reporting_snapshot()[0] or (desktop_mode and not required):
+        if root is not None or reporting_snapshot()[0] or not store.recovery_enabled() or (desktop_mode and not required):
             return
         with preview_recovery_lock:
             if not required and clock.monotonic() - recovery_checked < 60:
@@ -1224,6 +1224,76 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
             invalidate_snapshot()
             return jsonify(deleted=number, recovery_backup=backup.name)
         finally:
+            gate.release()
+
+    @app.post('/api/previews/delete')
+    def delete_previews():
+        body = request.get_json(silent=True) or {}
+        if not isinstance(body, dict):
+            raise ValueError('Select captures to delete.')
+        numbers = body.get('ids')
+        if (not isinstance(numbers, list) or not 1 <= len(numbers) <= 10000 or
+                any(type(number) is not int or number < 1 for number in numbers) or len(set(numbers)) != len(numbers)):
+            raise ValueError('Select between 1 and 10,000 different captures to delete.')
+        if not gate.acquire(blocking=False):
+            return jsonify(error='Wait for extraction or sync to finish before deleting captures.'), 409
+        try:
+            with state_lock:
+                if state['running'] or queued_ids:
+                    return jsonify(error='Wait for the current capture or sync to finish before deleting captures.'), 409
+            with import_lock:
+                if set(numbers) - {item['id'] for item in store.list()}:
+                    raise KeyError('A selected capture no longer exists. Refresh the library and try again.')
+                from workspace_backup import save_safety_backup
+                try:
+                    backup = save_safety_backup(store, 'before-delete')
+                except OSError:
+                    return jsonify(error='The recovery copy could not be saved. No captures were deleted.'), 503
+                deleted = store.delete_many(numbers)
+                invalidate_snapshot()
+            return jsonify(deleted=deleted, recovery_backup=backup.name)
+        finally:
+            gate.release()
+
+    @app.post('/api/workspace/reset')
+    def reset_workspace():
+        body = request.get_json(silent=True)
+        if not isinstance(body, dict) or body.get('confirmation') != 'RESET LOCAL WORKSPACE':
+            raise ValueError('Confirm that you want to start a new local report.')
+        if not gate.acquire(blocking=False):
+            return jsonify(error='Wait for extraction, sync or report publication to finish before resetting.'), 409
+        try:
+            with state_lock:
+                if state['running'] or queued_ids:
+                    return jsonify(error='Wait for the current job to finish before resetting.'), 409
+            with import_lock, report_workspace.lock:
+                maintenance.set()
+                from workspace_backup import save_safety_backup
+                try:
+                    backup = save_safety_backup(store, 'before-reset')
+                except OSError:
+                    return jsonify(error='The recovery copy could not be saved. Your workspace was not reset.'), 503
+                deleted = store.delete_many([], reset=True)
+                app.extensions['cancel_report_publication']()
+                from report_workspace import combine_sources
+                report_workspace.save(mode='excel', imported=combine_sources([]), files=[], row_count=0,
+                                      enabled=False, selected_date='', publication_state='local', fresh_start=True)
+                with schedule_lock:
+                    schedule = load_schedule()
+                    schedule.update(enabled=False, last_triggered_date=None, triggered_today=[],
+                                    cleared_attempt_at=None, cleared_success_at=None)
+                    # Reset is local; do not publish settings to an existing Google Sheet.
+                    schedule_path.write_text(json.dumps(schedule), encoding='utf-8')
+                for name in ('production-cache.json', 'sync_status.json', 'queue_data_sheet2.csv', 'queue_data_sheet2.xlsx'):
+                    (store.root.parent / name).unlink(missing_ok=True)
+                production_cache.reload()
+                invalidate_snapshot()
+                with state_lock:
+                    state.update(stage='Ready', action=None, result=None, run_id=state['run_id'] + 1)
+            return jsonify(reset=True, deleted=deleted, next_preview=1, recovery_backup=backup.name,
+                           report_workspace=report_workspace.public())
+        finally:
+            maintenance.clear()
             gate.release()
 
     @app.post('/api/import')

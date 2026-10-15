@@ -1,5 +1,5 @@
 import React, {useDeferredValue, useMemo, useState} from 'react';
-import {Activity, ArrowLeftRight, CalendarDays, Check, Clock3, Database, ExternalLink, RefreshCw, FileSpreadsheet, HardDrive, Home, PanelLeftClose, PanelLeftOpen, Search, Settings2, Table2, Trash2, X} from 'lucide-react';
+import {Activity, ArrowLeftRight, CalendarDays, Check, Clock3, Database, ExternalLink, RefreshCw, FileSpreadsheet, HardDrive, Home, Maximize2, PanelLeftClose, PanelLeftOpen, Search, Settings2, Table2, Trash2, X} from 'lucide-react';
 import {ThemeControl} from './StudioWorkspace';
 import {IconButton} from './workspaceUtils';
 import {useWorkspacePreference} from './useWorkspacePreference';
@@ -7,7 +7,7 @@ import {useWorkspacePreference} from './useWorkspacePreference';
 const destinations=[['overview','Overview',Home],['sheets','Data Sheets',Table2],['daily','Daily Orders',CalendarDays],['monthly','Monthly Orders',FileSpreadsheet],['sla','SLA Status',Clock3],['capacity','Capacity Report',FileSpreadsheet],['changes','Changes',ArrowLeftRight]];
 const dateLabel=value=>value?new Date(value).toLocaleDateString(undefined,{day:'numeric',month:'short'}):'Date unavailable';
 
-export function WorkspaceSidebar({state,selected,view,onNavigate,onSelect,onDelete,busy,snapshot,collapsed,onToggle,onRefresh,refreshing}) {
+export function WorkspaceSidebar({state,selected,view,onNavigate,onSelect,onDelete,onOpenLibrary,busy,snapshot,collapsed,onToggle,onRefresh,refreshing}) {
   const [query,setQuery]=useState('');
   const deferred=useDeferredValue(query);
   const captures=useMemo(()=>state.previews.filter(p=>`${p.name} ${dateLabel(p.created)} ${p.row_count}`.toLowerCase().includes(deferred.toLowerCase())),[state.previews,deferred]);
@@ -17,7 +17,7 @@ export function WorkspaceSidebar({state,selected,view,onNavigate,onSelect,onDele
     <div className="sidebar-section-label"><span>WORKSPACE</span><IconButton title={collapsed?'Expand sidebar':'Collapse sidebar'} onClick={onToggle}>{collapsed?<PanelLeftOpen size={17}/>:<PanelLeftClose size={17}/>}</IconButton></div>
     <nav aria-label="Workspace navigation">{destinations.map(([id,title,Icon])=>nav(id,title,Icon))}<div className="nav-subsection">{nav('captures','Captures',HardDrive)}{nav('importChanges','Import Excel Changes',ArrowLeftRight)}{nav('audit','Activity',Activity)}</div></nav>
     <section className="capture-library" aria-label="Saved capture library">
-      <div className="preview-heading"><span className="nav-label">SAVED CAPTURES</span><span>{state.previews.length}</span></div>
+      <div className="preview-heading"><span className="nav-label">SAVED CAPTURES</span><div className="capture-library-actions"><span className="capture-count">{state.previews.length}</span><IconButton title="View all saved captures" onClick={onOpenLibrary}><Maximize2 size={15}/></IconButton></div></div>
       <label className="library-search"><Search size={14}/><input aria-label="Search saved captures" placeholder="Find a capture…" value={query} onChange={e=>setQuery(e.target.value)}/>{query&&<IconButton title="Clear capture search" onClick={()=>setQuery('')}><X size={13}/></IconButton>}</label>
       <div className="preview-list" role="region" aria-label="Saved captures" tabIndex={0}>{captures.map(p=><div key={p.id} className={`preview-item ${selected===p.id?'selected':''}`}>
         <button className="preview-select" title={`${p.name} · ${p.row_count.toLocaleString()} rows · ${dateLabel(p.created)}`} aria-pressed={selected===p.id} onClick={()=>onSelect(p.id)}><FileSpreadsheet size={17}/><div><strong>{p.name}</strong><small>{p.row_count.toLocaleString()} rows · {dateLabel(p.created)}</small></div>{p.id===state.previews[0]?.id&&<i>Latest</i>}</button>
@@ -48,11 +48,11 @@ export function WorkspaceContext({production,view,preview,snapshot,reportMode,ru
   </div>;
 }
 
-export function CapturePicker({previews,selected,onSelect,onDelete,busy}){
+export function CapturePicker({previews,selected,onSelect,onDelete,onOpenLibrary,busy}){
   const [query,setQuery]=useState('');
   const items=previews.filter(p=>`${p.name} ${dateLabel(p.created)} ${p.row_count}`.toLowerCase().includes(query.toLowerCase()));
   const chosen=previews.find(p=>p.id===selected);
-  return <section className="capture-picker" aria-label="Choose a saved capture"><label className="library-search"><Search size={16}/><input aria-label="Find saved capture" placeholder="Search name, date or row count" value={query} onChange={e=>setQuery(e.target.value)}/></label><label>Selected capture<select aria-label="Selected capture" value={selected||''} onChange={e=>onSelect(Number(e.target.value))}>{chosen&&!items.includes(chosen)&&<option value={chosen.id}>{chosen.name} (selected)</option>}{items.map(p=><option key={p.id} value={p.id}>{p.name} · {p.row_count.toLocaleString()} rows · {dateLabel(p.created)}{p.id===previews[0]?.id?' · Latest':''}</option>)}</select></label>{chosen&&<IconButton title="Delete selected capture" disabled={busy} onClick={e=>onDelete(e,chosen.id)}><Trash2 size={16}/></IconButton>}{!items.length&&<span role="status">No captures match your search.</span>}</section>;
+  return <section className="capture-picker" aria-label="Choose a saved capture"><label className="library-search"><Search size={16}/><input aria-label="Find saved capture" placeholder="Search name, date or row count" value={query} onChange={e=>setQuery(e.target.value)}/></label><label>Selected capture<select aria-label="Selected capture" value={selected||''} onChange={e=>onSelect(Number(e.target.value))}>{chosen&&!items.includes(chosen)&&<option value={chosen.id}>{chosen.name} (selected)</option>}{items.map(p=><option key={p.id} value={p.id}>{p.name} · {p.row_count.toLocaleString()} rows · {dateLabel(p.created)}{p.id===previews[0]?.id?' · Latest':''}</option>)}</select></label><button className="secondary" onClick={onOpenLibrary}><Maximize2 size={16}/>Manage captures</button>{chosen&&<IconButton title="Delete selected capture" disabled={busy} onClick={e=>onDelete(e,chosen.id)}><Trash2 size={16}/></IconButton>}{!items.length&&<span role="status">No captures match your search.</span>}</section>;
 }
 
 export function SheetSegments({value,onChange,counts,imported=false}){

@@ -1,0 +1,47 @@
+.dialog-heading-actions { display:flex; align-items:center; gap:8px; }
+.capture-library-actions { display:flex; align-items:center; position:relative; height:17px; padding-right:28px; }
+.capture-library-actions .icon-button { position:absolute; right:0; top:50%; transform:translateY(-50%); width:24px; height:24px; min-height:24px; }
+.capture-library-actions .capture-count { font-size:11px; color:var(--muted); margin-right:3px; }
+.studio-dialog.capture-manager { width:min(1100px,calc(100vw - 48px)); max-width:none; max-height:calc(100dvh - 48px); padding:0; }
+.studio-dialog.capture-manager.capture-manager-maximized { width:calc(100vw - 24px); height:calc(100dvh - 24px); max-height:calc(100dvh - 24px); }
+.capture-manager[open] { display:flex; flex-direction:column; overflow:hidden; }
+.capture-manager .studio-dialog-heading { flex:none; }
+.capture-manager-body { display:flex; flex-direction:column; min-height:0; overflow:hidden; padding:24px; gap:16px; }
+.capture-manager-maximized .capture-manager-body { flex:1; }
+.capture-manager-summary { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+.capture-manager-summary strong { font-size:18px; }
+.capture-manager-summary p,.capture-manager-footer p { font-size:12px; color:var(--muted); margin:6px 0 0; line-height:1.6; }
+.capture-manager-summary>span { font-size:12px; white-space:nowrap; color:var(--muted); }
+.capture-manager-toolbar { display:flex; gap:12px; align-items:center; }
+.capture-manager-toolbar .library-search { flex:1; margin:0; padding:10px 12px; }
+.capture-manager-toolbar input { width:100%; }
+.capture-selection-summary { display:flex; align-items:center; gap:12px; font-size:12px; color:var(--muted); }
+.capture-manager-scroll { min-height:130px; max-height:45dvh; overflow:auto; border:1px solid var(--line); border-radius:12px; }
+.capture-manager-maximized .capture-manager-scroll { flex:1; max-height:none; }
+.capture-manager-table { width:100%; border-collapse:collapse; font-size:12px; text-align:left; }
+.capture-manager-table th { position:sticky; top:0; background:var(--surface-alt,var(--surface)); z-index:1; font-size:11px; color:var(--muted); }
+.capture-manager-table th,.capture-manager-table td { padding:12px 14px; border-bottom:1px solid var(--line); white-space:nowrap; }
+.capture-manager-table td:nth-child(2),.capture-manager-table td:nth-child(4) { white-space:normal; overflow-wrap:anywhere; min-width:140px; }
+.capture-manager-table th:first-child,.capture-manager-table td:first-child { width:40px; }
+.capture-manager input[type=checkbox] { width:17px; height:17px; accent-color:var(--accent); cursor:pointer; }
+.capture-manager-table .capture-checked { background:color-mix(in srgb,var(--accent) 12%,var(--surface)); }
+.capture-manager-table .capture-current { background:color-mix(in srgb,var(--accent) 5%,var(--surface)); }
+.capture-latest { display:inline-block; margin-left:9px; color:var(--accent); font-size:10px; background:color-mix(in srgb,var(--accent) 12%,var(--surface)); padding:3px 7px; border-radius:5px; }
+.capture-manager-empty { padding:35px 20px; text-align:center; color:var(--muted); }
+.capture-manager-empty h3 { color:var(--text); font-size:16px; margin:12px 0 8px; }
+.capture-manager-empty p { font-size:12px; }
+.capture-manager-footer { display:flex; justify-content:space-between; gap:16px; align-items:center; flex:none; }
+.capture-manager-footer p { margin:0; }
+.capture-manager .capture-delete { color:var(--danger,#c33750); }
+.capture-manager .primary.capture-delete { color:white; background:#b52f48; border-color:#b52f48; }
+.capture-confirmation { flex:none; padding:16px; border:1px solid color-mix(in srgb,#c33750 40%,var(--line)); border-radius:12px; background:color-mix(in srgb,#c33750 5%,var(--surface)); }
+.capture-confirmation p { font-size:12px; line-height:1.6; color:var(--muted); margin:8px 0 12px; }
+.capture-confirmation>div { display:flex; gap:10px; }
+@media(max-width:700px) {
+  .studio-dialog.capture-manager { width:calc(100vw - 20px); max-height:calc(100dvh - 20px); }
+  .capture-manager-body { padding:16px; gap:12px; }
+  .capture-manager-summary,.capture-manager-footer { align-items:flex-start; flex-direction:column; gap:10px; }
+  .capture-manager-toolbar { flex-wrap:wrap; }
+  .capture-manager-toolbar .library-search { flex-basis:100%; }
+  .capture-manager-summary>span { display:none; }
+}

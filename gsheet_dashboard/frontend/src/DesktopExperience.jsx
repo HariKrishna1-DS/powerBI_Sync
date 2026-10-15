@@ -16,10 +16,10 @@ export function OfflineNotice({snapshot}) {
   return snapshot?.offline ? <div className="offline-notice" role="status"><WifiOff size={17}/><div><strong>{snapshot.mode==='excel'?'Viewing saved imported Excel data':'Viewing a saved Google Sheets copy'}</strong><span>Last refreshed {new Date(snapshot.updated_at).toLocaleString()}. {snapshot.mode==='excel'?'Reconnecting to the local application.':'Reconnect to sync changes.'}</span></div></div> : null;
 }
 
-export function Dialog({title, children, onClose, className='', initialFocus=''}) {
+export function Dialog({title, children, onClose, className='', initialFocus='', actions=null}) {
   const ref=useRef();
   useLayoutEffect(()=>{const dialog=ref.current;dialog.showModal();if(initialFocus)dialog.querySelector(initialFocus)?.focus();return()=>dialog.close();},[]);
-  return <dialog ref={ref} aria-label={title} className={`studio-dialog ${className}`} onCancel={event=>{event.preventDefault();onClose();}} onClick={event=>{if(event.target===event.currentTarget)onClose();}}><div className="studio-dialog-heading"><div><span className="eyebrow">TV TRACKER</span><h2>{title}</h2></div><button className="icon-button" aria-label="Close dialog" onClick={onClose}><X size={20}/></button></div>{children}</dialog>;
+  return <dialog ref={ref} aria-label={title} className={`studio-dialog ${className}`} onCancel={event=>{event.preventDefault();onClose();}} onClick={event=>{if(event.target===event.currentTarget)onClose();}}><div className="studio-dialog-heading"><div><span className="eyebrow">TV TRACKER</span><h2>{title}</h2></div><div className="dialog-heading-actions">{actions}<button className="icon-button" aria-label="Close dialog" onClick={onClose}><X size={20}/></button></div></div>{children}</dialog>;
 }
 
 export function LocalWelcome({onImport}) {

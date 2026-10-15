@@ -1,8 +1,8 @@
-# Tv Tracker 1.0.5 — Windows desktop
+# Tv Tracker 1.0.6 — Windows desktop
 
 Tv Tracker is a local desktop workspace for TitleVision extraction, Google Sheets production tracking, saved captures, comparisons, and Power BI exports. Its Python and Node runtimes are bundled. No Render hosting or PostgreSQL service is required.
 
-The current source version is **1.0.5** on `tv-tracker-app`. Desktop and React package manifests and lockfiles use this version. See [the 1.0.5 release notes](docs/TV_TRACKER_1_0_5_RELEASE.md) for the included changes.
+The current source version is **1.0.6** on `tv-tracker-app`. Desktop and React package manifests and lockfiles use this version. See [the 1.0.6 release notes](docs/TV_TRACKER_1_0_5_RELEASE.md) for the included changes.
 
 ## Desktop branch
 

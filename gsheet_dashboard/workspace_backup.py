@@ -10,11 +10,11 @@ import tempfile
 import zipfile
 
 SETTINGS = ('remaining_products.json', 'sync_schedule.json', 'production-cache.json')
-TABLES = {'previews', 'sla_corrections', 'sync_receipts', 'sync_jobs', 'sync_reports', 'sync_failures', 'operation_history', 'monthly_operations', 'report_workspace', 'import_excel_changes', 'sqlite_sequence'}
+TABLES = {'previews', 'capture_settings', 'sla_corrections', 'sync_receipts', 'sync_jobs', 'sync_reports', 'sync_failures', 'operation_history', 'monthly_operations', 'report_workspace', 'import_excel_changes', 'sqlite_sequence'}
 
 
 def save_safety_backup(store, reason):
-    if reason not in ('before-delete', 'before-update'):
+    if reason not in ('before-delete', 'before-update', 'before-reset'):
         raise ValueError('Unknown backup reason.')
     stamp = datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S-%f')
     destination = store.root.parent / 'backups' / f'{reason}-{stamp}.zip'
@@ -79,6 +79,11 @@ def restore_backup(store, raw):
                 if ('table', 'sync_receipts') in schema:
                     connection.execute('SELECT preview_id,report_json FROM sync_receipts LIMIT 1')
                 connection.execute('SELECT order_number,completion_date,status,updated FROM sla_corrections LIMIT 1')
+                if ('table', 'capture_settings') in schema:
+                    for number, payload in connection.execute('SELECT id,payload FROM capture_settings'):
+                        value = json.loads(payload)
+                        if number != 1 or not isinstance(value, dict) or type(value.get('auto_recover')) is not bool:
+                            raise ValueError('Backup contains invalid capture recovery settings.')
                 if ('table', 'report_workspace') in schema:
                     for number, payload in connection.execute('SELECT id,payload FROM report_workspace'):
                         try:

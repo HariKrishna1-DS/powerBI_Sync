@@ -692,6 +692,8 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
                 continue
             try:
                 with workspace.lock:
+                    if not requested.is_set():
+                        continue
                     requested.clear()
                     full = full_requested.is_set()
                     full_requested.clear()
@@ -713,11 +715,18 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
         return {'synced': False, 'queued': True}
 
     app.extensions['queue_report_publication'] = queue_publication
+    def cancel_publication():
+        with workspace.lock:
+            requested.clear()
+            full_requested.clear()
+    app.extensions['cancel_report_publication'] = cancel_publication
 
     last_cloud_check = float('-inf')
     def refresh_imported_reports(force=False):
         nonlocal last_cloud_check
         settings = workspace.read()
+        if settings.get('fresh_start') and not settings.get('enabled'):
+            return {'changed': False, 'mode': settings['mode']}
         if settings.get('mode') == 'excel' and not settings.get('imported'):
             return {'changed': False, 'mode': 'excel'}
         reset = settings.get('mode') == 'excel' and settings.get('cloud_reset')

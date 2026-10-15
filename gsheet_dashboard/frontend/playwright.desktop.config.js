@@ -4,7 +4,7 @@ const port=Number(process.env.TV_TRACKER_TEST_PORT||8511);
 
 export default defineConfig({
   testDir: './tests',
-  testMatch: ['upgrade-workspace.spec.js', 'desktop-ui.spec.js', 'desktop-alignment.spec.js', 'desktop-updates.spec.js',
+  testMatch: ['saved-captures.spec.js', 'upgrade-workspace.spec.js', 'desktop-ui.spec.js', 'desktop-alignment.spec.js', 'desktop-updates.spec.js',
     'tracker-v2.spec.js', 'october-updates.spec.js', 'sla-comments.spec.js', 'studio-workspace.spec.js', 'production-sync.spec.js', 'live-sheet-refresh.spec.js', 'sync-performance.spec.js', 'monthly-production.spec.js', 'workspace-redesign.spec.js'],
   timeout: 45000,
   workers: 1,
