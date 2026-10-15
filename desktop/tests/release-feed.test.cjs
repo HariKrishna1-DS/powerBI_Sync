@@ -5,7 +5,7 @@ const semver = require('semver');
 const {GitHubProvider} = require('electron-updater/out/providers/GitHubProvider');
 const {createUpdater, PRODUCTION_UPDATE_FEED} = require('../updater.cjs');
 
-for (const [installed, latest] of [['1.0.1','1.0.2'],['1.0.2','1.0.3']]) {
+for (const [installed, latest] of [['1.0.1','1.0.2'],['1.0.2','1.0.3'],['1.0.4','1.0.5']]) {
   test(`${installed} discovers and installs production ${latest} through Latest, ignoring an older testing series`,async()=>{
     const paths=[];
     const updater=new EventEmitter();let provider,info,downloads=0,installs=0,prepared=0;

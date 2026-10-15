@@ -104,7 +104,7 @@ function Connections({onClose,running,initialTab='connections'}) {
   </Dialog>;
 }
 
-const PAGES=[['overview','Overview'],['sheets','Data Sheets'],['captures','Saved captures'],['importChanges','Import Excel Changes'],['daily','Daily Orders'],['monthly','Monthly Orders'],['capacity','Capacity Report'],['audit','Sync activity'],['changes','Changes between captures']];
+const PAGES=[['overview','Overview'],['sheets','Data Sheets'],['captures','Saved captures'],['importChanges','Import Excel Changes'],['daily','Daily Orders'],['monthly','Monthly Orders'],['sla','SLA Status'],['capacity','Capacity Report'],['audit','Sync activity'],['changes','Changes between captures']];
 export function DesktopTools({onNavigate,onImport,running}) {
   const [settings,setSettings]=useState(false),[commands,setCommands]=useState(false),[query,setQuery]=useState(''),[settingsTab,setSettingsTab]=useState('connections');
   const [updateState,setUpdateState]=useState(null),[connectionRecovery,setConnectionRecovery]=useState(null);

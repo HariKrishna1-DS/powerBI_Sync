@@ -76,7 +76,7 @@ def arrival_sort(rows, reviews=None):
     from tracker_sync import key
     decorated = []
     for row in rows:
-        date = local_datetime(row.get('In-Time', row.get('Arrival Time', row.get('RequestArrivalTime'))))
+        date = local_datetime(row.get('_received_at')) or local_datetime(row.get('In-Time', row.get('Arrival Time', row.get('RequestArrivalTime'))))
         if date is None and reviews is not None:
             reviews.append({'Order Number': row.get('Order Number', ''), 'Reason': 'Missing or invalid In-Time; sorted last'})
         decorated.append((date or datetime.max, key(row), row))

@@ -30,6 +30,13 @@ def view_identity(title):
     return None
 
 
+def product_view_headers(headers):
+    """Reserve Y for manual Typer values; deadline categories have their own report."""
+    from tracker_sync import HEADERS
+    return list(dict.fromkeys(HEADERS + ['Typer'] + [column for column in headers
+        if column and column.strip() and column not in HEADERS and column not in ('Typer', 'SLA Category') and not column.startswith('_')]))
+
+
 def monthly_view_values(trackers, raw_rows=(), headers=None):
     """Keep every non-full product, including those outside UI selections.
 
@@ -41,7 +48,7 @@ def monthly_view_values(trackers, raw_rows=(), headers=None):
         full_rows = next((rows for title, rows in trackers.items()
             if title == FULL or (tab_identity(title) and tab_identity(title)[0] == FULL)), [])
         headers = extend_headers(HEADERS, full_rows)
-    headers = [column for column in headers if not column.startswith('_')]
+    headers = product_view_headers(headers)
     buckets, months = defaultdict(list), set()
     for title, rows in trackers.items():
         identity = tab_identity(title)
@@ -55,6 +62,14 @@ def monthly_view_values(trackers, raw_rows=(), headers=None):
             buckets[view_name(full, month)].append(row)
         if identity and identity[1] > ARCHIVE:
             months.add(identity[1])
+    # The newest pair is the searchable partition of retained production.
+    # Arrival month must not hide an older Two Owner or other non-full order.
+    if months:
+        latest = max(months)
+        from status_updates import full_product
+        retained = {key(row): row for rows in trackers.values() for row in rows if key(row)}
+        for full in (True, False):
+            buckets[view_name(full, latest)] = [row for row in retained.values() if full_product(row) == full]
     return {view_name(full, month): encode(arrival_sort(buckets[view_name(full, month)]),
                 headers)
             for month in sorted(months) for full in (True, False)}

@@ -215,7 +215,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
             production_cache.identity = '|'.join((sync_config.SPREADSHEET_ID, *sync_config.TRACKER_TITLES))
             production_cache.reload()
             if settings['spreadsheetId'] != previous_spreadsheet:
-                report_workspace.save(cloud_baseline=None, cloud_reset=True, synced_at=None,
+                report_workspace.save(cloud_baseline=None, tracker_status_baseline=None, cloud_reset=True, synced_at=None,
                                       cloud_refresh_error=None)
             recovery_checked, cloud_schedule_loaded = float('-inf'), False
             connection_retry_after = float('-inf')
@@ -915,6 +915,8 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
 
     def production_snapshot(force=False, known_revision=None, tracker_only=False):
         from report_workspace import imported_snapshot
+        if not tracker_only and app.extensions.get('refresh_imported_reports'):
+            app.extensions['refresh_imported_reports']()
         settings = report_workspace.read()
         if not tracker_only and settings['mode'] == 'excel' and settings.get('imported'):
             return dict(imported_snapshot(settings['imported']), data_revision=settings.get('data_revision'))
@@ -941,6 +943,9 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
                 sheets[label]['rows'] = arrival_sort(sheets[label]['rows'])
             columns = list(dict.fromkeys(c for title in ('Full Title', 'Remaining Products') for c in sheets[title]['columns']))
             combined = arrival_sort(sheets['Full Title']['rows'] + sheets['Remaining Products']['rows'])
+            from status_updates import full_product
+            for full, label in ((True, 'Full Title'), (False, 'Remaining Products')):
+                sheets[label] = {'columns': columns, 'rows': [row for row in combined if full_product(row) == full]}
             sheets['Overview'] = sheets['All Products'] = {'columns': columns, 'rows': combined}
             audit = read_pass_report(book, store)
             reports = sheet_reports(trackers, audit)
@@ -1408,14 +1413,17 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
 
 
 def main():
-    import os
+    import logging
+    import webbrowser
     parser = argparse.ArgumentParser()
     default_host = os.environ.get('HOST', '0.0.0.0' if (os.environ.get('RENDER') or os.environ.get('PORT')) else '127.0.0.1')
     default_port = int(os.environ.get('PORT', 8510))
     parser.add_argument('--host', type=str, default=default_host)
     parser.add_argument('--port', type=int, default=default_port)
+    parser.add_argument('--open-browser', action='store_true',
+                        help='Open the workspace in the system browser after the server starts.')
     args = parser.parse_args()
-    from waitress import serve
+    from waitress import create_server
     host = args.host
     port = args.port
     if host == '127.0.0.1':
@@ -1428,8 +1436,30 @@ def main():
                     port += 1
         else:
             raise RuntimeError('No free dashboard port. Choose another port with --port.')
-    print(f'DataTrace Workspace: http://{host}:{port}', flush=True)
-    serve(create_app(start_scheduler=True), host=host, port=port, threads=8)
+    logging.basicConfig()
+    app = create_app(start_scheduler=True)
+    try:
+        server = create_server(app, host=host, port=port, threads=8)
+    except Exception:
+        app.extensions['stop_scheduler'].set()
+        raise
+    try:
+        browser_host = '127.0.0.1' if host == '0.0.0.0' else host
+        if ':' in browser_host:
+            browser_host = f'[{browser_host}]'
+        url = f'http://{browser_host}:{server.effective_port}'
+        print(f'DataTrace Workspace: {url}', flush=True)
+        if args.open_browser:
+            try:
+                opened = webbrowser.open(url, new=2)
+            except (OSError, webbrowser.Error):
+                opened = False
+            if not opened:
+                print('Open the workspace URL above in Microsoft Edge or Google Chrome.', flush=True)
+        server.run()
+    finally:
+        app.extensions['stop_scheduler'].set()
+        server.close()
 
 
 if __name__ == '__main__':

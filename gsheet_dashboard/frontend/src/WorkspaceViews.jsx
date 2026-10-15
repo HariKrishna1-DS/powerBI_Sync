@@ -5,20 +5,33 @@ import { ResponsiveContainer, LabelList, BarChart, Bar, LineChart, Line, AreaCha
 import {Dialog, OfflineNotice} from './DesktopExperience';
 import {MonthlyDownload, MonthlyMaintenance} from './MonthlyMaintenance';
 import remainingProducts from '../../remaining_products.json';
+const DateOrdersDialog=React.lazy(()=>import('./DateOrdersDialog'));
 
-import {EMPTY, DEFAULT_IGNORE, colors, str, label, normalized, badgeClass, STATUS_COLORS, statusColor, textColorForBg, api, saveBlob, csvDownload, matches, IconButton} from './workspaceUtils';
+import {EMPTY, DEFAULT_IGNORE, colors, str, label, normalized, orderKey, badgeClass, STATUS_COLORS, statusColor, textColorForBg, api, saveBlob, csvDownload, matches, IconButton} from './workspaceUtils';
 function SideDrawer({title,rows,columns,onClose}) {
+  const [search,setSearch]=useState('');
+  const query=useDeferredValue(search).toLowerCase();
+  const detailColumns=useMemo(()=>{const names=new Set(columns);for(const row of rows)for(const column of Object.keys(row))if(!column.startsWith('_'))names.add(column);return [...names].filter(column=>!column.startsWith('_'));},[columns,rows]);
+  const visible=useMemo(()=>rows.filter(row=>!query||detailColumns.some(column=>str(row[column]).toLowerCase().includes(query))),[rows,detailColumns,query]);
   if(!title)return null;
-  return <Dialog title={title} onClose={onClose} className="detail-dialog"><div className="dialog-content"><p className="muted">{rows.length.toLocaleString()} matching records</p><DataTable rows={rows} columns={columns} filters={{}} openFilter={()=>{}} filterable={false} name={title}/></div></Dialog>;
+  return <Dialog title={title} onClose={onClose} className="detail-dialog"><div className="dialog-content"><p className="muted">{rows.length.toLocaleString()} matching records</p><div className="search-input"><Search size={16}/><input aria-label="Search detail records" placeholder="Search all details" value={search} onChange={event=>setSearch(event.target.value)}/></div><DataTable rows={visible} columns={detailColumns} filters={{}} openFilter={()=>{}} filterable={false} name={title}/></div></Dialog>;
 }
 function MaximizedModal({title,subtitle,children,onClose}) {
   return <Dialog title={title} onClose={onClose} className="chart-dialog"><div className="dialog-content">{subtitle&&<p className="muted">{subtitle}</p>}{children}</div></Dialog>;
 }
-export function DuplicateOrdersDialog({rows,onClose}) {
-  const columns=['Order Number','Date','Product','Status','Earlier file','Earlier worksheet','Replacement file','Replacement worksheet'];
+export function DuplicateOrdersDialog({rows,overlaps=[],onClose}) {
+  const [search,setSearch]=useState(''),[across,setAcross]=useState(false);
+  const columns=['Order Number','Earlier row','Replacement row','Earlier product','Product','Earlier file','Earlier worksheet','Replacement file','Replacement worksheet','Earlier date','Date','Earlier status','Status'].map(column=>across?column.replace('Replacement','Other'):column);
+  const selected=across?overlaps.map(row=>({...row,'Other row':row['Replacement row'],'Other file':row['Replacement file'],'Other worksheet':row['Replacement worksheet']})):rows;
+  const sourceNames=[...new Set(selected.flatMap(row=>[row['Earlier file'],row['Other file']||row['Replacement file']]).filter(Boolean))];
+  const visible=selected.filter(row=>!search||columns.some(column=>str(row[column]).toLowerCase().includes(search.toLowerCase())));
   return <Dialog title={`Duplicate orders · ${rows.length}`} onClose={onClose} className="detail-dialog">
-    <div className="dialog-content"><p className="muted">Each row shows a repeated Order Number and the later source row retained in the reports.</p>
-      <DataTable rows={rows} columns={columns} filters={{}} openFilter={()=>{}} filterable={false} name="Duplicate orders"/>
+    <div className="dialog-content"><p className="muted">The duplicate count includes repeats within a workbook; the later occurrence is retained. Matching numbers in different workbooks are normal orders, counted separately in their source file tabs and in All Products. Across workbooks lists these numbers for reference.</p>
+      <div className="report-mode duplicate-source-tabs" aria-label="Order number comparison"><button type="button" className={!across?'active':''} aria-pressed={!across} onClick={()=>{setAcross(false);setSearch('');}}>Within workbook <strong>{rows.length.toLocaleString()}</strong></button><button type="button" className={across?'active':''} aria-pressed={across} onClick={()=>{setAcross(true);setSearch('');}}>Across workbooks <strong>{overlaps.length.toLocaleString()}</strong></button></div>
+      <div className="search-input"><Search size={16}/><input aria-label="Search repeated orders" placeholder="Search order number, file or product" value={search} onChange={event=>setSearch(event.target.value)}/></div>
+      {!!sourceNames.length&&<p className="report-context">Source workbooks: {sourceNames.join(' · ')}</p>}
+      {across&&<p className="report-context">Both source records are kept. These entries do not increase the Duplicate Orders count.</p>}
+      <DataTable rows={visible} columns={columns} filters={{}} openFilter={()=>{}} filterable={false} name={across?'Orders shared across workbooks':'Repeated orders within a workbook'}/>
     </div>
   </Dialog>;
 }
@@ -429,8 +442,8 @@ function FilterPanel({column, rows, filters, setFilters, close}) {
 
 
 function Chart({rows, columns, onSelect}) {
-  const [type, setType] = useState('bar'), [group, setGroup] = useState(''), [width, setWidth] = useState(56);
-  const field = columns.includes(group) ? group : columns.includes('Arrival Date') ? 'Arrival Date' : columns[0];
+  const [type, setType] = useState('bar'), [group, setGroup] = useState('Status'), [width, setWidth] = useState(56);
+  const field = columns.includes(group) ? group : columns.includes('Status') ? 'Status' : columns.includes('Task Status') ? 'Task Status' : columns[0];
   const data = useMemo(()=>{const counts=new Map();rows.forEach(row=>{const name=label(row[field]);counts.set(name,(counts.get(name)||0)+1);});return [...counts].sort((a,b)=>a[0].localeCompare(b[0],undefined,{numeric:true})).map(([name,count])=>({name,count}));},[rows,field]);
   const pie = type === 'pie' || type === 'donut';
   const Component = type === 'line' ? LineChart : type === 'area' ? AreaChart : BarChart;
@@ -443,13 +456,13 @@ function Chart({rows, columns, onSelect}) {
   </section>;
 }
 
-function DataTable({rows, columns, filters, openFilter, name, filterable=true, onClose, id}) {
+function DataTable({rows, columns, filters, openFilter, name, filterable=true, onClose, id, onEdit, editDisabled=false}) {
   const [page, setPage] = useState(0), [size, setSize] = useState(50), [sort, setSort] = useState(null);
   useEffect(()=>setPage(0),[rows,size]);
   const sorted = useMemo(()=>sort ? [...rows].sort((a,b)=>str(a[sort.column]).localeCompare(str(b[sort.column]),undefined,{numeric:true})*(sort.desc?-1:1)) : rows,[rows,sort]);
   const pages = Math.max(1,Math.ceil(rows.length/size)), safePage = Math.min(page,pages-1);
   return <section className="table-section" id={id} tabIndex={id?-1:undefined}><div className="section-heading"><h2>{name}</h2><div className="inline"><button className="secondary" disabled={!rows.length} onClick={()=>csvDownload(sorted,columns,`${name}-filtered.csv`)}><ArrowDownToLine size={16}/>Filtered CSV</button>{onClose&&<IconButton title="Close chart details" onClick={onClose}><X size={17}/></IconButton>}</div></div>
-    <div className="table-scroll"><table><thead><tr>{columns.map(c=><th key={c}><div className="th-inner">{filterable?<button className={filters[c]?'column-button active-filter':'column-button'} title={`Filter ${c} and view unique values`} onClick={()=>openFilter(c)}>{c}<Filter size={13}/></button>:<span className="column-label">{c}</span>}<IconButton title={`Sort ${c}`} onClick={()=>setSort({column:c,desc:sort?.column===c?!sort.desc:false})}>{sort?.column===c&&sort.desc?<ArrowDown size={13}/>:<ArrowUp size={13}/>}</IconButton></div></th>)}</tr></thead><tbody>{sorted.slice(safePage*size,(safePage+1)*size).map((row,i)=><tr key={i}>{columns.map(c=><td key={c} title={str(row[c])}>{c==='Change'||c==='Comparison Status'?<span className={`badge ${badgeClass(row[c])}`}>{c==='Comparison Status'&&row[c]==='Missing'?'Missing Previews':str(row[c])}</span>:label(row[c])}</td>)}</tr>)}</tbody></table>{!rows.length&&<div className="table-empty">No matching rows</div>}</div>
+    <div className="table-scroll"><table><thead><tr>{columns.map(c=><th key={c}><div className="th-inner">{filterable?<button className={filters[c]?'column-button active-filter':'column-button'} title={`Filter ${c} and view unique values`} onClick={()=>openFilter(c)}>{c}<Filter size={13}/></button>:<span className="column-label">{c}</span>}<IconButton title={`Sort ${c}`} onClick={()=>setSort({column:c,desc:sort?.column===c?!sort.desc:false})}>{sort?.column===c&&sort.desc?<ArrowDown size={13}/>:<ArrowUp size={13}/>}</IconButton></div></th>)}</tr></thead><tbody>{sorted.slice(safePage*size,(safePage+1)*size).map((row,i)=><tr key={i}>{columns.map(c=><td key={c} title={str(row[c])}>{c==='Order Number'&&onEdit?<button type="button" className="text-button" aria-label={`Edit order ${str(row[c])}`} disabled={editDisabled||row.Change==='Removed'} onClick={()=>onEdit(row)}>{label(row[c])}</button>:c==='Change'||c==='Comparison Status'?<span className={`badge ${badgeClass(row[c])}`}>{c==='Comparison Status'&&row[c]==='Missing'?'Missing Previews':str(row[c])}</span>:label(row[c])}</td>)}</tr>)}</tbody></table>{!rows.length&&<div className="table-empty">No matching rows</div>}</div>
     <footer className="table-footer"><span>{rows.length.toLocaleString()} rows</span><div className="inline"><label>Rows <select aria-label="Rows per page" value={size} onChange={e=>setSize(Number(e.target.value))}>{[25,50,100,250].map(n=><option key={n}>{n}</option>)}</select></label><IconButton title="Previous page" disabled={safePage===0} onClick={()=>setPage(safePage-1)}><ChevronLeft size={16}/></IconButton><span>{safePage+1} / {pages}</span><IconButton title="Next page" disabled={safePage+1===pages} onClick={()=>setPage(safePage+1)}><ChevronRight size={16}/></IconButton></div></footer>
   </section>;
 }
@@ -462,6 +475,7 @@ const DAILY_SERIES = [
   {name:'Vendor Pending',color:'#b99442'}, {name:'In-House Pending',color:'#596cc0'},
   {name:'SLA OnTime',color:'#30874b'}, {name:'Missing',color:'#d79a32'}
 ];
+const DAILY_TONES = ['blue','green','amber','gray','purple','blue','green','red'];
 
 function PeriodOrdersChart({history, selected, onSelect, period, series, title, label: chartLabel}) {
   const [expanded,setExpanded]=useState(false);
@@ -509,16 +523,18 @@ function DailyOrdersChart({history, selectedDate, onSelect, series=DAILY_SERIES}
 function ImportedStatusSummary({report}) {
   const counts=report?.status_counts;
   if(!counts)return null;
-  return <section className="status-report"><div className="section-heading"><h3>All imported statuses</h3><span>{Object.keys(counts).length} statuses / {report.Received} orders</span></div><div className="status-report-scroll"><table className="status-report-table"><thead><tr><th>Status</th><th>Orders</th><th>Share</th></tr></thead><tbody>{Object.entries(counts).map(([name,count])=><tr key={name}><td>{name}</td><td>{count.toLocaleString()}</td><td>{report.Received?(count/report.Received*100).toFixed(1):'0.0'}%</td></tr>)}</tbody></table></div></section>;
+  return <section className="status-report"><div className="section-heading"><h3>All imported statuses</h3><span>{Object.keys(counts).length} statuses / {report.Received} orders</span></div><div className="status-report-scroll"><table className="status-report-table"><thead><tr><th>Status</th><th>Orders</th><th>Share</th></tr></thead><tbody>{Object.entries(counts).map(([name,count])=><tr key={name}><td><span className="report-status-name"><i style={{background:statusColor(name)}}/>{name}</span></td><td>{count.toLocaleString()}</td><td>{report.Received?(count/report.Received*100).toFixed(1):'0.0'}%</td></tr>)}</tbody></table></div></section>;
 }
 const importedSeries=snapshot=>(snapshot?.statuses||[]).map(name=>({name:'Status: '+name,color:statusColor(name)}));
 const dailyDateLabel=value=>/^\d{4}-\d{2}-\d{2}$/.test(str(value))?`${value.slice(8,10)}-${value.slice(5,7)}-${value.slice(2,4)}`:str(value);
 
-function DailyOrders({preview, running}) {
+function DailyOrders({preview, running, revision}) {
   const [history,setHistory]=useState([]), [error,setError]=useState(''), [date,setDate]=useState(''), [search,setSearch]=useState('');
   const [loading,setLoading]=useState(true), [snapshot,setSnapshot]=useState(null), [publishing,setPublishing]=useState(false), [publishMessage,setPublishMessage]=useState('');
   const [highlight,setHighlight]=useState(null);
-  useEffect(()=>{let active=true;setLoading(true);api(`/api/daily-orders${preview.id?`?preview_id=${preview.id}`:''}`).then(data=>{if(active){setHistory(data.rows);setSnapshot(data);setHighlight(data);setDate(current=>data.rows.some(row=>row.Date===current)?current:data.selected_date||'');setError('');}}).catch(e=>{if(active){setHistory([]);setError(e.message);}}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[preview.id,running]);
+  const [detailDate,setDetailDate]=useState(null),[historyRefresh,setHistoryRefresh]=useState(0);
+  const [activeGroup,setActiveGroup]=useState(null);
+  useEffect(()=>{let active=true;setLoading(true);api(`/api/daily-orders${preview.id?`?preview_id=${preview.id}`:''}`).then(data=>{if(active){setHistory(data.rows);setSnapshot(data);setHighlight(data);setDate(current=>data.rows.some(row=>row.Date===current)?current:data.selected_date||'');setError('');}}).catch(e=>{if(active){setHistory([]);setError(e.message);}}).finally(()=>{if(active)setLoading(false);});return()=>{active=false;};},[preview.id,running,historyRefresh,revision]);
   useEffect(()=>{
     if(!highlight)return;
     const selected=highlight.selected_date||'';
@@ -532,6 +548,8 @@ function DailyOrders({preview, running}) {
   },[highlight]);
   async function chooseDate(value){
     if(publishing)return;
+    setActiveGroup(null);
+    if(value)setDetailDate(value);
     setDate(value);setSearch('');setPublishing(true);setError('');setPublishMessage('');
     try{const result=await api('/api/report-date',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({date:value}),timeoutMs:180000});
       if(!result.synced&&!result.queued)setError(`Google Sheets date update needs retry: ${result.sync_error}`);
@@ -541,8 +559,8 @@ function DailyOrders({preview, running}) {
   const selectedDay=history.find(day=>day.Date===date)||history[0];
   const columns=selectedDay?.columns||[];
   const rows=(selectedDay?.rows||[]).filter(row=>!search||columns.some(column=>str(row[column]).toLowerCase().includes(search.toLowerCase())));
-  const onTimeOrders=new Set((selectedDay?.sla_rows||[]).filter(row=>row['Free Site']==='On Time').map(row=>str(row['Order Number']).trim()));
-  const missingSlaOrders=new Set((selectedDay?.sla_rows||[]).filter(row=>row['Free Site']==='Missing').map(row=>str(row['Order Number']).trim()));
+  const onTimeOrders=new Set((selectedDay?.sla_rows||[]).filter(row=>row['Free Site']==='On Time').map(orderKey));
+  const missingSlaOrders=new Set((selectedDay?.sla_rows||[]).filter(row=>row['Free Site']==='Missing').map(orderKey));
   const groups=[
     ['Received',rows],
     ['Completed',rows.filter(row=>normalized(row.Status ?? row['Task Status'])==='completed and delivered')],
@@ -550,8 +568,8 @@ function DailyOrders({preview, running}) {
     ['Cancelled',rows.filter(row=>normalized(row.Status ?? row['Task Status'])==='cancelled')],
     ['Vendor Pending',rows.filter(row=>normalized(row.Status ?? row['Task Status'])==='assign to abs')],
     ['In-House Pending',rows.filter(row=>!['completed and delivered','awaiting for clarification','cancelled','assign to abs'].includes(normalized(row.Status ?? row['Task Status'])))],
-    ['SLA OnTime',rows.filter(row=>onTimeOrders.has(str(row['Order Number']).trim()))],
-    ['Missing',rows.filter(row=>missingSlaOrders.has(str(row['Order Number']).trim()))],
+    ['SLA OnTime',rows.filter(row=>onTimeOrders.has(orderKey(row)))],
+    ['Missing',rows.filter(row=>missingSlaOrders.has(orderKey(row)))],
   ];
   const names=DAILY_SERIES.map(item=>item.name);
   const statusNames=snapshot?.mode==='excel'?(snapshot.statuses||[]):[];
@@ -560,6 +578,7 @@ function DailyOrders({preview, running}) {
     ...statusNames.map(name=>[name,rows.filter(row=>(str(row.Status||row['Task Status']).trim()||'(Blank)')===name)])
   ]:groups;
   function showGroup(index){
+    setActiveGroup(index);
     const section=document.getElementById(`daily-orders-group-${index}`);
     section?.scrollIntoView({behavior:'smooth',block:'start'});
     section?.focus({preventScroll:true});
@@ -568,12 +587,13 @@ function DailyOrders({preview, running}) {
     {error&&<div className="notice error" role="alert">{error}</div>}{publishMessage&&<p role="status">{publishMessage}</p>}{publishing&&<p role="status">Updating Google Sheets for the selected date…</p>}
     {loading?<div className="loading"><LoaderCircle className="spin"/>Loading daily orders...</div>:<>
       <div className="section-heading"><h2>Daily production orders</h2><div className="monthly-actions"><a className="secondary" href="/api/export/report?sheet=Daily%20Orders" download>Download Daily Orders</a><button type="button" className="secondary" disabled={publishing||!history.length} onClick={()=>chooseDate('')}>Reset date</button><label>Date<select aria-label="Daily orders date" value={selectedDay?.Date||''} disabled={publishing} onChange={e=>chooseDate(e.target.value)}>{history.map(day=><option key={day.Date} value={day.Date}>{dailyDateLabel(day.Date)}</option>)}</select></label></div></div>
-      <div className="metrics">{names.map((name,index)=><button type="button" className={`metric ${['green','red','amber','gray','purple'][index%5]}`} key={name} aria-controls={`daily-orders-group-${index}`} disabled={!selectedDay} onClick={()=>showGroup(index)}><span>{name}</span><strong>{selectedDay?.[name]??0}</strong></button>)}</div>
-      <ImportedStatusSummary report={selectedDay}/><p className="report-context">Click a date to highlight it in Daily Status Report and filter the Google Sheets All Products tab to that day.</p><DailyOrdersChart history={history} selectedDate={selectedDay?.Date} onSelect={chooseDate} series={snapshot?.mode==='excel'?importedSeries(snapshot):DAILY_SERIES}/>
+      <div className="metrics">{names.map((name,index)=><button type="button" className={`metric ${DAILY_TONES[index]}`} key={name} aria-pressed={activeGroup===index} aria-controls={`daily-orders-group-${index}`} disabled={!selectedDay} onClick={()=>showGroup(index)}><span>{name}</span><strong>{selectedDay?.[name]??0}</strong></button>)}</div>
+      <ImportedStatusSummary report={selectedDay}/><p className="report-context">Click a date to open its order table, highlight it in Daily Status Report and filter the Google Sheets All Products tab to that day. Select an Order Number in the dialog to edit its details.</p><DailyOrdersChart history={history} selectedDate={selectedDay?.Date} onSelect={chooseDate} series={snapshot?.mode==='excel'?importedSeries(snapshot):DAILY_SERIES}/>
       <div className="table-scroll"><table><thead><tr>{['Date',...historyNames].map(name=><th key={name}>{name}</th>)}</tr></thead><tbody>{history.map(day=><tr key={day.Date} className={day.Date===selectedDay?.Date?'daily-date-selected':undefined}><td><button className="text-button" aria-pressed={day.Date===selectedDay?.Date} disabled={publishing} onClick={()=>chooseDate(day.Date)}>{dailyDateLabel(day.Date)}</button></td>{historyNames.map(name=><td key={name}>{day[name]??0}</td>)}</tr>)}</tbody></table></div>
       <div className="filter-toolbar"><div className="search-input"><Search size={16}/><input aria-label="Search daily orders" placeholder="Search all columns" value={search} onChange={e=>setSearch(e.target.value)}/></div></div>
       {selectedDay?detailGroups.map(([name,items],index)=><DataTable key={`${name}-${index}`} id={`daily-orders-group-${index}`} rows={items} columns={columns} filters={{}} openFilter={()=>{}} filterable={false} name={`${name} · ${items.length}`}/>):<div className="table-empty">No daily orders</div>}
     </>}
+    {detailDate&&<React.Suspense fallback={null}><DateOrdersDialog key={detailDate} kind="daily" date={detailDate} onClose={()=>setDetailDate(null)} onUpdated={()=>setHistoryRefresh(value=>value+1)}/></React.Suspense>}
   </section>;
 }
 
@@ -595,8 +615,8 @@ function MonthlyOrdersChart({history, selectedMonth, onSelect, series=MONTHLY_SE
   return <PeriodOrdersChart history={history} selected={selectedMonth} onSelect={onSelect} period="Month" series={series} title="Monthly Orders by Month" label="Monthly orders bar chart"/>;
 }
 
-const SLA_COLUMNS=['Order Number','Product Group','Product','In Time','Out Time','SLA Expiration','Free Site'];
-const slaRowKey=row=>JSON.stringify([row['Order Number'],row.completion_date]);
+const SLA_COLUMNS=['Order Number','Source workbook','Product Group','Product','In Time','Out Time','SLA Expiration','Free Site'];
+const slaRowKey=row=>JSON.stringify([orderKey(row),row.completion_date]);
 
 function SlaOrdersTable({rows, statusFilter, onStatusFilter, onSave, running}) {
   const [search,setSearch]=useState(''), [group,setGroup]=useState(''), [page,setPage]=useState(0);
@@ -661,6 +681,7 @@ function SlaOrdersTable({rows, statusFilter, onStatusFilter, onSave, running}) {
 }
 
 function MonthlyOrders({preview,running,reportMode='tracker'}) {
+  const [detail,setDetail]=useState(null);
   const [history,setHistory]=useState([]), [error,setError]=useState(''), [month,setMonth]=useState(''), [search,setSearch]=useState('');
   const [loading,setLoading]=useState(true), [snapshot,setSnapshot]=useState(null);
   const [slaFilter,setSlaFilter]=useState(''), [refreshId,setRefreshId]=useState(0), [saving,setSaving]=useState(false);
@@ -708,6 +729,21 @@ function MonthlyOrders({preview,running,reportMode='tracker'}) {
   },[selectedMonth,deferredSearch,reportMode,snapshot?.statuses]);
   const names=MONTHLY_SERIES.map(series=>series.name);
   const historyNames=[...names,...(reportMode==='excel'?(snapshot?.statuses||[]).map(name=>'Status: '+name):[])];
+  function showMetric(name){
+    const rows=selectedMonth?.rows||[];
+    const ids=field=>new Set((selectedMonth?.[field]||[]).map(value=>str(value).trim().toLowerCase()));
+    const completed=ids(selectedMonth?.completed_keys?'completed_keys':'completed_ids'),unchanged=ids(selectedMonth?.unchanged_keys?'unchanged_keys':'unchanged_ids');
+    let matching=rows;
+    if(name==='Completed Orders')matching=rows.filter(row=>completed.has(normalized(orderKey(row))));
+    if(name==='Unchanged')matching=rows.filter(row=>unchanged.has(normalized(orderKey(row))));
+    if(name==='Awaiting for Clarification')matching=rows.filter(row=>normalized(row.Status)==='awaiting for clarification');
+    if(name.startsWith('SLA ')){
+      const result=name==='SLA On Time'?'On Time':'Missing';
+      matching=(selectedMonth?.sla_rows||[]).filter(row=>row['Free Site']===result).map(row=>({...rows.find(item=>orderKey(item)===orderKey(row)),...row}));
+      setSlaFilter(result);
+    }
+    setDetail({title:`${name} · ${selectedMonth?.MonthLabel||selectedMonth?.Month}`,rows:matching});
+  }
 
   return <section className="daily-orders"><OfflineNotice snapshot={snapshot}/>{snapshot&&!snapshot.offline&&<p className="report-context">{snapshot.source||'Google Sheets'} production · {snapshot.updated_at?`Refreshed ${new Date(snapshot.updated_at).toLocaleString()}`:'Refresh time unavailable'}</p>}
     {reportMode==='excel'&&<div className="notice">Import Excel report: all statuses from your saved files are included. Use Import files to replace an updated workbook or remove a saved file.</div>}
@@ -715,14 +751,15 @@ function MonthlyOrders({preview,running,reportMode='tracker'}) {
     {reportMode==='tracker'&&<MonthlyMaintenance month={selectedMonth?.Month} running={running||saving||snapshot?.offline} onChanged={()=>setRefreshId(value=>value+1)}/>}
     {loading?<div className="loading"><LoaderCircle className="spin"/>Loading monthly orders...</div>:<>
       <div className="section-heading"><h2>Monthly production orders</h2><div className="monthly-actions"><a className="secondary" href="/api/export/report?sheet=Monthly%20Orders" download>Download Monthly Orders</a><label>Month<select aria-label="Monthly orders date" disabled={saving} value={selectedMonth?.Month||''} onChange={e=>{setMonth(e.target.value);setSearch('');}}>{history.map(m=><option key={m.Month} value={m.Month}>{m.MonthLabel || m.Month}</option>)}</select></label><MonthlyDownload month={selectedMonth?.Month} disabled={running||saving||snapshot?.offline}/></div></div>
-      <div className="metrics">{names.slice(0,4).map((name,index)=><div className={`metric ${['green','gold','gray','purple'][index]}`} key={name}><span>{name}</span><strong>{selectedMonth?.[name]??(error?'—':0)}</strong><small>{monthlyPercentage(selectedMonth,name)} of {selectedMonth?.['Month Orders']??0} month orders</small></div>)}</div>
+      <div className="metrics">{names.slice(0,4).map((name,index)=><button type="button" className={`metric metric-action ${['green','gold','gray','purple'][index]}`} key={name} disabled={!selectedMonth} onClick={()=>showMetric(name)}><span>{name}</span><strong>{selectedMonth?.[name]??(error?'—':0)}</strong><small>{monthlyPercentage(selectedMonth,name)} of {selectedMonth?.['Month Orders']??0} month orders</small></button>)}</div>
       <p className="report-context">SLA percentages use completed orders with an On Time or Missed result. Orders without an SLA result are excluded.</p><div className="section-heading"><h2>SLA results</h2><button className="secondary" disabled={saving} onClick={()=>setRefreshId(value=>value+1)}>Refresh SLA</button></div>
-      <div className="metrics sla-metrics">{names.slice(4).map(name=>{const value=name==='SLA On Time'?'On Time':'Missing';return <button className={`metric sla-metric ${value==='On Time'?'green':'red'}`} key={name} disabled={saving} aria-pressed={slaFilter===value} onClick={()=>setSlaFilter(slaFilter===value?'':value)}><span>{name}</span><strong>{selectedMonth?.[name]??(error?'—':0)}</strong><small>{monthlyPercentage(selectedMonth,name)} of {(selectedMonth?.['SLA On Time']||0)+(selectedMonth?.['SLA Missed']||0)} SLA results</small></button>;})}</div>
+      <div className="metrics sla-metrics">{names.slice(4).map(name=>{const value=name==='SLA On Time'?'On Time':'Missing';return <button className={`metric sla-metric ${value==='On Time'?'green':'red'}`} key={name} disabled={saving||!selectedMonth} aria-pressed={slaFilter===value} onClick={()=>showMetric(name)}><span>{name}</span><strong>{selectedMonth?.[name]??(error?'—':0)}</strong><small>{monthlyPercentage(selectedMonth,name)} of {(selectedMonth?.['SLA On Time']||0)+(selectedMonth?.['SLA Missed']||0)} SLA results</small></button>;})}</div>
       <SlaOrdersTable key={selectedMonth?.Month||'empty'} rows={selectedMonth?.sla_rows||[]} statusFilter={slaFilter} onStatusFilter={setSlaFilter} onSave={saveSla} running={running||snapshot?.offline||reportMode==='excel'}/>
       <ImportedStatusSummary report={selectedMonth}/><MonthlyOrdersChart series={reportMode==='excel'?importedSeries(snapshot):MONTHLY_SERIES} history={history} selectedMonth={selectedMonth?.Month} onSelect={value=>{if(value){setMonth(value);setSearch('');}}}/>
       <div className="table-scroll"><table><thead><tr>{['Month','Previews',...historyNames].map(name=><th key={name}>{name}</th>)}</tr></thead><tbody>{history.map(m=><tr key={m.Month}><td><button className="text-button" onClick={()=>{setMonth(m.Month);setSearch('');}}>{m.MonthLabel || m.Month}</button></td><td>{m.Previews.join(', ')}</td>{historyNames.map(name=><td key={name}>{`${m[name]??0} (${monthlyPercentage(m,name)})`}</td>)}</tr>)}</tbody></table></div>
       <div className="filter-toolbar"><div className="search-input"><Search size={16}/><input aria-label="Search monthly orders" placeholder="Search all columns" value={search} onChange={e=>setSearch(e.target.value)}/></div></div>
       {selectedMonth?groups.map(([name,items])=><DataTable key={name} rows={items} columns={columns} filters={{}} openFilter={()=>{}} filterable={false} name={`${name} · ${items.length}`}/>):<div className="table-empty">No monthly orders</div>}
+      {detail&&<SideDrawer key={detail.title} {...detail} columns={columns} onClose={()=>setDetail(null)}/>}
     </>}
   </section>;
 }

@@ -8,5 +8,5 @@ if not exist "..\.venv\Scripts\python.exe" (
 )
 set "DATATRACE_DESKTOP="
 set "DATATRACE_DESKTOP_TOKEN="
-"..\.venv\Scripts\python.exe" server.py --host 127.0.0.1 --port 8510
+"..\.venv\Scripts\python.exe" server.py --host 127.0.0.1 --port 8510 --open-browser
 if errorlevel 1 pause

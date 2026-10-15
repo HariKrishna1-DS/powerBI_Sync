@@ -74,10 +74,29 @@ class AtomicBook:
                 info = request['updateCells']
                 region = info.get('range',info.get('start'))
                 target = find(region['sheetId'])
-                start=region.get('rowIndex',0)
+                start=region.get('rowIndex',region.get('startRowIndex',0))
                 values = [[next(iter(c.get('userEnteredValue', {}).values()), '') for c in row['values']] for row in info['rows']]
-                target.values = target.values[:start]+values
+                if 'start' in info:
+                    column = region.get('columnIndex', 0)
+                    for offset, row in enumerate(values, start):
+                        while len(target.values) <= offset:
+                            target.values.append([])
+                        saved = target.values[offset]
+                        while len(saved) < column+len(row):
+                            saved.append('')
+                        saved[column:column+len(row)] = row
+                else:
+                    target.values = target.values[:start]+values
                 target.formula_cells = {(i,j) for i,row in enumerate(info['rows'],start) for j,c in enumerate(row['values']) if 'formulaValue' in c.get('userEnteredValue',{})}
+            elif 'repeatCell' in request and 'userEnteredValue' in request['repeatCell']['fields']:
+                info = request['repeatCell']
+                region = info['range']
+                target = find(region['sheetId'])
+                value = next(iter(info.get('cell', {}).get('userEnteredValue', {}).values()), '')
+                for index in range(region.get('startRowIndex', 0), min(region.get('endRowIndex', len(target.values)), len(target.values))):
+                    row = target.values[index]
+                    for column in range(region.get('startColumnIndex', 0), min(region.get('endColumnIndex', len(row)), len(row))):
+                        row[column] = value
         self.sheets = working
         if self.lose_reply:
             self.lose_reply = False

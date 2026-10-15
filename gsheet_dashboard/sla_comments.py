@@ -32,4 +32,6 @@ def sla_entry(row, status):
         'Free Site': status,
         'completion_date': completion,
         'source': 'Google Sheets' if row.get('_sheet') else 'Saved history',
+        **({'Source workbook': row['Source workbook'], '_record_key': row.get('_record_key')}
+           if row.get('Source workbook') else {}),
     }

@@ -4,7 +4,7 @@ import {ThemeControl} from './StudioWorkspace';
 import {IconButton} from './workspaceUtils';
 import {useWorkspacePreference} from './useWorkspacePreference';
 
-const destinations=[['overview','Overview',Home],['sheets','Data Sheets',Table2],['daily','Daily Orders',CalendarDays],['monthly','Monthly Orders',FileSpreadsheet],['capacity','Capacity Report',FileSpreadsheet],['changes','Changes',ArrowLeftRight]];
+const destinations=[['overview','Overview',Home],['sheets','Data Sheets',Table2],['daily','Daily Orders',CalendarDays],['monthly','Monthly Orders',FileSpreadsheet],['sla','SLA Status',Clock3],['capacity','Capacity Report',FileSpreadsheet],['changes','Changes',ArrowLeftRight]];
 const dateLabel=value=>value?new Date(value).toLocaleDateString(undefined,{day:'numeric',month:'short'}):'Date unavailable';
 
 export function WorkspaceSidebar({state,selected,view,onNavigate,onSelect,onDelete,busy,snapshot,collapsed,onToggle,onRefresh,refreshing}) {
@@ -33,7 +33,7 @@ export function useSidebarState(){
 }
 
 export function WorkspaceContext({production,view,preview,snapshot,reportMode,running,stage,pending,selected,sheetUrl,onRefresh,refreshing}) {
-  const report=['daily','monthly','capacity'].includes(view);
+  const report=['daily','monthly','capacity','sla'].includes(view);
   const source=view==='importChanges'?'Google Sheets change history':(production||report)&&reportMode==='excel'?'Imported Excel':production?(snapshot?.offline?'Saved Google Sheets copy':snapshot?(snapshot.mode==='excel'?'Imported Excel':'Live Google Sheets'):'Google Sheets unavailable'):report?'Production report':view==='audit'?'Local activity log':'Saved capture';
   const updated=report||view==='audit'||view==='importChanges'?null:production?snapshot?.updated_at:preview?.created;
   let productionUrl;
@@ -55,6 +55,6 @@ export function CapturePicker({previews,selected,onSelect,onDelete,busy}){
   return <section className="capture-picker" aria-label="Choose a saved capture"><label className="library-search"><Search size={16}/><input aria-label="Find saved capture" placeholder="Search name, date or row count" value={query} onChange={e=>setQuery(e.target.value)}/></label><label>Selected capture<select aria-label="Selected capture" value={selected||''} onChange={e=>onSelect(Number(e.target.value))}>{chosen&&!items.includes(chosen)&&<option value={chosen.id}>{chosen.name} (selected)</option>}{items.map(p=><option key={p.id} value={p.id}>{p.name} · {p.row_count.toLocaleString()} rows · {dateLabel(p.created)}{p.id===previews[0]?.id?' · Latest':''}</option>)}</select></label>{chosen&&<IconButton title="Delete selected capture" disabled={busy} onClick={e=>onDelete(e,chosen.id)}><Trash2 size={16}/></IconButton>}{!items.length&&<span role="status">No captures match your search.</span>}</section>;
 }
 
-export function SheetSegments({value,onChange,counts}){
-  return <div className="sheet-segments segmented" aria-label="Data sheet group">{[['all','All Products'],['full','Full Title'],['remaining','Remaining Products']].map(([id,title])=><button key={id} aria-pressed={value===id} onClick={()=>onChange(id)}>{title}<span>{counts[id]?.toLocaleString()??'—'}</span></button>)}</div>;
+export function SheetSegments({value,onChange,counts,imported=false}){
+  return <div className="sheet-segments segmented" aria-label="Data sheet group">{[['all','All Products'],['full',imported?'Full Search file':'Full Title'],['remaining',imported?'C-O & Update file':'Remaining Products']].map(([id,title])=><button key={id} aria-pressed={value===id} onClick={()=>onChange(id)}>{title}<span>{counts[id]?.toLocaleString()??'—'}</span></button>)}</div>;
 }

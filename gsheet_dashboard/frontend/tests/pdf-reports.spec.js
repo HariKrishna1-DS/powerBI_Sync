@@ -6,9 +6,10 @@ import {workspaceFixture} from './workspace-fixture.js';
 test('Overview duplicate count opens all repeated orders and their source files',async({page})=>{
   const fixture=workspaceFixture(10),errors=[];
   const duplicates=fixture.rows.slice(0,6).map(row=>({...row,Date:'2026-10-05',
-    'Earlier file':'full.xlsx','Earlier worksheet':'TV Orders',
+    'Earlier file':'remaining.xlsx','Earlier worksheet':'TV Orders','Earlier row':18,'Replacement row':2412,
     'Replacement file':'remaining.xlsx','Replacement worksheet':'Updates'}));
-  const settings={mode:'excel',row_count:10,files:[],duplicate_row_count:6,duplicate_orders:duplicates};
+  const overlaps=[{...duplicates[0],'Earlier file':'full.xlsx','Replacement file':'remaining.xlsx','Order Number':'SHARED-1'}];
+  const settings={mode:'excel',row_count:10,files:[],duplicate_row_count:6,duplicate_orders:duplicates,source_overlap_count:1,source_overlap_orders:overlaps};
   page.on('pageerror',error=>errors.push(error.message));
   await page.route('**/*',async route=>{
     const name=new URL(route.request().url()).pathname;
@@ -37,8 +38,19 @@ test('Overview duplicate count opens all repeated orders and their source files'
   await expect(dialog).toContainText('Duplicate orders · 6');
   await expect(dialog.locator('tbody tr')).toHaveCount(6);
   for(const row of duplicates)await expect(dialog.getByRole('cell',{name:row['Order Number'],exact:true})).toBeVisible();
-  await expect(dialog).toContainText('full.xlsx');
   await expect(dialog).toContainText('remaining.xlsx');
+  await dialog.getByRole('button',{name:/Across workbooks/}).click();
+  await expect(dialog).toContainText('These entries do not increase the Duplicate Orders count');
+  await expect(dialog.locator('tbody tr')).toHaveCount(1);
+  await expect(dialog.getByRole('cell',{name:'SHARED-1',exact:true})).toBeVisible();
+  await expect(dialog.getByRole('cell',{name:'full.xlsx',exact:true})).toBeVisible();
+  await dialog.getByLabel('Search repeated orders').fill('absent');
+  await expect(dialog.locator('tbody tr')).toHaveCount(0);
+  await dialog.getByRole('button',{name:/Within workbook/}).click();
+  await dialog.getByLabel('Search repeated orders').fill(duplicates[0]['Order Number']);
+  await expect(dialog.locator('tbody tr')).toHaveCount(1);
+  await expect(dialog.getByRole('cell',{name:'18',exact:true})).toBeVisible();
+  await expect(dialog.getByRole('cell',{name:'2412',exact:true})).toBeVisible();
   await page.screenshot({path:'test-results/duplicate-orders-dialog.png',fullPage:true});
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
@@ -67,6 +79,7 @@ test('batch report import, source switching, daily publication and capacity view
         mode='excel';body={mode,row_count:10,publication:{synced:true}};
       }
       if(name==='/api/daily-orders')body={rows:days,selected_date:selected,source:mode==='excel'?'Imported Excel':'Google Sheets'};
+      if(name==='/api/daily-orders/details')body={date:url.searchParams.get('date'),mode,columns:fixture.columns,groups:[{key:'received',label:'Received',rows:fixture.rows}]};
       if(name==='/api/report-date'){selected=route.request().postDataJSON().date;requests.push(selected);body={date:selected,synced:true};}
       if(name==='/api/capacity-report')body={columns,monthly:[{...days[0],Date:'2026-10',Capacity:1400,'Ext capacity':1500}],daily:days,month:'2026-10',capacity:700,extended_capacity:750,source:mode==='excel'?'Imported Excel':'Google Sheets'};
       return route.fulfill({json:body});
@@ -90,6 +103,8 @@ test('batch report import, source switching, daily publication and capacity view
   await expect(page.getByRole('option',{name:'01-10-26',exact:true})).toHaveAttribute('value','2026-10-01');
   await page.getByRole('button',{name:'01-10-26',exact:true}).click();
   await expect(page.getByText('01-10-26 is highlighted in Daily Status Report and filtered in All Products.')).toBeVisible();
+  await expect(page.getByRole('dialog',{name:'Daily orders · 01-10-26'})).toBeVisible();
+  await page.keyboard.press('Escape');
   await page.getByRole('button',{name:'Received 10',exact:true}).click();
   await expect(page.locator('#daily-orders-group-0')).toBeFocused();
   await page.getByRole('button',{name:'Completed 2',exact:true}).click();

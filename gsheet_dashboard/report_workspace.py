@@ -4,7 +4,7 @@ Imported workbooks are a separate report dataset. They never become queue captur
 and therefore cannot infer completion of missing tracker orders.
 """
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
 from zipfile import ZipFile
@@ -30,6 +30,20 @@ class ReportWorkspace:
             db.execute('CREATE TABLE IF NOT EXISTS report_workspace (id INTEGER PRIMARY KEY, payload TEXT NOT NULL)')
         from import_excel_changes import initialize_history
         initialize_history(self)
+        settings = self.read()
+        imported = settings.get('imported') or {}
+        if imported.get('sources') and imported.get('order_identity') != 'workbook':
+            from import_identity import upgrade_workbook_orders
+            from tracker_sync import sync_lock
+            from workspace_backup import save_safety_backup
+            with sync_lock(store.root), self.lock:
+                latest = self.read()
+                if latest.get('imported', {}).get('order_identity') != 'workbook':
+                    updated = upgrade_workbook_orders(latest['imported'])
+                    save_safety_backup(store, 'before-update')
+                    self.save(imported=updated, files=updated['files'], row_count=len(updated['rows']),
+                              cloud_baseline=None, cloud_reset=True, cloud_refresh_error=None,
+                              **({'publication_state': 'pending'} if latest['mode'] == 'excel' else {}))
 
     def read(self):
         with self.store.connect() as db:
@@ -48,23 +62,28 @@ class ReportWorkspace:
 
     def public(self):
         value = self.read()
-        public = {k: v for k, v in value.items() if k not in ('imported', 'cloud_baseline')}
-        public['imports'] = [{'name': s['name'], 'rows': len(s['rows']),
+        public = {k: v for k, v in value.items() if k not in ('imported', 'cloud_baseline', 'tracker_status_baseline')}
+        effective = Counter(row.get('Source workbook', '') for row in (value.get('imported') or {}).get('rows', []))
+        public['imports'] = [{'name': s['name'], 'rows': len(s['rows']), 'orders': len((value.get('imported') or {}).get('rows', [])) if s.get('legacy') else effective[s['name']],
                               'worksheets': len(s['files']), 'legacy': s.get('legacy', False)}
                              for s in import_sources(value.get('imported'))]
         public['input_row_count'] = sum(file.get('rows', 0) for file in value.get('files', []))
         public['worksheet_data_rows'] = sum(file.get('rows_seen', file.get('rows', 0)) for file in value.get('files', []))
         public['missing_order_number_rows'] = sum(file.get('missing_order_number', 0) for file in value.get('files', []))
-        public['duplicate_row_count'] = sum(file.get('duplicates', 0) for file in value.get('files', []))
         public['row_diagnostics_available'] = bool(value.get('files')) and all(
             'rows_seen' in file for file in value.get('files', []))
-        public['duplicate_order_numbers'] = list(dict.fromkeys(
-            number for file in value.get('files', []) for number in file.get('duplicate_order_numbers', [])))
         imported = value.get('imported') or {}
-        public['duplicate_orders'] = imported.get('duplicate_orders')
-        if public['duplicate_orders'] is None and imported:
-            public['duplicate_orders'] = combine_sources(import_sources(imported)).get('duplicate_orders', [])
-        public['duplicate_orders'] = public['duplicate_orders'] or []
+        diagnostics = (imported if imported.get('diagnostics_version') == 4 else
+                       combine_sources(import_sources(imported))) if imported else {}
+        repeated = diagnostics.get('duplicate_orders', [])
+        public['duplicate_orders'] = [row for row in repeated if row['Occurrence type'] == 'Within workbook']
+        public['source_overlap_orders'] = diagnostics.get('source_overlap_orders', [])
+        public['duplicate_row_count'] = len(public['duplicate_orders'])
+        public['source_overlap_count'] = len(public['source_overlap_orders'])
+        public['repeated_source_row_count'] = len(repeated)
+        public['duplicate_order_numbers'] = list(dict.fromkeys(row['Order Number'] for row in public['duplicate_orders']))
+        if imported:
+            public['files'] = diagnostics['files']
         return public
 
 
@@ -81,48 +100,8 @@ def import_sources(imported):
 
 
 def combine_sources(sources):
-    from tracker_sync import key
-    saved, owners, columns, files, reviews, duplicate_orders = {}, {}, [], [], [], []
-    for source in sources:
-        columns = list(dict.fromkeys(columns + source['columns']))
-        reviews.extend(source.get('reviews', []))
-        if sum(f['rows'] for f in source['files']) == len(source['rows']):
-            offset = 0
-            for metadata in source['files']:
-                duplicates = 0
-                duplicate_order_numbers = []
-                for row in source['rows'][offset:offset + metadata['rows']]:
-                    identity = key(row)
-                    if identity in saved:
-                        duplicates += 1
-                        duplicate_order_numbers.append(row.get('Order Number', ''))
-                        prior = owners[identity]
-                        duplicate_orders.append({**row,
-                            'Earlier file': prior['file'], 'Earlier worksheet': prior['sheet'],
-                            'Replacement file': metadata.get('file', source['name']),
-                            'Replacement worksheet': metadata.get('sheet', '')})
-                    saved[identity] = row
-                    owners[identity] = {'file': metadata.get('file', source['name']),
-                                        'sheet': metadata.get('sheet', '')}
-                files.append(dict(metadata, duplicates=duplicates,
-                                  duplicate_order_numbers=duplicate_order_numbers))
-                offset += metadata['rows']
-        else:
-            files.extend(source['files'])
-            for row in source['rows']:
-                identity = key(row)
-                if identity in saved:
-                    prior = owners[identity]
-                    duplicate_orders.append({**row,
-                        'Earlier file': prior['file'], 'Earlier worksheet': prior['sheet'],
-                        'Replacement file': source['name'], 'Replacement worksheet': ''})
-                saved[identity] = row
-                owners[identity] = {'file': source['name'], 'sheet': ''}
-    if len(saved) > 100000:
-        raise ValueError('The combined report exceeds 100,000 orders.')
-    return {'rows': list(saved.values()), 'columns': columns, 'files': files,
-            'reviews': reviews, 'sources': sources, 'duplicate_orders': duplicate_orders,
-            'created': datetime.now(timezone.utc).isoformat()}
+    from import_identity import combine_sources as combine
+    return combine(sources)
 
 
 def read_report_files(uploads):
@@ -183,7 +162,7 @@ def read_report_files(uploads):
                 file_columns = list(dict.fromkeys(file_columns + [c for c in headers if c]))
                 count = {'file': name, 'sheet': title, 'rows': 0, 'rows_seen': 0,
                          'missing_order_number': 0, 'duplicates': 0}
-                for cells in iterator:
+                for source_row, cells in enumerate(iterator, index + 2):
                     values = []
                     for cell in cells:
                         value = cell.value if hasattr(cell, 'value') else cell
@@ -224,6 +203,7 @@ def read_report_files(uploads):
                         file_reviews.append({'Order Number': row['Order Number'], 'Reason': reason})
                     if key(row) in saved:
                         count['duplicates'] += 1
+                    row['_source_row'] = source_row
                     saved[key(row)] = row  # Last file / worksheet wins, explicitly reported.
                     file_rows.append(row)
                     count['rows'] += 1
@@ -238,37 +218,39 @@ def read_report_files(uploads):
                 book.close()
     if not saved:
         raise ValueError('No order rows were found. The existing report was kept.')
-    return {'rows': list(saved.values()), 'columns': columns, 'files': counts, 'reviews': reviews, 'sources': sources,
-            'created': datetime.now(timezone.utc).isoformat()}
+    return combine_sources(sources)
 
 
 def imported_snapshot(imported):
     from tracker_sync import FULL, REMAINING, HEADERS, sheet_reports, key
     from monthly_production import arrival_sort, local_datetime
-    rows = [dict(row) for row in imported['rows']]
+    rows = [dict(row, _record_key=key(row)) for row in imported['rows']]
+    for row in rows:
+        received = local_datetime(row.get('Date')) or local_datetime(row.get('In-Time'))
+        row['_received_at'] = received.isoformat() if received else ''
     # Completed imported orders move to the completion month only when Out Time
     # is later than their arrival month. Daily reports retain the arrival date.
     for row in rows:
         if str(row.get('Status') or row.get('Task Status') or '').strip().casefold() != 'completed and delivered':
             continue
         completed_at = local_datetime(row.get('Out Time'))
-        arrived_at = local_datetime(row.get('In-Time')) or local_datetime(row.get('Date'))
+        arrived_at = local_datetime(row.get('_received_at'))
         if completed_at and (not arrived_at or completed_at.strftime('%Y-%m') > arrived_at.strftime('%Y-%m')):
             row['_month'] = completed_at.strftime('%Y-%m')
     rows = arrival_sort(rows)
+    rows = [dict(row, No=index) for index, row in enumerate(rows, 1)]
     columns = list(dict.fromkeys(HEADERS + imported['columns']))
     members, owners = {True: set(), False: set()}, {}
+    from import_identity import source_group
+    source_groups = {source['name']: source_group(source['name']) for source in import_sources(imported)}
     for source in import_sources(imported):
         if sum(metadata['rows'] for metadata in source['files']) != len(source['rows']):
             continue  # Legacy batches cannot be safely split by worksheet offsets.
         offset = 0
         for metadata in source['files']:
-            hint = re.sub(r'[^a-z0-9]+', ' ', (source['name'] + ' ' + metadata['sheet']).casefold())
-            group = (True if 'full search' in hint or metadata['sheet'].casefold() == 'tv orders'
-                     else False if any(term in hint for term in ('remaining', 'c o', 'co update', 'current owner'))
-                     else None)
+            group = source_group(source['name'], metadata['sheet'])
             for row in source['rows'][offset:offset + metadata['rows']]:
-                identity = key(row)
+                identity = key(dict(row, **{'Source workbook': source['name']}))
                 full = group if group is not None else ' '.join(row.get('Product', '').casefold().split()) in ('full title', 'full search')
                 members[full].add(identity)
                 owners[identity] = full
@@ -278,18 +260,21 @@ def imported_snapshot(imported):
                    for full, label in ((True, 'Full Title'), (False, 'Remaining Products'))}
         for row in rows:
             identity = key(row)
-            if (identity in members[True]) != (identity in members[False]):
+            if source_groups.get(row.get('Source workbook')) is None and (identity in members[True]) != (identity in members[False]):
                 owners[identity] = identity in members[True]
     for row in rows:
         identity = key(row)
+        group = source_groups.get(row.get('Source workbook'))
+        if group is not None:
+            owners[identity] = group
         if identity not in owners:
             full = ' '.join(row.get('Product', '').casefold().split()) in ('full title', 'full search')
             members[full].add(identity)
             owners[identity] = full
     # Keep each uploaded report's membership, including its other products and
-    # carried orders. Overall totals count shared Order Numbers only once.
-    full = arrival_sort([r for r in rows if key(r) in members[True]])
-    remaining = arrival_sort([r for r in rows if key(r) in members[False]])
+    # carried orders. Matching numbers in different workbooks remain independent.
+    full = arrival_sort([r for r in rows if owners[key(r)]])
+    remaining = arrival_sort([r for r in rows if not owners[key(r)]])
     sheets = {name: {'columns': columns, 'rows': data} for name, data in (
         ('Full Title', full), ('Remaining Products', remaining), ('Overview', rows), ('All Products', rows))}
     reports = sheet_reports({FULL: [r for r in rows if owners[key(r)]],
@@ -305,29 +290,36 @@ def imported_snapshot(imported):
             'revision': hashlib.sha256(json.dumps(imported, sort_keys=True).encode()).hexdigest()}
 
 
+def current_capacity_month():
+    return datetime.now(timezone(timedelta(hours=5, minutes=30))).strftime('%Y-%m')
+
+
 def capacity_report(reports, settings):
-    status_columns = sorted({'Status: ' + status for period in reports['daily']
-                             for status in period.get('status_counts', {})}, key=str.casefold)
+    from capacity_calculations import capacity_days, COUNTS
     daily_capacity = settings.get('capacity', 700)
     extended = settings.get('extended_capacity', 750)
-    days = [dict(row, Capacity=daily_capacity, **{'Ext capacity': extended}) for row in reports['daily'] if row['Date'] != 'Undated']
-    selected = settings.get('selected_date', '')
-    month = selected[:7] if re.fullmatch(r'\d{4}-\d{2}-\d{2}', selected) else next((r['Date'][:7] for r in days), datetime.now().strftime('%Y-%m'))
+    activity, missing_dates = capacity_days(reports)
+    days = [dict(row, Capacity=daily_capacity, **{'Ext capacity': extended}) for row in activity]
+    # A Daily Orders selection must not move the live capacity table back to an
+    # earlier month. Only an explicitly requested monthly export overrides IST.
+    month = settings.get('capacity_month') or current_capacity_month()
     monthly = []
-    for row in sorted(reports['monthly'], key=lambda r: r['Month']):
-        if row['Month'] == 'Undated':
-            continue
-        count = sum(day['Date'].startswith(row['Month']) for day in days)
-        monthly.append(dict(row, Date=row['Month'], Capacity=count * daily_capacity, **{'Ext capacity': count * extended}))
+    for key in sorted({day['Date'][:7] for day in days}):
+        items = [day for day in days if day['Date'].startswith(key)]
+        totals = {column: sum(int(day.get(column, 0) or 0) for day in items) for column in COUNTS}
+        monthly.append(dict(Date=key, **totals, Capacity=len(items)*daily_capacity,
+                            **{'Ext capacity': len(items)*extended}))
     return {'columns': CAPACITY_COLUMNS, 'monthly': monthly,
-            'daily': sorted([r for r in days if settings.get('mode') == 'excel' or r['Date'].startswith(month)], key=lambda r: r['Date']),
-            'month': month, 'scope_label': 'All imported dates' if settings.get('mode') == 'excel' else month,
-            'capacity': daily_capacity, 'extended_capacity': extended}
+            'daily': sorted([r for r in days if r['Date'].startswith(month)], key=lambda r: r['Date']),
+            'month': month, 'scope_label': datetime.strptime(month, '%Y-%m').strftime('%B %Y'),
+            'capacity': daily_capacity, 'extended_capacity': extended,
+            'missing_completion_date_count': missing_dates}
 
 
 def report_frames(snapshot, settings):
     from tracker_sync import matrix
-    from monthly_views import view_name
+    from monthly_views import view_name, product_view_headers
+    from sla_status import build_sla_status, sheet_summary_values
     reports = snapshot['reports']
     selected = settings.get('selected_date')
     day = next((r for r in reports['daily'] if r['Date'] == selected), None)
@@ -335,15 +327,12 @@ def report_frames(snapshot, settings):
     if snapshot.get('mode') == 'excel':
         day = next((r for r in reports['daily'] if r['Date'] != 'Undated'), None) or next(iter(reports['daily']), None)
     month = day['Date'][:7] if day and day['Date'] != 'Undated' else datetime.now().strftime('%Y-%m')
-    detail_columns = snapshot['sheets']['Full Title']['columns']
+    detail_columns = product_view_headers(snapshot['sheets']['Full Title']['columns'])
     all_rows = snapshot['sheets']['Overview']['rows']
     frames = {'All Products': matrix(all_rows, snapshot['sheets']['Overview']['columns'])}
     for full, label in ((True, 'Full Title'), (False, 'Remaining Products')):
-        if snapshot.get('mode') == 'excel':
-            rows = snapshot['sheets'][label]['rows']
-        else:
-            month_report = next((r for r in reports['monthly'] if r['Month'] == month), {})
-            rows = [r for r in month_report.get('rows', []) if (' '.join(str(r.get('Product', '')).casefold().split()) in ('full title', 'full search')) == full]
+        from status_updates import full_product
+        rows = snapshot['sheets'][label]['rows'] if snapshot.get('mode') == 'excel' else [r for r in all_rows if full_product(r) == full]
         frames[view_name(full, month)] = matrix([dict(row, No=index) for index, row in enumerate(rows, 1)], detail_columns)
     status_columns = ['Status: ' + status for status in snapshot.get('statuses', [])]
     monthly_columns = ['Month'] + DAILY_COLUMNS[1:7] + ['SLA OnTime', 'SLA on Missing']
@@ -358,9 +347,10 @@ def report_frames(snapshot, settings):
     frames['Daily Status Report'] = matrix(daily_status + [daily_total], daily_status_columns)
     counts = Counter(str(r.get('Status', '')).strip() or '(Blank)' for r in all_rows)
     frames['Status Report'] = [['Status', 'Orders', 'Share']] + [[s, n, n / len(all_rows)] for s, n in counts.items()]
-    capacity = capacity_report(reports, dict(settings, selected_date=day['Date'] if day else ''))
+    frames['SLA Status'] = sheet_summary_values(build_sla_status(snapshot))
+    capacity = capacity_report(reports, dict(settings, mode=settings.get('mode', snapshot.get('mode', 'tracker'))))
     monthly = capacity['monthly']
-    year = month[:4]
+    year = capacity['month'][:4]
     total = {'Date': f'{year} YTD Total', **{c: sum(r.get(c, 0) for r in monthly if str(r['Date']).startswith(year)) for c in capacity['columns'][1:]}}
     daily_total = {'Date': 'Total', **{c: sum(r.get(c, 0) for r in capacity['daily']) for c in capacity['columns'][1:]}}
     frames['PR Excel'] = (matrix(monthly + [total], capacity['columns'])
@@ -373,7 +363,8 @@ def all_products_date_filter(sheet_id, values, selected_date):
     if sheet_id is None or not values:
         return None
     headers = values[0]
-    source = 'In-Time' if 'In-Time' in headers else 'Date' if 'Date' in headers else None
+    order = ('Date', 'In-Time') if 'Source workbook' in headers else ('In-Time', 'Date')
+    source = next((column for column in order if column in headers), None)
     if source is None:
         return None
     filter_ = {'range': {'sheetId': sheet_id, 'endRowIndex': len(values),
@@ -397,8 +388,9 @@ def all_products_date_filter(sheet_id, values, selected_date):
                     f'IF(REGEXMATCH({raw},"^[0-9]{{1,2}}/[0-9]{{1,2}}/[0-9]{{2,4}}"),{american},0))),0)')
 
         received = date_serial(source)
-        if source == 'In-Time' and 'Date' in headers:
-            received = f'IF({received}>0,{received},{date_serial("Date")})'
+        fallback = next((column for column in order if column != source and column in headers), None)
+        if fallback:
+            received = f'IF({received}>0,{received},{date_serial(fallback)})'
         if selected_date == 'Undated':
             match = '0'
         else:
@@ -410,7 +402,7 @@ def all_products_date_filter(sheet_id, values, selected_date):
 
 
 def publish_reports(book, snapshot, settings, backup_root, daily_only=False, _collision_retry=0):
-    """Back up replaced reports, publish atomically, and keep seven report tabs visible.
+    """Back up replaced reports, publish atomically, and keep public report tabs visible.
 
     Internal tracker/history tabs are hidden because sync and recovery need them.
     The retired Daily Orders output is backed up locally before removal.
@@ -433,7 +425,7 @@ def publish_reports(book, snapshot, settings, backup_root, daily_only=False, _co
         daily_only = False
     all_products_id = by_title.get('All Products', {}).get('properties', {}).get('sheetId')
     ids = {s['properties']['sheetId'] for s in metadata}
-    requests, originals = [], {}
+    requests, originals, retired_value_ranges = [], {}, []
     retired = by_title.get('Daily Orders')
     retired_id = retired['properties']['sheetId'] if retired else None
     if retired:
@@ -464,24 +456,64 @@ def publish_reports(book, snapshot, settings, backup_root, daily_only=False, _co
             all_products_id = number
         cols = max((len(r) for r in values), default=1)
         old_grid = props.get('gridProperties', {})
+        old_cols = max(old_grid.get('columnCount', cols),
+                       max((len(row) for row in originals.get(props.get('title'), [])), default=cols))
         requests.append({'updateSheetProperties': {'properties': {'sheetId': number, 'hidden': False,
             'gridProperties': {'rowCount': max(len(values) + 25, old_grid.get('rowCount', 0)),
-                               'columnCount': max(cols, old_grid.get('columnCount', 0)), 'frozenRowCount': 1}},
+                               'columnCount': max(cols, 18 if title == 'SLA Status' else 0, old_cols), 'frozenRowCount': 2 if title == 'SLA Status' else 1}},
             'fields': 'hidden,gridProperties'}})
         sheet_values = capacity_sheet_values(values) if title in ('PR Excel', 'Daily Status Report') else values
-        output_rows = [{'values': [sheet_cell(value) for value in row]} for row in sheet_values]
-        requests.append({'updateCells': {'range': {'sheetId': number},
-            'rows': output_rows, 'fields': 'userEnteredValue'}})
-        requests.extend(format_requests(number, values, (existing or {}).get('conditionalFormats', []),
-                                        replace_rules=title == 'Status Report', grid_shape=(
-                                            max(len(values) + 25, old_grid.get('rowCount', 0)),
-                                            max(cols, old_grid.get('columnCount', 0)))))
+        if existing:
+            # Small status edits should not resend hundreds of thousands of
+            # unchanged cells. Explicit clearing below handles retired ranges.
+            prior = originals[props['title']]
+            def comparable(value):
+                if value is None:
+                    return ''
+                return str(float(value)) if isinstance(value, (int, float)) and not isinstance(value, bool) else str(value)
+            for row_index, row in enumerate(sheet_values):
+                saved = prior[row_index] if row_index < len(prior) else []
+                changed = [column for column, value in enumerate(row)
+                           if comparable(value) != comparable(saved[column] if column < len(saved) else '')]
+                if changed:
+                    left, right = min(changed), max(changed)+1
+                    requests.append({'updateCells': {'start': {'sheetId': number, 'rowIndex': row_index, 'columnIndex': left},
+                        'rows': [{'values': [sheet_cell(value) for value in row[left:right]]}],
+                        'fields': 'userEnteredValue'}})
+        else:
+            output_rows = [{'values': [sheet_cell(value) for value in row]} for row in sheet_values]
+            requests.append({'updateCells': {'range': {'sheetId': number},
+                'rows': output_rows, 'fields': 'userEnteredValue'}})
+        if title == 'SLA Status':
+            from sla_status import sheet_format_requests
+            requests.extend(sheet_format_requests(number, values, existing or {}))
+        else:
+            requests.extend(format_requests(number, values, (existing or {}).get('conditionalFormats', []),
+                                            replace_rules=title == 'Status Report', grid_shape=(
+                                                max(len(values) + 25, old_grid.get('rowCount', 0)),
+                                                max(cols, old_grid.get('columnCount', 0)))))
         # Old report fills can extend far beyond the current data. Clear those
         # blank rows as well; status rules are bounded to populated rows.
         requests.append({'repeatCell': {'range': {'sheetId': number, 'startRowIndex': len(values),
             'endColumnIndex': cols}, 'cell': {}, 'fields': 'userEnteredFormat'}})
-        old_cols = old_grid.get('columnCount', cols)
+        requests.append({'repeatCell': {'range': {'sheetId': number, 'startRowIndex': len(values),
+            'endRowIndex': max(len(values)+25, old_grid.get('rowCount', 0)),
+            'endColumnIndex': cols}, 'cell': {}, 'fields': 'userEnteredValue'}})
+        from gspread.utils import rowcol_to_a1
+        quoted = "'" + title.replace("'", "''") + "'!"
+        # Empty string values still contribute to Google Sheets' selected-cell
+        # Count. Remove retired cells rather than filling thousands of blanks.
+        retired_value_ranges.append(quoted + rowcol_to_a1(len(values)+1, 1) + ':' +
+                                    rowcol_to_a1(max(len(values)+25, old_grid.get('rowCount', 0)), old_cols))
         if old_cols > cols:
+            from gspread.utils import rowcol_to_a1
+            quoted = "'" + title.replace("'", "''") + "'!"
+            retired_value_ranges.append(quoted + rowcol_to_a1(1, cols+1) + ':' +
+                                        rowcol_to_a1(max(len(values), old_grid.get('rowCount', len(values))), old_cols))
+            requests.append({'repeatCell': {'range': {'sheetId': number,
+                'endRowIndex': max(len(values), old_grid.get('rowCount', len(values))),
+                'startColumnIndex': cols, 'endColumnIndex': old_cols},
+                'cell': {}, 'fields': 'userEnteredValue'}})
             requests.append({'repeatCell': {'range': {'sheetId': number,
                 'endRowIndex': max(len(values), old_grid.get('rowCount', len(values))),
                 'startColumnIndex': cols, 'endColumnIndex': old_cols},
@@ -491,6 +523,9 @@ def publish_reports(book, snapshot, settings, backup_root, daily_only=False, _co
                 'endRowIndex': len(values), 'startColumnIndex': 2, 'endColumnIndex': 3},
                 'cell': {'userEnteredFormat': {'numberFormat': {'type': 'PERCENT', 'pattern': '0.00%'}}},
                 'fields': 'userEnteredFormat.numberFormat'}})
+        if title == 'SLA Status':
+            from sla_status import sheet_chart_requests
+            requests.extend(sheet_chart_requests(number, values, existing or {}))
         if title == 'Daily Status Report':
             if len(values) > 2:
                 requests.append({'repeatCell': {'range': {'sheetId': number, 'startRowIndex': 1,
@@ -550,6 +585,10 @@ def publish_reports(book, snapshot, settings, backup_root, daily_only=False, _co
         json.dump({'metadata': metadata, 'values': originals}, stream)
     try:
         book.batch_update({'requests': requests})
+        if retired_value_ranges and hasattr(book, 'values_batch_clear'):
+            # The values clear endpoint also removes legacy populated cells
+            # beyond the report schema that a formatting-only reset retains.
+            book.values_batch_clear(body={'ranges': retired_value_ranges})
     except Exception as exc:
         # Another installation may have created a tab after metadata was read.
         # Sheets batch updates are atomic, so rebuild once against fresh tabs.
@@ -562,6 +601,10 @@ def publish_reports(book, snapshot, settings, backup_root, daily_only=False, _co
     # metadata, so no chart, tab or appended data can be duplicated.
     for title, wanted in frames.items():
         actual = book.worksheet(title).get_all_values(value_render_option='UNFORMATTED_VALUE')
+        # Verify the report's declared columns. Unnamed cells beyond the
+        # schema are not order fields and cannot invalidate matching orders.
+        width = max((len(row) for row in wanted), default=0)
+        actual = [row[:width] for row in actual]
         if title in ('PR Excel', 'Daily Status Report'):
             wanted = capacity_sheet_values(wanted)
         def normalized(matrix):
@@ -675,17 +718,22 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
     def refresh_imported_reports(force=False):
         nonlocal last_cloud_check
         settings = workspace.read()
-        if settings.get('mode') != 'excel' or not settings.get('imported'):
-            return {'changed': False, 'mode': settings.get('mode', 'tracker')}
-        if settings.get('cloud_reset') or (not force and time.monotonic() - last_cloud_check < 30):
-            return {'changed': False, 'busy': bool(settings.get('cloud_reset'))}
+        if settings.get('mode') == 'excel' and not settings.get('imported'):
+            return {'changed': False, 'mode': 'excel'}
+        reset = settings.get('mode') == 'excel' and settings.get('cloud_reset')
+        if reset or (not force and time.monotonic() - last_cloud_check < 30):
+            return {'changed': False, 'busy': bool(reset)}
         if not gate.acquire(blocking=False):
             return {'changed': False, 'busy': True}
         try:
             last_cloud_check = time.monotonic()
             with sync_lock(workspace.store.root):
                 book, _ = get_book()
-                changed = sync_imported_tabs(workspace, book, workspace.read())
+                if settings.get('mode') == 'excel':
+                    changed = sync_imported_tabs(workspace, book, workspace.read())
+                else:
+                    from status_updates import sync_tracker_status_tabs
+                    changed = sync_tracker_status_tabs(workspace, book)
             if changed:
                 invalidate()
             publication = queue_publication() if changed else None
@@ -802,6 +850,113 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
         return jsonify(**capacity_report(snapshot['reports'], workspace.read()),
                        source=snapshot.get('source'), offline=snapshot.get('offline', False))
 
+    @app.get('/api/capacity-report/details')
+    def get_capacity_details():
+        from capacity_calculations import capacity_details
+        from order_details import recorded_changes
+        date = request.args.get('date', '')
+        month = request.args.get('month', '')
+        if month:
+            try:
+                if not re.fullmatch(r'\d{4}-\d{2}', month):
+                    raise ValueError()
+                datetime.strptime(month, '%Y-%m')
+            except ValueError:
+                return jsonify(error='Choose a valid capacity report month.'), 400
+        if (not date and not month) or (date and not re.fullmatch(r'\d{4}-\d{2}-\d{2}', date)):
+            return jsonify(error='Choose a capacity report date.'), 400
+        if date and month and not date.startswith(month + '-'):
+            return jsonify(error='Choose a date within the selected month.'), 400
+        snapshot = load_snapshot()
+        settings = workspace.read()
+        mode = settings['mode']
+        month_report = capacity_report(snapshot['reports'], dict(settings, capacity_month=month)) if month else None
+        if month_report and not date:
+            date = next((row['Date'] for row in month_report['daily']), '')
+        month_fields = {'month': month, 'month_label': month_report['scope_label'],
+                        'daily': month_report['daily'], 'capacity_columns': month_report['columns']} if month_report else {}
+        if not date:
+            return jsonify(date='', columns=[], groups=[], raw_received=0, rollover_received=0,
+                           **month_fields, mode=mode, source=snapshot.get('source'), offline=snapshot.get('offline', False))
+        changes = recorded_changes(workspace, mode, date)
+        try:
+            details = capacity_details(snapshot['reports'], date)
+        except ValueError as exc:
+            if not changes:
+                return jsonify(error=str(exc)), 404
+            details = {'date': date, 'previous_date': None, 'next_date': None, 'raw_received': 0,
+                       'rollover_received': 0, 'columns': [], 'groups': [{'key': 'received',
+                       'label': 'Received workload', 'rows': [],
+                       'description': 'No orders remain assigned to this reporting date. Its recorded changes are retained.'}]}
+        details['groups'].append({'key': 'changes', 'label': 'Recorded changes',
+            'description': 'Edits saved from this report date or detected on this date in India time. History starts when changes were first recorded.',
+            'rows': changes})
+        return jsonify(**details, **month_fields, mode=mode, source=snapshot.get('source'), offline=snapshot.get('offline', False))
+
+    @app.get('/api/daily-orders/details')
+    def get_daily_details():
+        from order_details import recorded_changes
+        date = request.args.get('date', '')
+        snapshot = load_snapshot()
+        mode = workspace.read()['mode']
+        changes = recorded_changes(workspace, mode, date)
+        day = next((row for row in snapshot['reports']['daily'] if row['Date'] == date), None)
+        if day is None:
+            if not changes:
+                return jsonify(error='That date is no longer in Daily Orders. Refresh the report and try again.'), 404
+            day = {'rows': [], 'columns': snapshot['sheets']['Overview']['columns']}
+        groups = [{'key': 'received', 'label': 'Received', 'rows': day['rows']},
+                  {'key': 'changes', 'label': 'Recorded changes', 'rows': changes,
+                   'description': 'Edits saved from this report date or detected on this date in India time. History starts when changes were first recorded.'}]
+        return jsonify(date=date, columns=day['columns'], groups=groups, mode=mode,
+                       source=snapshot.get('source'), offline=snapshot.get('offline', False))
+
+    @app.get('/api/order-details')
+    def get_order_details():
+        from order_details import editor_details
+        settings = workspace.read()
+        if request.args.get('mode') != settings['mode']:
+            return jsonify(error='The report source changed. Reopen the date before editing.'), 409
+        try:
+            return jsonify(editor_details(load_snapshot(), settings,
+                           request.args.get('order', ''), request.args.get('month', ''), request.args.get('source_workbook', '')))
+        except ValueError as exc:
+            return jsonify(error=str(exc)), 409
+
+    @app.post('/api/order-details')
+    def save_order_details():
+        from order_details import save_order
+        body = request.get_json(silent=True)
+        if (not isinstance(body, dict) or not isinstance(body.get('order_number'), str)
+                or not body['order_number'].strip() or not isinstance(body.get('month', ''), str)
+                or not isinstance(body.get('source_workbook', ''), str)):
+            return jsonify(error='Choose an order from the report date table.'), 400
+        if not gate.acquire(blocking=False):
+            return jsonify(error='Wait for the current capture or Sheets update to finish, then save.'), 409
+        try:
+            with sync_lock(workspace.store.root), workspace.lock:
+                settings = workspace.read()
+                if body.get('mode') != settings['mode']:
+                    return jsonify(error='The report source changed. Reopen the order before saving.'), 409
+                book = None
+                if settings['mode'] == 'excel':
+                    if settings.get('cloud_baseline') and not settings.get('cloud_reset'):
+                        book, _ = get_book()
+                        sync_imported_tabs(workspace, book, settings)
+                    snapshot = imported_snapshot(workspace.read()['imported'])
+                else:
+                    from status_updates import sync_tracker_status_tabs
+                    book, _ = get_book()
+                    sync_tracker_status_tabs(workspace, book)
+                    snapshot = load_snapshot(force=True, tracker_only=True)
+                result = save_order(workspace, book, snapshot, body)
+            invalidate()
+            return jsonify(**result, publication=queue_publication())
+        except ValueError as exc:
+            return jsonify(error=str(exc)), 409
+        finally:
+            gate.release()
+
     @app.post('/api/report-capacity')
     def save_capacity():
         body = request.get_json(silent=True) or {}
@@ -815,6 +970,47 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
     if workspace.read().get('publication_state') in ('pending', 'working'):
         queue_publication()
 
+    @app.get('/api/sla-status')
+    def get_sla_status():
+        from sla_status import build_sla_status
+        report = build_sla_status(load_snapshot())
+        return jsonify(**report, sync_error=workspace.read().get('cloud_refresh_error'))
+
+    @app.post('/api/order-status')
+    def edit_order_status():
+        from status_updates import status_name, rename_status, sync_tracker_status_tabs
+        body = request.get_json(silent=True) or {}
+        old, new = status_name(body.get('status')), status_name(body.get('replacement'))
+        selected = body.get('order_numbers')
+        if (not isinstance(body.get('status'), str) or not isinstance(body.get('replacement'), str)
+                or not old or not new or len(new) > 1000 or old == new or not isinstance(selected, list)
+                or not selected or any(not isinstance(n, str) or not n.strip() for n in selected)):
+            raise ValueError('Choose a different, nonblank status and the orders to update.')
+        if not gate.acquire(blocking=False):
+            return jsonify(error='Wait for the current capture or Sheets update to finish, then save.'), 409
+        try:
+            with sync_lock(workspace.store.root):
+                settings = workspace.read()
+                book = None
+                if settings.get('mode') == 'excel':
+                    book, _ = get_book()
+                    sync_imported_tabs(workspace, book, settings)
+                    settings = workspace.read()
+                    snapshot = imported_snapshot(settings['imported'])
+                else:
+                    book, _ = get_book()
+                    sync_tracker_status_tabs(workspace, book)
+                    snapshot = load_snapshot(force=True, tracker_only=True)
+                count = rename_status(workspace, book, snapshot, old, new,
+                                      [number.strip().casefold() for number in selected])
+            invalidate()
+            publication = queue_publication()
+            return jsonify(updated=count, status=new, publication=publication)
+        except ValueError as exc:
+            return jsonify(error=str(exc)), 409
+        finally:
+            gate.release()
+
     @app.get('/api/export/report')
     def export_report():
         from openpyxl import Workbook
@@ -823,6 +1019,12 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
         from openpyxl.chart.series import SeriesLabel
         from tracker_formatting import REPORT_COLORS
         snapshot = load_snapshot()
+        if request.args.get('sheet') == 'SLA Status':
+            from sla_status import build_sla_status, excel_report
+            report = build_sla_status(snapshot)
+            return send_file(excel_report(report), as_attachment=True,
+                download_name=f'TV_Status_{report["as_of"]}.xlsx',
+                mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         settings = workspace.read()
         month = request.args.get('month')
         if month:
@@ -831,7 +1033,7 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
             selected = next((r for r in snapshot['reports']['daily'] if r['Date'].startswith(month)), None)
             if not selected:
                 raise ValueError('No orders are available for that month.')
-            settings = dict(settings, selected_date=selected['Date'])
+            settings = dict(settings, selected_date=selected['Date'], capacity_month=month)
         frames, capacity = report_frames(snapshot, settings)
         requested_sheet = request.args.get('sheet')
         aliases = {'Daily Orders': 'Daily Status Report', 'Capacity Report': 'PR Excel'}

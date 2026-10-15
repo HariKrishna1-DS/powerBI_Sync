@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 from openpyxl import Workbook, load_workbook
 from report_workspace import (ReportWorkspace, read_report_files, imported_snapshot,
@@ -81,11 +81,11 @@ class PdfReportWorkspaceTests(unittest.TestCase):
         first=excel([row('0001'),row('0002',Product='Update')])
         second=excel([row('0001','Assign to ABS'),row('0003','Cancelled',Product='Update')])
         result=read_report_files([('full.xlsx',first),('remaining.xlsx',second)])
-        self.assertEqual(len(result['rows']),3)
+        self.assertEqual(len(result['rows']),4)
         self.assertEqual(result['rows'][0]['Order Number'],'0001')
         report=imported_snapshot(result)['reports']['daily'][0]
-        self.assertEqual([report[c] for c in DAILY_COLUMNS[1:7]],[3,0,0,1,1,1])
-        self.assertEqual(result['files'][1]['duplicates'],1)
+        self.assertEqual([report[c] for c in DAILY_COLUMNS[1:7]],[4,0,0,1,1,2])
+        self.assertEqual(result['files'][1]['duplicates'],0)
 
     def test_daily_counts_partition_received_and_sla_is_eligible_only(self):
         records=[row('1','Completed and Delivered',**{'Out Time':'10/01/2026 10:00 AM','SLA Expiration':'10/01/2026 10:00 AM'}),
@@ -111,7 +111,7 @@ class PdfReportWorkspaceTests(unittest.TestCase):
     def test_selected_date_frames_share_schema_and_capacity_uses_real_days(self):
         imported=read_report_files([('full.xlsx',excel([row('1'),row('2',date='10/02/2026 09:00 AM',Product='Update')]))])
         frames,capacity=report_frames(imported_snapshot(imported),{'selected_date':'2026-10-01','capacity':700,'extended_capacity':750})
-        self.assertEqual(len(frames),7)
+        self.assertEqual(len(frames),8)
         self.assertEqual(frames['Daily Status Report'][1][0],'2026-10-01')
         self.assertEqual(frames['Full_Search_OCT_2026'][0],frames['Remaining_Search_OCT_2026'][0])
         self.assertEqual(capacity['monthly'][0]['Capacity'],1400)
@@ -137,6 +137,7 @@ class PdfReportWorkspaceTests(unittest.TestCase):
 
     def test_publish_hides_internal_tabs_preserves_trackers_and_reuses_chart(self):
         book=ReportBook();book.add(FULL,[row('tracker')]);book.add(REMAINING,[])
+        book.values_batch_clear=Mock()
         legacy=book.add('Capacity Report', [])
         book.props[legacy.id]={'gridProperties':{'rowCount':500,'columnCount':13}}
         original=book.worksheet(FULL).get_all_values()
@@ -148,16 +149,22 @@ class PdfReportWorkspaceTests(unittest.TestCase):
         self.assertEqual(book.worksheet(FULL).get_all_values(),original)
         self.assertTrue(book.props[book.worksheet(FULL).id]['hidden'])
         self.assertEqual(sum(len(items) for items in book.charts.values()),1)
-        self.assertEqual(sum(not book.props.get(sheet.id,{}).get('hidden',False) for sheet in book.worksheets()),7)
+        self.assertEqual(sum(not book.props.get(sheet.id,{}).get('hidden',False) for sheet in book.worksheets()),8)
         self.assertEqual(book.worksheet('PR Excel').id,legacy.id)
         self.assertEqual(str(book.worksheet('PR Excel').get_all_values()[1][0]),'46296')
         clearing=[r['repeatCell'] for r in book.batches[-1]['requests']
                   if 'repeatCell' in r and r['repeatCell']['range']['sheetId']==legacy.id
                   and r['repeatCell']['fields']=='userEnteredFormat']
         self.assertTrue(any(r['range'].get('startColumnIndex')==9 and
-                            r['range']['endColumnIndex']==13 and r['cell']=={} for r in clearing))
+                            r['range']['endColumnIndex']>=13 and r['cell']=={} for r in clearing))
         self.assertTrue(any(r['range'].get('startRowIndex')==6 and
                             r['range'].get('endRowIndex')==500 and r['cell']=={} for r in clearing))
+        value_clearing=[r['repeatCell'] for r in book.batches[-1]['requests']
+                        if 'repeatCell' in r and r['repeatCell']['range']['sheetId']==legacy.id
+                        and r['repeatCell']['fields']=='userEnteredValue']
+        self.assertTrue(any(r['range'].get('startColumnIndex')==9 and
+                            r['range']['endColumnIndex']>=13 for r in value_clearing))
+        self.assertTrue(book.values_batch_clear.call_args.kwargs['body']['ranges'])
 
     def test_duplicate_details_survive_reload_and_identify_both_sources(self):
         imported=combine_sources(read_report_files([
@@ -169,13 +176,31 @@ class PdfReportWorkspaceTests(unittest.TestCase):
             ReportWorkspace(store).save(mode='excel',imported=imported,files=imported['files'],
                                         row_count=len(imported['rows']))
             public=ReportWorkspace(store).public()
-        self.assertEqual((public['input_row_count'],public['row_count'],public['duplicate_row_count']),(5,3,2))
-        self.assertEqual(len(public['duplicate_orders']),2)
-        first,last=public['duplicate_orders']
-        self.assertEqual((first['Earlier file'],first['Replacement file'],first['Replacement worksheet']),
-                         ('full.xlsx','remaining.xlsx','Updates'))
+        self.assertEqual((public['input_row_count'],public['row_count'],public['duplicate_row_count']),(5,4,1))
+        self.assertEqual(public['source_overlap_count'],1)
+        self.assertEqual(public['repeated_source_row_count'],1)
+        self.assertEqual(len(public['duplicate_orders']),1)
+        last=public['duplicate_orders'][0]
         self.assertEqual((last['Earlier file'],last['Status']),('remaining.xlsx','Completed and Delivered'))
-        self.assertEqual(imported['rows'][0]['Status'],'Completed and Delivered')
+        self.assertEqual(imported['rows'][0]['Status'],'Search In Progress')
+        self.assertEqual((last['Earlier row'],last['Replacement row']),(2,4))
+
+    def test_old_duplicate_metadata_is_reclassified_from_original_sources(self):
+        imported=combine_sources(read_report_files([
+            ('full.xlsx',excel([row('A1'),row('A2')])),
+            ('all.xlsx',excel([row('A1'),row('A2'),row('A3'),row('A3',Product='Update')]))])['sources'])
+        imported.pop('diagnostics_version')
+        imported['duplicate_orders']=[{'Order Number':'stale'}]
+        with tempfile.TemporaryDirectory() as path:
+            workspace=ReportWorkspace(PreviewStore(Path(path)/'previews'))
+            workspace.save(mode='excel',imported=imported,files=imported['files'],row_count=5)
+            before=workspace.read()
+            public=workspace.public()
+            self.assertEqual(public['source_overlap_count'],2)
+            self.assertEqual(public['duplicate_row_count'],1)
+            self.assertEqual(public['duplicate_orders'][0]['Earlier product'],'Full Search')
+            self.assertEqual(public['duplicate_orders'][0]['Product'],'Update')
+            self.assertEqual(workspace.read(),before)
 
     def test_single_tab_downloads_use_reference_colors_and_real_formatted_dates(self):
         imported=read_report_files([('full.xlsx',excel([row('A1'),row('A2',date='10/02/2026 09:00 AM')]))])
@@ -225,7 +250,7 @@ class PdfReportWorkspaceTests(unittest.TestCase):
             export=client.get('/api/export/report')
             self.assertEqual(export.status_code,200)
             book=load_workbook(BytesIO(export.data))
-            self.assertEqual(len(book.sheetnames),7)
+            self.assertEqual(len(book.sheetnames),8)
             state=ReportWorkspace(PreviewStore(Path(path)/'previews')).read()
             self.assertEqual(state['mode'],'excel')
             self.assertEqual(state['selected_date'],'2026-10-01')

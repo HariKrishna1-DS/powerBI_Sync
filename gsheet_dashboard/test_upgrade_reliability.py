@@ -185,15 +185,19 @@ class UpgradeReliabilityTests(unittest.TestCase):
             first = client.get('/api/live-sheets',headers=headers).json
             self.assertIn('sheets', first)
             self.assertIn('reports', first)
+            # The first request also reconciles editable status tabs. Revision
+            # polls must reuse that result without making additional Sheet reads.
+            initial_reads = read.call_count
+            self.assertGreater(initial_reads, 0)
             small = client.get('/api/live-sheets',query_string={'revision':first['revision']},headers=headers).json
             self.assertTrue(small['unchanged'])
             self.assertNotIn('sheets', small)
-            self.assertEqual(read.call_count, 1)
+            self.assertEqual(read.call_count, initial_reads)
             full = client.get('/api/live-sheets',headers=headers).json
             self.assertEqual(full['sheets'], first['sheets'])
             self.assertEqual(full['reports'], first['reports'])
             client.get('/api/live-sheets?refresh=1',headers=headers)
-            self.assertEqual(read.call_count, 2)
+            self.assertEqual(read.call_count, initial_reads + 1)
 
     def test_malformed_offline_cache_does_not_prevent_online_recovery(self):
         (self.root/'production-cache.json').write_text('[]')

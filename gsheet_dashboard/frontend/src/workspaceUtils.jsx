@@ -5,6 +5,7 @@ const colors = ['#147d72', '#d79a32', '#596cc0', '#bb6179', '#4b9db4', '#849157'
 const str = value => value == null ? '' : String(value);
 const label = value => str(value) || '(Blank)';
 const normalized = value => str(value).trim().toLowerCase();
+export const orderKey = row => row?._record_key || str(row?.['Order Number']).trim();
 const badgeClass = value => normalized(value).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 import STATUS_COLORS from '../../status_colors.json';
 
@@ -37,7 +38,13 @@ async function api(url, options = {}) {
     if(retryable&&[502,503,504].includes(response.status)&&attempt<2){await new Promise(resolve=>setTimeout(resolve,500*(attempt+1)));continue;}
     break;
   }
-  if (!response.ok) { let body; try { body = await response.json(); } catch { body = {}; } throw Error(body.error || `Request failed (${response.status})`); }
+  if (!response.ok) {
+    let body;try{body=await response.json();}catch{body={};}
+    const outdated=response.status===404&&!body.error&&!(response.headers.get('Content-Type')||'').includes('application/json');
+    const error=Error(body.error||(outdated?'The local workspace server needs a restart. Stop start-local.bat with Ctrl+C, run it again, then retry.':`Request failed (${response.status})`));
+    error.status=response.status;
+    throw error;
+  }
   const body = await response.json();
   if (body.clock) body.clock.receivedAt = performance.now();
   return body;

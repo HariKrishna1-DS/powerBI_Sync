@@ -70,7 +70,8 @@ def archive_value_matches(expected, actual):
 
 
 def key(row):
-    return text(row.get('Order Number')).casefold()
+    from import_identity import order_key
+    return order_key(dict(row, **{'Order Number': text(row.get('Order Number'))}))
 
 
 def value(row, column):
@@ -425,7 +426,7 @@ def sheet_reports(trackers, audit=None):
     groups = {'daily': {}, 'monthly': {}}
     completed_months = {}
     for row in rows:
-        date = local_datetime(row.get('In-Time')) or timestamp(row.get('Date'))
+        date = local_datetime(row.get('_received_at')) or local_datetime(row.get('In-Time')) or timestamp(row.get('Date'))
         day = date.strftime('%Y-%m-%d') if date else 'Undated'
         for kind, bucket in (('daily', day), ('monthly', row['_month'] or (day[:7] if date else 'Undated'))):
             groups[kind].setdefault(bucket, []).append(row)
@@ -466,7 +467,9 @@ def sheet_reports(trackers, audit=None):
                 'SLA OnTime': sum(r['Free Site'] == 'On Time' for r in sla),
                 'Missing': sum(r['Free Site'] == 'Missing' for r in sla),
                 'rows': items, 'columns': list(dict.fromkeys(HEADERS + [c for r in items for c in r if not c.startswith('_')])), 'missing_ids': absent, 'completed_ids': completed,
-                'new_ids': new_ids, 'unchanged_ids': unchanged})
+                'new_ids': new_ids, 'unchanged_ids': unchanged,
+                'completed_keys': [key(r) for r in items if text(r.get('Status')).casefold() == 'completed and delivered'],
+                'unchanged_keys': [key(r) for r in items if key(r) not in added | updated | missing]})
     return reports
 
 

@@ -16,7 +16,10 @@ def editable_frames(snapshot, settings):
 def records(values, title):
     from tracker_sync import canonical_headers, key, text, STATUS_NAMES
     from monthly_production import local_datetime
-    headers = canonical_headers(values[0]) if values else []
+    raw_headers = list(values[0]) if values else []
+    while raw_headers and not text(raw_headers[-1]).strip():
+        raw_headers.pop()
+    headers = canonical_headers(raw_headers)
     if ('Order Number' not in headers or not any(c in headers for c in ('Status', 'Task Status'))
             or len(headers) != len(set(headers)) or any(not h for h in headers)):
         raise ValueError(f'{title}: keep unique column headers including Order Number and Status. No orders were changed.')
@@ -33,10 +36,12 @@ def records(values, title):
                 if parsed:
                     row[column] = parsed.isoformat(sep=' ') if cells[i] % 1 and column not in ('Date', 'Order Date') else parsed.date().isoformat()
         identity = key(row)
+        if 'Source workbook' in headers and not row.get('Source workbook'):
+            raise ValueError(f'{title}, row {number}: keep the Source workbook value so matching numbers in different files remain separate.')
         if not identity:
             raise ValueError(f'{title}, row {number}: enter an Order Number or remove the empty order row.')
         if identity in result:
-            raise ValueError(f'{title}: Order Number {row["Order Number"]} appears more than once. Resolve it before refreshing.')
+            raise ValueError(f'{title}: Order Number {row["Order Number"]} appears more than once in the same workbook. Resolve it before refreshing.')
         status = row.get('Status') or row.get('Task Status', '')
         row['Status'] = STATUS_NAMES.get(status.casefold(),
             {'completed': 'Completed and Delivered', 'canceled': 'Cancelled'}.get(status.casefold(), status))
@@ -106,8 +111,11 @@ def reconcile(imported, baseline, remote):
     updates, additions, removals, tab_additions = defaultdict(dict), defaultdict(list), defaultdict(list), defaultdict(set)
     columns = list(imported['columns'])
     for title, values in remote.items():
+        before_headers, before = records(baseline[title], title)
+        from tracker_sync import canonical_headers
+        if 'Source workbook' in before_headers and 'Source workbook' not in canonical_headers(values[0] if values else []):
+            raise ValueError(f'{title}: keep the Source workbook column. No orders were changed.')
         headers, after = records(values, title)
-        _, before = records(baseline[title], title)
         columns = list(dict.fromkeys(columns + headers))
         for identity in before.keys() - after.keys():
             removals[identity].append(title)
@@ -201,7 +209,7 @@ def preserve_sheet_edits(previous, imported, replaced_names=(), replace_all=Fals
     effective = {key(row): row for row in previous['rows']}
     result = {key(row): dict(row) for row in imported['rows']}
     replaced_names = {name.casefold() for name in replaced_names}
-    reset = {key(row) for source in old_sources + import_sources(imported)
+    reset = {key(dict(row, **{'Source workbook': source['name']})) for source in old_sources + import_sources(imported)
              if source['name'].casefold() in replaced_names for row in source['rows']}
     for identity in originals.keys() - effective.keys() - reset:
         result.pop(identity, None)
