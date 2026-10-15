@@ -45,7 +45,7 @@ class ReportWorkspace:
                               cloud_baseline=None, cloud_reset=True, cloud_refresh_error=None,
                               **({'publication_state': 'pending'} if latest['mode'] == 'excel' else {}))
         settings = self.read()
-        if settings.get('imported', {}).get('sources') and not settings.get('local_source_boundary'):
+        if (settings.get('imported') or {}).get('sources') and not settings.get('local_source_boundary'):
             from tracker_sync import sync_lock
             from workspace_backup import save_safety_backup
             with sync_lock(store.root), self.lock:
