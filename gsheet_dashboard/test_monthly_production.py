@@ -333,6 +333,8 @@ class MonthlyApiTests(unittest.TestCase):
         self.folder=tempfile.TemporaryDirectory();self.addCleanup(self.folder.cleanup)
         self.book=AtomicBook()
         self.book.add(tab_name(BASES[0],'2026-10'),[order('A')]);self.book.add(tab_name(BASES[1],'2026-10'))
+        raw = order('A')
+        PreviewStore(self.folder.name).restore(1, list(raw), [raw], created='2026-10-05T09:00:00+05:30')
         self.app=create_app(root=self.folder.name);self.client=self.app.test_client()
         patcher=patch('server.target_worksheet',return_value=(self.book,self.book.sheets[0]));patcher.start();self.addCleanup(patcher.stop)
 

@@ -149,6 +149,9 @@ def rename_status(workspace, book, snapshot, old, new, selected):
                     row['Task Status'] = new
                 row['Free Site'] = sla_result(row)[0]
         workspace.save(imported=imported, row_count=len(imported['rows']))
+    elif snapshot.get('report_origin') == 'previews':
+        from preview_reporting import save_preview_edits
+        save_preview_edits(workspace, matching.values(), {'Status': new, 'Task Status': new})
     else:
         owners, states = tracker_state(book)
         replacements = {identity: new for identity in matching}

@@ -16,7 +16,7 @@ CHANGE_COLUMNS = ['Change', 'Task Key', 'Column', 'Previous Value', 'Latest Valu
 
 class PreviewStore:
     def __init__(self, root):
-        # Local retry cache only. Production reports read Google Sheets.
+        # Durable queue history and the source for Tracker Report.
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
         with self.connect() as db:

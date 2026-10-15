@@ -661,13 +661,6 @@ def run_sync(on_progress=None, auto_sync=True, cancel_event=None):
         if cancel_event is not None and cancel_event.is_set():
             raise CaptureCancelled('Queue extraction cancelled.')
         store = PreviewStore(BASE_DIR / 'previews')
-        if auto_sync and not store.list():
-            progress('Recovering preview numbering from Google Sheets')
-            from tracker_sync import read_preview_history
-            book, _ = target_worksheet()
-            for saved in read_preview_history(book):
-                store.restore(saved['id'], saved['columns'], saved['rows'], saved['source'], created=saved['created'])
-                store.mark_synced(saved['id'], {'recovered': True})
         progress('Connecting to DataTrace')
         if not os.getenv('DATATRACE_USERNAME') or not os.getenv('DATATRACE_PASSWORD'):
             raise RuntimeError('Set DATATRACE_USERNAME and DATATRACE_PASSWORD in gsheet_dashboard/.env or the environment.')

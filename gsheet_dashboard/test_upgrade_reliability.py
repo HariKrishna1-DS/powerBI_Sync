@@ -185,10 +185,9 @@ class UpgradeReliabilityTests(unittest.TestCase):
             first = client.get('/api/live-sheets',headers=headers).json
             self.assertIn('sheets', first)
             self.assertIn('reports', first)
-            # The first request also reconciles editable status tabs. Revision
-            # polls must reuse that result without making additional Sheet reads.
+            # Revision polling depends on saved captures, never on Google rows.
             initial_reads = read.call_count
-            self.assertGreater(initial_reads, 0)
+            self.assertEqual(initial_reads, 0)
             small = client.get('/api/live-sheets',query_string={'revision':first['revision']},headers=headers).json
             self.assertTrue(small['unchanged'])
             self.assertNotIn('sheets', small)
@@ -197,7 +196,12 @@ class UpgradeReliabilityTests(unittest.TestCase):
             self.assertEqual(full['sheets'], first['sheets'])
             self.assertEqual(full['reports'], first['reports'])
             client.get('/api/live-sheets?refresh=1',headers=headers)
-            self.assertEqual(read.call_count, initial_reads + 1)
+            self.assertEqual(read.call_count, initial_reads)
+            row = {'Order Number':'LOCAL','Product':'Update','Arrival Time':'10/05/2026 09:00 AM'}
+            PreviewStore(self.root / 'previews').restore(1, list(row), [row], created='2026-10-05T10:00:00+05:30')
+            changed = client.get('/api/live-sheets',query_string={'revision':first['revision']},headers=headers).json
+            self.assertNotEqual(changed['revision'], first['revision'])
+            self.assertEqual(len(changed['sheets']['Overview']['rows']), 1)
 
     def test_malformed_offline_cache_does_not_prevent_online_recovery(self):
         (self.root/'production-cache.json').write_text('[]')
@@ -219,7 +223,7 @@ class UpgradeReliabilityTests(unittest.TestCase):
                 refresh.assert_not_called()
                 with patch.dict(os.environ, {'GOOGLE_SERVICE_ACCOUNT_JSON':'{}'}):
                     self.assertEqual(client.get('/api/live-sheets',headers=headers).status_code,200)
-                refresh.assert_called_once_with()
+                refresh.assert_not_called()
 
     def test_light_poll_preserves_full_sync_report_for_existing_callers(self):
         store = PreviewStore(self.root/'previews')

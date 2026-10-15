@@ -44,6 +44,19 @@ class ReportWorkspace:
                     self.save(imported=updated, files=updated['files'], row_count=len(updated['rows']),
                               cloud_baseline=None, cloud_reset=True, cloud_refresh_error=None,
                               **({'publication_state': 'pending'} if latest['mode'] == 'excel' else {}))
+        settings = self.read()
+        if settings.get('imported', {}).get('sources') and not settings.get('local_source_boundary'):
+            from tracker_sync import sync_lock
+            from workspace_backup import save_safety_backup
+            with sync_lock(store.root), self.lock:
+                latest = self.read()
+                corrected = only_imported_orders(latest['imported'])
+                if corrected is not latest['imported']:
+                    save_safety_backup(store, 'before-update')
+                    self.save(imported=corrected, files=corrected['files'], row_count=len(corrected['rows']),
+                              cloud_baseline=None, cloud_reset=True,
+                              **({'publication_state': 'pending'} if latest['mode'] == 'excel' else {}))
+                self.save(local_source_boundary=True)
 
     def read(self):
         with self.store.connect() as db:
@@ -54,7 +67,7 @@ class ReportWorkspace:
     def save(self, **changes):
         with self.lock:
             value = dict(self.read(), **changes)
-            if {'mode', 'imported', 'selected_date', 'capacity', 'extended_capacity'} & changes.keys():
+            if {'mode', 'imported', 'selected_date', 'capacity', 'extended_capacity', 'preview_edits'} & changes.keys():
                 value['data_revision'] = secrets.token_hex(12)
             with self.store.connect() as db:
                 db.execute('INSERT OR REPLACE INTO report_workspace VALUES (1,?)', (json.dumps(value),))
@@ -62,7 +75,7 @@ class ReportWorkspace:
 
     def public(self):
         value = self.read()
-        public = {k: v for k, v in value.items() if k not in ('imported', 'cloud_baseline', 'tracker_status_baseline')}
+        public = {k: v for k, v in value.items() if k not in ('imported', 'cloud_baseline', 'tracker_status_baseline', 'preview_edits')}
         effective = Counter(row.get('Source workbook', '') for row in (value.get('imported') or {}).get('rows', []))
         public['imports'] = [{'name': s['name'], 'rows': len(s['rows']), 'orders': len((value.get('imported') or {}).get('rows', [])) if s.get('legacy') else effective[s['name']],
                               'worksheets': len(s['files']), 'legacy': s.get('legacy', False)}
@@ -81,6 +94,12 @@ class ReportWorkspace:
         public['duplicate_row_count'] = len(public['duplicate_orders'])
         public['source_overlap_count'] = len(public['source_overlap_orders'])
         public['repeated_source_row_count'] = len(repeated)
+        if value['mode'] == 'tracker':
+            from preview_reporting import preview_revision
+            previews = self.store.list()
+            public['data_revision'] = preview_revision(previews, value)
+            public['tracker_preview_count'] = len(previews)
+            public['tracker_latest_preview'] = previews[0]['name'] if previews else None
         public['duplicate_order_numbers'] = list(dict.fromkeys(row['Order Number'] for row in public['duplicate_orders']))
         if imported:
             public['files'] = diagnostics['files']
@@ -102,6 +121,23 @@ def import_sources(imported):
 def combine_sources(sources):
     from import_identity import combine_sources as combine
     return combine(sources)
+
+
+def only_imported_orders(imported):
+    """Repair older cloud-added/deleted records using saved workbook provenance.
+
+    Keep edits on original workbook orders. New cloud identities cannot become
+    imported orders, and a cloud deletion cannot remove an uploaded order.
+    """
+    from tracker_sync import key
+    combined = combine_sources(imported['sources'])
+    current = {key(row): row for row in imported['rows']}
+    allowed = {key(row) for row in combined['rows']}
+    if set(current) == allowed and len(imported['rows']) == len(allowed):
+        return imported
+    combined['rows'] = [dict(row, **current.get(key(row), {})) for row in combined['rows']]
+    combined['created'] = imported.get('created', combined['created'])
+    return combined
 
 
 def read_report_files(uploads):
@@ -226,7 +262,7 @@ def imported_snapshot(imported):
     from monthly_production import arrival_sort, local_datetime
     rows = [dict(row, _record_key=key(row)) for row in imported['rows']]
     for row in rows:
-        received = local_datetime(row.get('Date')) or local_datetime(row.get('In-Time'))
+        received = local_datetime(row.get('_received_at')) or local_datetime(row.get('Date')) or local_datetime(row.get('In-Time'))
         row['_received_at'] = received.isoformat() if received else ''
     # Completed imported orders move to the completion month only when Out Time
     # is later than their arrival month. Daily reports retain the arrival date.
@@ -646,24 +682,10 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
                     if workspace.read().get('data_revision') == revision:
                         workspace.save(publication_state='working', sync_error=None)
                 book, _ = get_book()
-                if sync_imported_tabs(workspace, book, settings):
-                    daily_only = False
-                settings = workspace.read()
-                revision = settings.get('data_revision')
-                snapshot = (imported_snapshot(settings['imported'])
-                            if settings['mode'] == 'excel' and settings.get('imported')
-                            else load_snapshot(force=True, tracker_only=True))
-                if snapshot.get('offline'):
-                    raise RuntimeError('Reconnect Google Sheets before publishing tracker reports.')
-                if workspace.read().get('data_revision') != revision:
-                    requested.set()
-                    return {'synced': False, 'queued': True}
-                if (settings.get('mode') == 'excel' and not settings.get('cloud_reset')
-                        and settings.get('cloud_baseline') and not daily_only
-                        and not tabs_unchanged(book, settings['cloud_baseline'])):
-                    requested.set()
-                    full_requested.set()
-                    return {'synced': False, 'queued': True}
+                with workspace.lock:
+                    snapshot = load_snapshot(force=True)
+                    settings = workspace.read()
+                    revision = settings.get('data_revision')
                 result = publish_reports(book, snapshot, settings, workspace.store.root.parent / 'backups' / 'reports', daily_only)
             with workspace.lock:
                 if workspace.read().get('data_revision') != revision:
@@ -723,38 +745,10 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
 
     last_cloud_check = float('-inf')
     def refresh_imported_reports(force=False):
-        nonlocal last_cloud_check
+        # Google Sheets is a destination. It cannot add rows to either local source.
+        invalidate()
         settings = workspace.read()
-        if settings.get('fresh_start') and not settings.get('enabled'):
-            return {'changed': False, 'mode': settings['mode']}
-        if settings.get('mode') == 'excel' and not settings.get('imported'):
-            return {'changed': False, 'mode': 'excel'}
-        reset = settings.get('mode') == 'excel' and settings.get('cloud_reset')
-        if reset or (not force and time.monotonic() - last_cloud_check < 30):
-            return {'changed': False, 'busy': bool(reset)}
-        if not gate.acquire(blocking=False):
-            return {'changed': False, 'busy': True}
-        try:
-            last_cloud_check = time.monotonic()
-            with sync_lock(workspace.store.root):
-                book, _ = get_book()
-                if settings.get('mode') == 'excel':
-                    changed = sync_imported_tabs(workspace, book, workspace.read())
-                else:
-                    from status_updates import sync_tracker_status_tabs
-                    changed = sync_tracker_status_tabs(workspace, book)
-            if changed:
-                invalidate()
-            publication = queue_publication() if changed else None
-            return {'changed': changed, 'publication': publication, **workspace.public()}
-        except Exception as exc:
-            workspace.save(cloud_refresh_error=str(exc))
-            last_cloud_check = time.monotonic() + 30
-            if force:
-                raise
-            return {'changed': False, 'sync_error': str(exc)}
-        finally:
-            gate.release()
+        return {'changed': False, 'mode': settings['mode'], 'source': 'Imported Excel' if settings['mode'] == 'excel' else 'Saved previews'}
 
     app.extensions['refresh_imported_reports'] = refresh_imported_reports
 
@@ -949,14 +943,8 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
                     return jsonify(error='The report source changed. Reopen the order before saving.'), 409
                 book = None
                 if settings['mode'] == 'excel':
-                    if settings.get('cloud_baseline') and not settings.get('cloud_reset'):
-                        book, _ = get_book()
-                        sync_imported_tabs(workspace, book, settings)
                     snapshot = imported_snapshot(workspace.read()['imported'])
                 else:
-                    from status_updates import sync_tracker_status_tabs
-                    book, _ = get_book()
-                    sync_tracker_status_tabs(workspace, book)
                     snapshot = load_snapshot(force=True, tracker_only=True)
                 result = save_order(workspace, book, snapshot, body)
             invalidate()
@@ -1002,13 +990,8 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
                 settings = workspace.read()
                 book = None
                 if settings.get('mode') == 'excel':
-                    book, _ = get_book()
-                    sync_imported_tabs(workspace, book, settings)
-                    settings = workspace.read()
                     snapshot = imported_snapshot(settings['imported'])
                 else:
-                    book, _ = get_book()
-                    sync_tracker_status_tabs(workspace, book)
                     snapshot = load_snapshot(force=True, tracker_only=True)
                 count = rename_status(workspace, book, snapshot, old, new,
                                       [number.strip().casefold() for number in selected])

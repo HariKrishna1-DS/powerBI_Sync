@@ -7,8 +7,8 @@ import json
 import re
 import secrets
 
-READ_ONLY = {'No', 'Order Number', 'Free Site', 'SLA Category', 'Workload source', 'Source workbook'}
-DATE_FIELDS = {'Date', 'Order Date', 'In-Time', 'Out Time', 'Completed Time'}
+READ_ONLY = {'No', 'Order Number', 'Free Site', 'SLA Category', 'Workload source', 'Source workbook', 'First preview', 'Latest preview'}
+DATE_FIELDS = {'Date', 'Order Date', 'In-Time', 'Out Time', 'Completed Time', 'Arrival Time', 'Arrival Date', 'RequestArrivalTime'}
 
 
 def public_row(row):
@@ -19,7 +19,7 @@ def find_order(snapshot, number, month='', source_workbook=''):
     from tracker_sync import key
     rows = list(snapshot['sheets']['Overview']['rows'])
     # Daily capacity also includes archived rows omitted from the current Orders view.
-    if snapshot.get('mode') != 'excel':
+    if snapshot.get('mode') != 'excel' and snapshot.get('report_origin') != 'previews':
         rows.extend(row for period in snapshot.get('reports', {}).get('daily', []) for row in period.get('rows', []))
     matches = {}
     for row in rows:
@@ -101,6 +101,15 @@ def save_order(workspace, book, snapshot, body):
     changes = {column: value for column, value in changes.items() if not equivalent(column, before.get(column, ''), value)}
     if not changes:
         raise ValueError('No order values have changed.')
+    if snapshot.get('report_origin') == 'previews':
+        from tracker_sync import SOURCE
+        # The queue and the report use different names for several fields.
+        # Editing either representation must update the canonical report value.
+        for target, aliases in SOURCE.items():
+            if target not in changes:
+                changed = next((alias for alias in aliases if alias in changes), None)
+                if changed:
+                    changes[target] = changes[changed]
     report_date = body.get('report_date', '')
     if not isinstance(report_date, str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}|Undated', report_date):
         raise ValueError('Reopen the order from a report date before saving.')
@@ -121,6 +130,14 @@ def save_order(workspace, book, snapshot, body):
         imported['created'] = datetime.now(timezone.utc).isoformat()
         settings.update(imported=imported, row_count=len(imported['rows']))
         source = 'Report order editor'
+    elif snapshot.get('report_origin') == 'previews':
+        edits = deepcopy(settings.get('preview_edits') or {})
+        edits.setdefault(key(before), {}).update(changes)
+        for column in ('Status', 'Task Status'):
+            if column in changes:
+                edits[key(before)].update(Status=after['Status'], **{'Task Status': after['Status']})
+        settings['preview_edits'] = edits
+        source = 'Saved preview report editor'
     else:
         source, states = write_tracker_order(workspace, book, before, after, changes)
         baseline = deepcopy(settings.get('tracker_status_baseline') or states)

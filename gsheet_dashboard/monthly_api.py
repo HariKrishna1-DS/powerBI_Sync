@@ -114,24 +114,24 @@ def register_monthly_routes(app, store, gate, maintenance, production_cache, loa
             return jsonify(error='Wait for the current operation before exporting.'), 409
         try:
             month = month_key(request.args.get('month', ''))
-            # One live read supplies both detail and totals; no stale-summary/live-detail mix.
-            book, _ = get_book()
-            sources = tracker_sources(book)
-            from monthly_production import decode
-            from tracker_sync import sheet_reports
-            reports = sheet_reports({s.title if tab_identity(s.title) else base: decode(values)
-                                     for base, s, values in sources}, store.latest_sync_report())['monthly']
+            selected = load_snapshot()
+            reports = selected['reports']['monthly']
             report = next((r for r in reports if r['Month'] == month), None)
             if not report or not report['rows']:
                 return jsonify(error=f'No production orders are available for {month}.'), 404
-            stream, filename = monthly_workbook(report, [(base, s.title, values) for base, s, values in sources])
+            sources = []
+            for base, label in zip(BASES, ('Full Title', 'Remaining Products')):
+                sheet = selected['sheets'][label]
+                columns = sheet['columns']
+                sources.append((base, base, [columns] + [[row.get(column, '') for column in columns] for row in sheet['rows']]))
+            stream, filename = monthly_workbook(report, sources)
             return send_file(stream, as_attachment=True, download_name=filename,
                              mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         except ValueError as exc:
             return jsonify(error=str(exc)), 422
         except Exception:
             app.logger.exception('Monthly export failed')
-            return jsonify(error='Could not export the selected month. Check the Google Sheets connection and retry.'), 502
+            return jsonify(error='Could not export the selected report month. Refresh the report and retry.'), 502
         finally:
             gate.release()
 

@@ -63,13 +63,14 @@ class GoogleAuthTests(unittest.TestCase):
         self.assertIn('key are active', message)
         self.assertNotIn('secret', message)
 
-    def test_live_sheet_endpoint_returns_json_error(self):
+    def test_preview_report_does_not_require_google_authentication(self):
         with tempfile.TemporaryDirectory() as root:
             client = create_app(Path(root) / 'previews').test_client()
             with patch('server.target_worksheet', side_effect=RuntimeError('Replace the service-account JSON.')):
                 response = client.get('/api/live-sheets')
-            self.assertEqual(response.status_code, 502)
-            self.assertEqual(response.json, {'error': 'Replace the service-account JSON.'})
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.json['source'], 'Saved previews')
+            self.assertEqual(response.json['sheets']['Overview']['rows'], [])
 
 
 if __name__ == '__main__':
