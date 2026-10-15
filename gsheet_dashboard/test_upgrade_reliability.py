@@ -204,6 +204,23 @@ class UpgradeReliabilityTests(unittest.TestCase):
         value = self.cache().get(lambda:{'sheets':{}})
         self.assertFalse(value['offline'])
 
+    def test_unconfigured_startup_does_not_acquire_the_cloud_reconciliation_gate(self):
+        from test_production_sync import Book
+        book = Book([[{'Order Number':'A','Product':'Full Title','Status':'Available','Date':'10/05/2026'}],[]])
+        with patch.dict(os.environ, {'DATATRACE_DESKTOP':'1','DATATRACE_DESKTOP_TOKEN':'test-token',
+                                    'GOOGLE_SERVICE_ACCOUNT_JSON':''}):
+            app = create_app(self.root / 'previews')
+            refresh = Mock(return_value={'changed':False})
+            app.extensions['refresh_imported_reports'] = refresh
+            client = app.test_client()
+            headers = {'X-DataTrace-Token':'test-token'}
+            with patch('server.SPREADSHEET_ID','fixture-sheet'), patch('server.target_worksheet',return_value=(book,book.sheets[0])), patch('server.read_pass_report',return_value={}):
+                self.assertEqual(client.get('/api/live-sheets',headers=headers).status_code,200)
+                refresh.assert_not_called()
+                with patch.dict(os.environ, {'GOOGLE_SERVICE_ACCOUNT_JSON':'{}'}):
+                    self.assertEqual(client.get('/api/live-sheets',headers=headers).status_code,200)
+                refresh.assert_called_once_with()
+
     def test_light_poll_preserves_full_sync_report_for_existing_callers(self):
         store = PreviewStore(self.root/'previews')
         row = {'Order Number':'A','Product':'Full Title','Task Name':'Search','Task Status':'Available'}

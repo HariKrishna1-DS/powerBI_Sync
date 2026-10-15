@@ -23,6 +23,7 @@ Date: 15 October 2026. Branch: `tv-tracker-app`.
 - The SLA Excel download includes source workbook details and a native summary PivotTable.
 - Updated typography, metric cards, tables and dialogs support light and dark themes, clear selection states and narrow screens.
 - The local launcher can open the workspace in an external browser after the server is ready.
+- New profiles can import local captures before configuring Google Sheets, without competing with an unnecessary background connection check.
 
 ## Release
 
