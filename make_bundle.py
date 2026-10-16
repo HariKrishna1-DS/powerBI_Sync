@@ -1,4 +1,4 @@
-"""Create a source archive without credentials, captures, or user workbooks."""
+"""Create a source archive without credentials, dependencies, or generated captures; includes upstream baseline inputs."""
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -12,7 +12,7 @@ OUTPUT = ROOT / 'release' / VERSION / f'Tv-Tracker-{VERSION}-source.zip'
 EXCLUDE_DIRS = {'.git', '.venv', 'venv', 'env', 'ENV', 'node_modules', '__pycache__', '.pytest_cache',
                 '.test-deps', '.desktop-build', '.codex', '.agents', 'release', 'test-results',
                 'playwright-report', 'test-output', 'previews', 'dist', 'logs', 'backups', 'connection-backups',
-                '.npm-cache', '.cache', 'extractor-diagnostics', 'scratch', 'runtime-data', 'output', 'cloud-archives', 'default_trackers'}
+                '.npm-cache', '.cache', 'extractor-diagnostics', 'scratch', 'runtime-data', 'output', 'cloud-archives'}
 EXCLUDE_SUFFIXES = {'.zip', '.log', '.pyc', '.pyo', '.xlsx', '.csv', '.sqlite', '.sqlite3', '.db', '.pem', '.key', '.tvbackup', '.tvcloud'}
 EXCLUDE_NAMES = {'secrets.toml', 'sync_schedule.json', 'sync_status.json', 'production-cache.json', 'desktop-ui-results.json'}
 
@@ -26,7 +26,8 @@ def main():
             for name in sorted(files):
                 file = Path(directory) / name
                 lower = name.lower()
-                if file.is_symlink() or lower == '.git' or file.suffix.lower() in EXCLUDE_SUFFIXES or lower in EXCLUDE_NAMES:
+                is_baseline = file.parent == ROOT / 'gsheet_dashboard' / 'default_trackers' and lower in {'full_search.xlsx', 'co_update.xlsx'}
+                if file.is_symlink() or lower == '.git' or (file.suffix.lower() in EXCLUDE_SUFFIXES and not is_baseline) or lower in EXCLUDE_NAMES:
                     continue
                 if lower.startswith('.env') and lower != '.env.example':
                     continue
@@ -38,7 +39,7 @@ def main():
                 archive.writestr(f'Tv-Tracker/{relative}', data)
         archive.writestr('Tv-Tracker/SOURCE_MANIFEST.json', json.dumps({
             'version': VERSION, 'created_utc': datetime.now(timezone.utc).isoformat(),
-            'description': 'Tv Tracker desktop source. No user data or baseline workbooks.', 'sha256': hashes,
+            'description': 'Tv Tracker desktop source and upstream baseline workbook inputs.', 'sha256': hashes,
         }, indent=2))
     with zipfile.ZipFile(OUTPUT) as archive:
         if archive.testzip() is not None:

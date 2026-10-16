@@ -38,11 +38,7 @@ class ReportDateDetailsTests(unittest.TestCase):
         from status_updates import tracker_state
         owners, _ = tracker_state(self.book)
         rows = [dict(items[0][3], _sheet=items[0][0].title) for items in owners.values()]
-        from tracker_sync import key
-        for row in rows:
-            row.update(self.workspace.read().get('preview_edits', {}).get(key(row), {}))
-        return dict(imported_snapshot({'rows': rows, 'columns': list(rows[0]), 'files': [], 'created': '2026-10-14'}),
-                    mode='tracker', report_origin='previews')
+        return imported_snapshot({'rows': rows, 'columns': list(rows[0]), 'files': [], 'created': '2026-10-14'})
 
     def editor(self, number='D'):
         mode = self.workspace.read()['mode']
@@ -141,7 +137,7 @@ class ReportDateDetailsTests(unittest.TestCase):
         self.assertEqual(result.status_code, 409)
         self.assertEqual(self.workspace.read()['imported']['rows'][-1]['Status'], 'Cancelled')
 
-    def test_tracker_edit_updates_local_report_and_preserves_original_source_rows(self):
+    def test_tracker_edit_preserves_physical_rows_and_writes_only_selected_owner(self):
         row = dict(self.rows[-1], Product='Full Title', **{'Free Site': ''})
         self.book = StatusBook([row])
         for sheet in self.book.sheets:
@@ -149,17 +145,15 @@ class ReportDateDetailsTests(unittest.TestCase):
             for cells in sheet.values[1:]:
                 cells.append('')
         self.book.worksheet(FULL).values.insert(1, [''] * len(self.book.worksheet(FULL).values[0]))
-        original = deepcopy(self.book.worksheet(FULL).values)
         self.workspace.save(mode='tracker')
         editor = self.editor()
         result = self.save(editor, {'Status': 'Completed and Delivered', 'Out Time': '10/04/2026 02:00 PM'})
         self.assertEqual(result.status_code, 200, result.json)
         values = self.book.worksheet(FULL).values
-        self.assertEqual(values, original)
-        saved = self.snapshot()['sheets']['Overview']['rows'][0]
-        self.assertEqual(saved['Status'], 'Completed and Delivered')
-        self.assertEqual(saved['Out Time'], '10/04/2026 02:00 PM')
-        self.assertTrue(list((Path(self.folder.name) / 'backups').glob('*.zip')))
+        self.assertEqual(values[1], [''] * len(values[0]))
+        self.assertEqual(values[2][values[0].index('Status')], 'Completed and Delivered')
+        self.assertEqual(values[2][values[0].index('Out Time')], '10/04/2026 02:00 PM')
+        self.assertTrue(list((Path(self.folder.name) / 'backups' / 'reports').glob('order-edit-*.json.gz')))
         self.assertEqual(len(recorded_changes(self.workspace, 'tracker', '2026-10-02')), 2)
 
     def test_editor_finds_archived_orders_outside_the_current_overview(self):

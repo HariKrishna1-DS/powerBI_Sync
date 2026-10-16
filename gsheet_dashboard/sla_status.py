@@ -13,6 +13,82 @@ DETAIL_COLUMNS = ['Order Number', 'SLA Expiration', 'SLA', 'Online/ Ground',
 COLORS = ['#81cbb5', '#ed8796', '#e5bf68']
 
 
+def tracker_status_rows(book):
+    """Read only the tracker order-number/status columns for queue labels."""
+    from gspread.utils import rowcol_to_a1
+    from tracker_sync import canonical_headers
+    headers = book.values_get("'All Products'!1:1", params={'valueRenderOption': 'UNFORMATTED_VALUE'}).get('values', [[]])[0]
+    headers = canonical_headers(headers)
+    ranges = []
+    for name in ('Order Number', 'Status'):
+        column = rowcol_to_a1(1, headers.index(name)+1)[:-1]
+        ranges.append(f"'All Products'!{column}2:{column}")
+    values = book.values_batch_get(ranges, params={'valueRenderOption': 'UNFORMATTED_VALUE'})['valueRanges']
+    numbers, statuses = (item.get('values', []) for item in values)
+    return [{'Order Number': cells[0], 'Status': statuses[index][0] if index < len(statuses) and statuses[index] else ''}
+            for index, cells in enumerate(numbers) if cells and str(cells[0]).strip()]
+
+
+def preview_snapshot(store, settings=None, preview_id=None, production=None):
+    """One captured queue, independent of retained production and imported orders."""
+    settings = settings or {}
+    previews = store.list()
+    if preview_id is not None:
+        preview = store.get(preview_id)
+    else:
+        saved = settings.get('sla_preview_id')
+        selected = next((p for p in previews if p['id'] == saved), None) or next(iter(previews), None)
+        preview = store.get(selected['id']) if selected else None
+    overrides = (settings.get('sla_preview_statuses') or {}).get(str(preview['id']), {}) if preview else {}
+    from tracker_sync import key, SOURCE, value, text, mapped_status, deadline
+    anchor = local_time(preview['created']) if preview else None
+    statuses = {}
+    for row in (production or {}).get('sheets', {}).get('Overview', {}).get('rows', []):
+        identity = text(row.get('Order Number')).casefold()
+        status = text(row.get('Status'))
+        if identity and status:
+            statuses.setdefault(identity, set()).add(status)
+    rows = []
+    for original in preview['rows'] if preview else []:
+        row = dict(original)
+        for column in SOURCE:
+            if not text(row.get(column)):
+                row[column] = value(original, column)
+        if not text(row.get('Status')):
+            known = statuses.get(text(row.get('Order Number')).casefold(), set())
+            row['Status'] = next(iter(known)) if len(known) == 1 else mapped_status(original, new=True)
+        expiry = deadline(row.get('SLA Expiration'), anchor)
+        if expiry:
+            row['SLA Expiration'] = expiry.isoformat(sep=' ')
+        if key(row) in overrides:
+            row['Status'] = overrides[key(row)]
+        rows.append(row)
+    columns = list(dict.fromkeys((preview['columns'] if preview else []) + list(SOURCE) + ['Status']))
+    return {'mode': 'tracker', 'report_scope': 'preview', 'offline': False,
+            'source': 'Saved preview', 'preview_id': preview['id'] if preview else None,
+            'preview_name': preview['name'] if preview else None, 'preview_row_count': len(rows),
+            'uses_queue_status': any(not text(row.get('Status')) for row in preview['rows']) if preview else False,
+            'previews': previews, 'updated_at': preview['created'] if preview else None,
+            'sheets': {'Overview': {'rows': rows, 'columns': columns}}}
+
+
+def rename_preview_status(workspace, snapshot, old, new, selected):
+    from copy import deepcopy
+    from tracker_sync import key
+    from status_updates import status_name
+    matching = {key(row) for row in snapshot['sheets']['Overview']['rows']
+                if (status_name(row.get('Status') or row.get('Task Status')) or '(Blank)') == old}
+    if not matching or matching != set(selected):
+        raise ValueError('Orders in this preview changed. Refresh SLA Status and try again.')
+    from workspace_backup import save_safety_backup
+    save_safety_backup(workspace.store, 'before-update')
+    with workspace.lock:
+        edits = deepcopy(workspace.read().get('sla_preview_statuses') or {})
+        edits.setdefault(str(snapshot['preview_id']), {}).update(dict.fromkeys(matching, new))
+        workspace.save(sla_preview_statuses=edits)
+    return len(matching)
+
+
 def local_time(value):
     from monthly_production import local_datetime
     if isinstance(value, datetime):
@@ -74,7 +150,9 @@ def build_sla_status(snapshot, as_of=None):
     return {'as_of': as_of.date().isoformat(), 'rows': rows, 'excluded_rows': excluded,
             'excluded_count': len(excluded), 'summary': summary, 'totals': totals,
             'columns': list(dict.fromkeys(source.get('columns', []) + ['SLA Category'])),
-            'summary_columns': SUMMARY_COLUMNS, **{key: snapshot.get(key) for key in ('source', 'mode', 'offline', 'updated_at')}}
+            'summary_columns': SUMMARY_COLUMNS, **{key: snapshot.get(key) for key in (
+                'source', 'mode', 'offline', 'updated_at', 'report_scope', 'preview_id',
+                'preview_name', 'preview_row_count', 'previews')}}
 
 
 def summary_values(report):
@@ -234,9 +312,22 @@ def excel_report(report):
     return stream
 
 
-def sheet_chart_requests(sheet_id, values, existing):
+def sheet_chart_requests(sheet_id, values, existing, preserve_format=False):
     """Replace the report's chart in place, excluding Grand Total from series."""
     chart = next((item for item in existing.get('charts', []) if item.get('spec', {}).get('title') == 'SLA Status'), None)
+    if preserve_format and chart:
+        if len(values) <= 3:
+            return []
+        from copy import deepcopy
+        spec = deepcopy(chart['spec'])
+        basic = spec['basicChart']
+        for item in basic.get('domains', []):
+            for source in item['domain']['sourceRange']['sources']:
+                source.update(startRowIndex=1, endRowIndex=len(values)-1)
+        for item in basic.get('series', []):
+            for source in item['series']['sourceRange']['sources']:
+                source.update(startRowIndex=1, endRowIndex=len(values)-1)
+        return [{'updateChartSpec': {'chartId': chart['chartId'], 'spec': spec}}]
     if len(values) <= 3:
         return [{'deleteEmbeddedObject': {'objectId': chart['chartId']}}] if chart else []
     def source(column):
@@ -256,3 +347,70 @@ def sheet_chart_requests(sheet_id, values, existing):
                 {'updateEmbeddedObjectPosition': {'objectId': chart['chartId'], 'newPosition': position,
                                                  'fields': 'anchorCell,widthPixels,heightPixels'}}]
     return [{'addChart': {'chart': {'spec': spec, 'position': position}}}]
+
+
+def preserve_table_formats(sheet_id, previous, values):
+    """Move the existing total style and extend its existing body style."""
+    old_total = next((i for i, row in enumerate(previous) if row and row[0] == 'Grand Total'), None)
+    new_total = len(values)-1
+    if old_total is None or old_total == new_total:
+        return []
+    def copy(start, end, row):
+        return {'copyPaste': {'source': {'sheetId': sheet_id, 'startRowIndex': row,
+                    'endRowIndex': row+1, 'endColumnIndex': 5},
+                'destination': {'sheetId': sheet_id, 'startRowIndex': start,
+                    'endRowIndex': end, 'endColumnIndex': 5}, 'pasteType': 'PASTE_FORMAT'}}
+    requests = [copy(new_total, new_total+1, old_total)]
+    if old_total >= 3 and new_total > old_total:
+        requests.append(copy(old_total, new_total, 2))
+    return requests
+
+
+def publish_preview_sla(book, report, backup_root):
+    """Replace only SLA values and chart ranges; preserve existing Sheet styling."""
+    from pathlib import Path
+    from datetime import timezone
+    import gzip
+    import json
+    import secrets
+    from datatrace_sync import sheet_cell
+    metadata = book.fetch_sheet_metadata(params={'fields': 'sheets(properties,conditionalFormats,charts)'})['sheets']
+    existing = next((s for s in metadata if s['properties']['title'] == 'SLA Status'), None)
+    previous = book.worksheet('SLA Status').get_all_values(value_render_option='FORMULA') if existing else []
+    values = sheet_summary_values(report)
+    number = existing['properties']['sheetId'] if existing else secrets.randbelow(2**30)
+    requests = []
+    if not existing:
+        requests.append({'addSheet': {'properties': {'sheetId': number, 'title': 'SLA Status',
+            'gridProperties': {'rowCount': len(values)+25, 'columnCount': 18, 'frozenRowCount': 2}}}})
+    elif existing['properties'].get('gridProperties', {}).get('rowCount', 0) < len(values):
+        requests.append({'updateSheetProperties': {'properties': {'sheetId': number,
+            'gridProperties': {'rowCount': len(values)+25}}, 'fields': 'gridProperties.rowCount'}})
+    requests.extend(preserve_table_formats(number, previous, values))
+    requests.append({'updateCells': {'range': {'sheetId': number,
+        'endRowIndex': max(len(values), len(previous)), 'endColumnIndex': 5},
+        'rows': [{'values': [sheet_cell(value) for value in row]} for row in values],
+        'fields': 'userEnteredValue'}})
+    if not existing:
+        requests.extend(sheet_format_requests(number, values, {}))
+    requests.extend(sheet_chart_requests(number, values, existing or {}, preserve_format=True))
+    backup_root = Path(backup_root)
+    backup_root.mkdir(parents=True, exist_ok=True)
+    backup = backup_root / ('sla-preview-' + datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S-%f') + '.json.gz')
+    with gzip.open(backup, 'wt', encoding='utf-8') as stream:
+        json.dump({'metadata': existing, 'values': previous, 'preview_id': report['preview_id']}, stream)
+    book.batch_update({'requests': requests})
+    def normalized(matrix):
+        result = []
+        for row in matrix:
+            row = [str(value) if value is not None else '' for value in row[:5]]
+            while row and not row[-1]:
+                row.pop()
+            result.append(row)
+        while result and not result[-1]:
+            result.pop()
+        return result
+    actual = book.worksheet('SLA Status').get_all_values(value_render_option='UNFORMATTED_VALUE')
+    if normalized(actual) != normalized(values):
+        raise RuntimeError('SLA Status could not be verified. Refresh SLA Status to retry.')
+    return {'synced': True, 'tabs': ['SLA Status'], 'preview_id': report['preview_id']}

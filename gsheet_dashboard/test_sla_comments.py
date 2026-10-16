@@ -41,13 +41,7 @@ class SlaCommentsTests(unittest.TestCase):
         target = patch('server.target_worksheet', return_value=(self.book, self.book.sheets[0]))
         target.start()
         self.addCleanup(target.stop)
-        records = [dict(zip(sheet.values[0], values)) for sheet in self.book.sheets for values in sheet.values[1:]]
-        self.store.restore(1, TRACKER_COLUMNS, records, created='2026-09-30T12:00:00+05:30')
-        self.store.save_sla_correction('002', '2026-09-30', 'On Time')
         self.client = create_app(self.store.root).test_client()
-        self.threads = patch('threading.Thread.start')
-        self.threads.start()
-        self.addCleanup(self.threads.stop)
 
     def save(self, identity='001', status='On Time', expected='Missed'):
         return self.client.post('/api/sla-comments', json={'order_number': identity, 'completion_date': '2026-09-30',
@@ -56,37 +50,40 @@ class SlaCommentsTests(unittest.TestCase):
     def report(self):
         return self.client.get('/api/monthly-orders').json['rows'][0]
 
-    def test_bulk_updates_local_preview_report_totals_without_changing_cloud_source(self):
+    def test_bulk_updates_google_cells_and_report_totals(self):
         orders = [{'order_number': number, 'completion_date': '2026-09-30', 'expected_status': 'Missed'} for number in ('001', '003')]
         response = self.client.post('/api/sla-comments/bulk', json={'orders': orders, 'status': 'On Time'})
         self.assertEqual(response.status_code, 200, response.json)
         self.assertEqual(response.json['rows'][0]['SLA On Time'], 3)
-        self.book.values_batch_update.assert_not_called()
-        self.assertEqual(self.store.sla_corrections()[('001', '2026-09-30')], 'On Time')
+        self.assertEqual(len(self.book.values_batch_update.call_args.args[0]['data']), 2)
+        self.assertEqual(self.book.values_batch_get.call_args.args[0], [f"'{TRACKER_TITLES[0]}'!W2:W3"])
 
-    def test_missed_ui_value_uses_canonical_missing_in_local_report(self):
+    def test_missed_ui_value_uses_canonical_missing_in_sheet(self):
         response = self.save('002', 'Missed', 'On Time')
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(self.store.sla_corrections()[('002', '2026-09-30')], 'Missed')
-        self.assertEqual(next(row for row in self.report()['sla_rows'] if row['Order Number'] == '002')['Free Site'], 'Missing')
+        self.assertEqual(self.book.worksheet(TRACKER_TITLES[1]).values[1][22], 'Missing')
         self.assertEqual(self.report()['SLA Missed'], 3)
 
     def test_unknown_selection_is_rejected_before_any_write(self):
         self.assertEqual(self.save('unknown').status_code, 409)
         self.book.values_batch_update.assert_not_called()
 
-    def test_failed_local_write_never_reports_success(self):
-        before = self.store.sla_corrections()
-        with patch('preview_store.PreviewStore.save_sla_corrections', side_effect=OSError('disk full')):
-            self.assertEqual(self.save().status_code, 503)
-        self.assertEqual(self.store.sla_corrections(), before)
+    def test_failed_write_and_readback_never_report_success(self):
+        original = self.book.values_batch_update.side_effect
+        self.book.values_batch_update.side_effect = RuntimeError('Offline')
+        self.assertEqual(self.save().status_code, 502)
+        self.assertEqual(self.store.sla_corrections(), {})
+        self.book.values_batch_update.side_effect = original
+        self.book.values_batch_get.side_effect = lambda ranges: {'valueRanges': []}
+        self.assertEqual(self.save().status_code, 502)
+        self.assertEqual(self.store.sla_corrections(), {})
 
-    def test_direct_sheet_edits_cannot_override_saved_preview_corrections(self):
+    def test_direct_sheet_edit_and_blank_override_saved_cache(self):
         self.assertEqual(self.save().status_code, 200)
         self.book.worksheet(TRACKER_TITLES[0]).values[1][22] = 'Missing'
-        self.assertEqual(self.report()['SLA Missed'], 1)
+        self.assertEqual(self.report()['SLA Missed'], 2)
         self.book.worksheet(TRACKER_TITLES[0]).values[1][22] = ''
-        self.assertIn('001', [r['Order Number'] for r in self.report()['sla_rows']])
+        self.assertNotIn('001', [r['Order Number'] for r in self.report()['sla_rows']])
 
     def test_local_cache_bulk_transaction_rolls_back(self):
         import sqlite3
@@ -94,11 +91,9 @@ class SlaCommentsTests(unittest.TestCase):
             db.execute("CREATE TRIGGER reject_second BEFORE INSERT ON sla_corrections WHEN NEW.order_number = '002' BEGIN SELECT RAISE(ABORT, 'test'); END")
         with self.assertRaises(sqlite3.IntegrityError):
             self.store.save_sla_corrections([('001', '2026-09-30', 'On Time'), ('002', '2026-09-30', 'Missed')])
-        self.assertEqual(self.store.sla_corrections(), {('002', '2026-09-30'): 'On Time'})
+        self.assertEqual(self.store.sla_corrections(), {})
 
     def test_cross_origin_writes_and_overlapping_edit_are_blocked(self):
-        # This test explicitly exercises a running worker.
-        self.threads.stop()
         release, entered = threading.Event(), threading.Event()
         self.addCleanup(release.set)
         p = self.store.save(pd.DataFrame([{'Order Number': 'A', 'Product': 'Full Title'}]))

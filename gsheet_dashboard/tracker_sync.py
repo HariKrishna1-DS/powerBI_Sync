@@ -103,8 +103,17 @@ def matrix(rows, headers):
 
 
 def load_defaults():
-    """Every profile starts empty; production rows come from that user's sources."""
-    return {title: [] for title in TRACKERS}
+    result = {}
+    for title, filename, tab in ((FULL, 'full_search.xlsx', 'TV Orders'),
+                                  (REMAINING, 'co_update.xlsx', 'Sheet1')):
+        path = ASSET_DIR / 'default_trackers' / filename
+        if not path.exists():
+            raise RuntimeError(f'Default tracker is missing: {path.name}')
+        frame = pd.read_excel(path, sheet_name=tab, header=None, dtype=object).fillna('')
+        headers = canonical_headers(frame.iloc[0].tolist())
+        rows = [dict(zip(headers, [text(v) for v in row])) for row in frame.iloc[1:].values.tolist()]
+        result[title] = [r for r in rows if key(r)]
+    return result
 
 
 def suspended(row):
@@ -368,9 +377,6 @@ def read_pass_report(book=None, store=None):
 
 def import_default_details(book):
     """One-time import of master manual fields missing from legacy queue reports."""
-    defaults = load_defaults()
-    if not any(defaults.values()):
-        return
     from datatrace_sync import sheet_cell, write_sheet_batch
     sheets = {s.title: s for s in book.worksheets()}
     title = 'Default import details'
@@ -378,7 +384,7 @@ def import_default_details(book):
     if audit and audit.get_all_values():
         return
     audit = audit or book.add_worksheet(title=title, rows=2, cols=4)
-    requests, changes = [], []
+    defaults, requests, changes = load_defaults(), [], []
     for name in TRACKERS:
         target = sheets[name]
         values = target.get_all_values()

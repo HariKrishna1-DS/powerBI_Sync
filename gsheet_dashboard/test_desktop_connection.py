@@ -24,7 +24,7 @@ class ConnectionTests(unittest.TestCase):
         self.base.start()
         self.addCleanup(self.base.stop)
 
-    def test_connection_does_not_import_old_cloud_previews_or_allocate_new_captures(self):
+    def test_connection_recovers_gaps_without_cloud_writes_or_pending_sync(self):
         book = Book()
         book.sheets.append(Sheet('Sheet1', 0, [['Preview', 'Preview Timestamp', 'Order Number'], ['preview6', '2026-09-30T09:00:00+05:30', 'A'], ['preview34', '2026-10-02T09:00:00+05:30', 'B']]))
         app = create_app()
@@ -33,11 +33,9 @@ class ConnectionTests(unittest.TestCase):
             client = app.test_client()
             response = client.post('/api/desktop/check-connection', headers=self.headers)
             self.assertEqual(response.status_code, 200, response.json)
-            self.assertEqual(response.json['next_preview'], 1)
-            self.assertEqual(response.json['recovered_previews'], 0)
-            self.assertEqual(response.json['orders'], 0)
-            self.assertEqual(response.json['source'], 'Saved previews')
-            self.assertEqual(client.post('/api/desktop/check-connection', headers=self.headers).json['next_preview'], 1)
+            self.assertEqual(response.json['next_preview'], 35)
+            self.assertEqual(response.json['recovered_previews'], 2)
+            self.assertEqual(client.post('/api/desktop/check-connection', headers=self.headers).json['next_preview'], 35)
         self.assertEqual(book.batches, [])
         self.assertEqual(PreviewStore(self.root / 'previews').pending_count(), 0)
 

@@ -3614,6 +3614,8 @@ input[type=checkbox],input[type=range] {
 .metric-action:focus-visible { outline: 2px solid var(--metric-accent); outline-offset: -3px; }
 .sla-total { font-weight: 700; background: color-mix(in srgb,var(--summary-emerald) 10%,transparent); }
 .sla-status-workspace .chart-section { margin-top: 24px; }
+.sla-status-workspace .sla-preview-picker { display:flex; flex-direction:row; flex-wrap:wrap; align-items:center; justify-content:flex-start; gap:12px; margin:14px 0; }
+.sla-preview-picker select { width:auto; max-width:100%; }
 .sla-status-workspace .text-button { color: var(--accent); }
 .sla-status-workspace .secondary { color: var(--ink); background: var(--surface); border-color: var(--line); }
 .sla-status-workspace .metrics>.metric { border-color: var(--line); }

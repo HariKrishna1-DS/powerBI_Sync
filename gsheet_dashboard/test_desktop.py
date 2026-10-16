@@ -72,6 +72,32 @@ class DesktopTests(unittest.TestCase):
         self.assertEqual(store.pending_count(), 0)
         self.assertEqual((self.root / '.env').read_text(), 'DATATRACE_PASSWORD=secret')
 
+    def test_restore_accepts_existing_1_0_6_capture_settings(self):
+        store = PreviewStore(self.root / 'previews')
+        first = store.save(pd.DataFrame([{'Order Number': '001'}]))
+        with store.connect() as connection:
+            connection.execute('CREATE TABLE capture_settings (id INTEGER PRIMARY KEY, payload TEXT NOT NULL)')
+            connection.execute('INSERT INTO capture_settings VALUES (?,?)', (1, json.dumps({'auto_recover': False})))
+        raw = make_backup(store).getvalue()
+        store.save(pd.DataFrame([{'Order Number': '002'}]))
+        restore_backup(store, raw)
+        self.assertEqual(len(store.list()), 1)
+        self.assertEqual(store.get(first['id'])['rows'][0]['Order Number'], '001')
+        with store.connect() as connection:
+            restored = json.loads(connection.execute('SELECT payload FROM capture_settings WHERE id=1').fetchone()[0])
+        self.assertEqual(restored, {'auto_recover': False})
+
+    def test_restore_rejects_invalid_1_0_6_capture_settings(self):
+        store = PreviewStore(self.root / 'previews')
+        first = store.save(pd.DataFrame([{'Order Number': 'SAFE'}]))
+        with store.connect() as connection:
+            connection.execute('CREATE TABLE capture_settings (id INTEGER PRIMARY KEY, payload TEXT NOT NULL)')
+            connection.execute('INSERT INTO capture_settings VALUES (?,?)', (1, json.dumps({'auto_recover': 'false'})))
+        raw = make_backup(store).getvalue()
+        with self.assertRaisesRegex(ValueError, 'invalid capture recovery settings'):
+            restore_backup(store, raw)
+        self.assertEqual(store.get(first['id'])['rows'][0]['Order Number'], 'SAFE')
+
     def test_restore_rejects_traversal_and_keeps_current_data(self):
         store = PreviewStore(self.root / 'previews')
         store.save(pd.DataFrame([{'Order Number': 'SAFE'}]))

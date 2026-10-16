@@ -150,7 +150,7 @@ class ScheduledCaptureTests(unittest.TestCase):
         offset = values[0].index('Preview')
         self.assertEqual({row[offset] for row in values[1:]}, {'preview25'})
 
-    def test_old_cloud_history_is_not_automatically_imported_as_new_local_previews(self):
+    def test_render_recovers_latest_numbered_preview_from_sheet(self):
         book = Book()
         capture = preview(1, [raw('001')])
         capture.update(id=27, name='preview27')
@@ -160,9 +160,9 @@ class ScheduledCaptureTests(unittest.TestCase):
         with patch('server.BASE_DIR', self.root), patch('server.target_worksheet', return_value=(book, book.sheets[0])):
             client = create_app().test_client()
             state = client.get('/api/state').json
-        self.assertEqual(state['previews'], [])
-        self.assertEqual(client.get('/api/previews/27').status_code, 404)
-        self.assertEqual(self.store.list(), [])
+        self.assertEqual(state['previews'][0]['name'], 'preview27')
+        self.assertEqual(client.get('/api/previews/27').json['rows'][0]['Order Number'], '001')
+        self.assertEqual(self.store.get(27)['created'], capture['created'])
 
     def test_render_schedule_survives_local_file_loss(self):
         settings = Mock()

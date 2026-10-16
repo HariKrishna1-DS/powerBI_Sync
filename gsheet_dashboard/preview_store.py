@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 import shutil
 import sqlite3
-import tempfile
 
 import pandas as pd
 
@@ -16,7 +15,7 @@ CHANGE_COLUMNS = ['Change', 'Task Key', 'Column', 'Previous Value', 'Latest Valu
 
 class PreviewStore:
     def __init__(self, root):
-        # Durable queue history and the source for Tracker Report.
+        # Local retry cache only. Production reports read Google Sheets.
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
         with self.connect() as db:
@@ -31,7 +30,6 @@ class PreviewStore:
             db.execute('CREATE TABLE IF NOT EXISTS sync_jobs (preview_id INTEGER PRIMARY KEY, state TEXT NOT NULL)')
             db.execute('CREATE TABLE IF NOT EXISTS sync_reports (preview_id INTEGER PRIMARY KEY, sha256 TEXT NOT NULL, report_json TEXT NOT NULL, committed INTEGER NOT NULL DEFAULT 0)')
             db.execute('CREATE TABLE IF NOT EXISTS sync_failures (preview_id INTEGER PRIMARY KEY, error TEXT NOT NULL, created TEXT NOT NULL)')
-            db.execute('CREATE TABLE IF NOT EXISTS capture_settings (id INTEGER PRIMARY KEY, payload TEXT NOT NULL)')
             # Upgrade v2.0 without re-uploading already committed snapshots.
             db.execute("INSERT OR IGNORE INTO sync_jobs SELECT preview_id, 'synced' FROM sync_receipts")
 
@@ -102,55 +100,14 @@ class PreviewStore:
         return (history, corrections) if include_sla_corrections else history
 
     def delete(self, number):
-        self.delete_many([number])
-
-    def recovery_enabled(self):
         with self.connect() as db:
-            row = db.execute('SELECT payload FROM capture_settings WHERE id=1').fetchone()
-        return not row or self.decode(row[0]).get('auto_recover', True)
-
-    def delete_many(self, numbers, reset=False):
-        """Delete the whole selection together, restoring exports if a write fails."""
-        numbers = list(dict.fromkeys(numbers))
-        if any(type(number) is not int or number < 1 for number in numbers):
-            raise ValueError('Select valid capture numbers.')
-        staged = Path(tempfile.mkdtemp(dir=self.root, prefix='.deleting-'))
-        moved = []
-        try:
-            with self.connect() as db:
-                db.execute('BEGIN IMMEDIATE')
-                existing = {row[0] for row in db.execute('SELECT id FROM previews')}
-                if set(numbers) - existing:
-                    raise KeyError('A selected capture no longer exists. Refresh the library and try again.')
-                if reset:
-                    orphaned = {int(path.stem[7:]) for suffix in ('csv', 'xlsx')
-                                for path in self.root.glob(f'preview*.{suffix}') if path.stem[7:].isdigit()}
-                    numbers = sorted(existing | orphaned)
-                for number in numbers:
-                    for suffix in ('csv', 'xlsx'):
-                        path = self.root / f'preview{number}.{suffix}'
-                        if path.exists():
-                            target = staged / path.name
-                            path.replace(target)
-                            moved.append((path, target))
-                db.executemany('DELETE FROM previews WHERE id=?', [(number,) for number in numbers])
-                for table in ('sync_jobs', 'sync_reports', 'sync_failures', 'sync_receipts'):
-                    db.executemany(f'DELETE FROM {table} WHERE preview_id=?', [(number,) for number in numbers])
-                # An intentional deletion must not be reversed by cloud history recovery.
-                db.execute('INSERT OR REPLACE INTO capture_settings VALUES(1,?)', (json.dumps({'auto_recover': False}),))
-                if reset:
-                    for table in ('sync_jobs', 'sync_reports', 'sync_failures', 'sync_receipts', 'sla_corrections',
-                                  'operation_history', 'monthly_operations', 'report_workspace', 'import_excel_changes'):
-                        if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone():
-                            db.execute(f'DELETE FROM {table}')
-                    db.execute("DELETE FROM sqlite_sequence WHERE name IN ('previews','operation_history','monthly_operations','import_excel_changes')")
-        except Exception:
-            for path, target in reversed(moved):
-                target.replace(path)
-            raise
-        finally:
-            shutil.rmtree(staged, ignore_errors=True)
-        return numbers
+            cursor = db.execute('DELETE FROM previews WHERE id=' + '?', (number,))
+            for table in ('sync_jobs', 'sync_reports', 'sync_failures', 'sync_receipts'):
+                db.execute(f'DELETE FROM {table} WHERE preview_id=?', (number,))
+        if not cursor.rowcount:
+            raise KeyError('Preview not found.')
+        for suffix in ('csv', 'xlsx'):
+            (self.root / f'preview{number}.{suffix}').unlink(missing_ok=True)
 
     def sla_corrections(self):
         with self.connect() as db:

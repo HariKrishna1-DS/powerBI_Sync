@@ -44,19 +44,6 @@ class ReportWorkspace:
                     self.save(imported=updated, files=updated['files'], row_count=len(updated['rows']),
                               cloud_baseline=None, cloud_reset=True, cloud_refresh_error=None,
                               **({'publication_state': 'pending'} if latest['mode'] == 'excel' else {}))
-        settings = self.read()
-        if (settings.get('imported') or {}).get('sources') and not settings.get('local_source_boundary'):
-            from tracker_sync import sync_lock
-            from workspace_backup import save_safety_backup
-            with sync_lock(store.root), self.lock:
-                latest = self.read()
-                corrected = only_imported_orders(latest['imported'])
-                if corrected is not latest['imported']:
-                    save_safety_backup(store, 'before-update')
-                    self.save(imported=corrected, files=corrected['files'], row_count=len(corrected['rows']),
-                              cloud_baseline=None, cloud_reset=True,
-                              **({'publication_state': 'pending'} if latest['mode'] == 'excel' else {}))
-                self.save(local_source_boundary=True)
 
     def read(self):
         with self.store.connect() as db:
@@ -67,7 +54,7 @@ class ReportWorkspace:
     def save(self, **changes):
         with self.lock:
             value = dict(self.read(), **changes)
-            if {'mode', 'imported', 'selected_date', 'capacity', 'extended_capacity', 'preview_edits'} & changes.keys():
+            if {'mode', 'imported', 'selected_date', 'capacity', 'extended_capacity'} & changes.keys():
                 value['data_revision'] = secrets.token_hex(12)
             with self.store.connect() as db:
                 db.execute('INSERT OR REPLACE INTO report_workspace VALUES (1,?)', (json.dumps(value),))
@@ -75,7 +62,7 @@ class ReportWorkspace:
 
     def public(self):
         value = self.read()
-        public = {k: v for k, v in value.items() if k not in ('imported', 'cloud_baseline', 'tracker_status_baseline', 'preview_edits')}
+        public = {k: v for k, v in value.items() if k not in ('imported', 'cloud_baseline', 'tracker_status_baseline', 'sla_preview_statuses')}
         effective = Counter(row.get('Source workbook', '') for row in (value.get('imported') or {}).get('rows', []))
         public['imports'] = [{'name': s['name'], 'rows': len(s['rows']), 'orders': len((value.get('imported') or {}).get('rows', [])) if s.get('legacy') else effective[s['name']],
                               'worksheets': len(s['files']), 'legacy': s.get('legacy', False)}
@@ -94,12 +81,6 @@ class ReportWorkspace:
         public['duplicate_row_count'] = len(public['duplicate_orders'])
         public['source_overlap_count'] = len(public['source_overlap_orders'])
         public['repeated_source_row_count'] = len(repeated)
-        if value['mode'] == 'tracker':
-            from preview_reporting import preview_revision
-            previews = self.store.list()
-            public['data_revision'] = preview_revision(previews, value)
-            public['tracker_preview_count'] = len(previews)
-            public['tracker_latest_preview'] = previews[0]['name'] if previews else None
         public['duplicate_order_numbers'] = list(dict.fromkeys(row['Order Number'] for row in public['duplicate_orders']))
         if imported:
             public['files'] = diagnostics['files']
@@ -121,23 +102,6 @@ def import_sources(imported):
 def combine_sources(sources):
     from import_identity import combine_sources as combine
     return combine(sources)
-
-
-def only_imported_orders(imported):
-    """Repair older cloud-added/deleted records using saved workbook provenance.
-
-    Keep edits on original workbook orders. New cloud identities cannot become
-    imported orders, and a cloud deletion cannot remove an uploaded order.
-    """
-    from tracker_sync import key
-    combined = combine_sources(imported['sources'])
-    current = {key(row): row for row in imported['rows']}
-    allowed = {key(row) for row in combined['rows']}
-    if set(current) == allowed and len(imported['rows']) == len(allowed):
-        return imported
-    combined['rows'] = [dict(row, **current.get(key(row), {})) for row in combined['rows']]
-    combined['created'] = imported.get('created', combined['created'])
-    return combined
 
 
 def read_report_files(uploads):
@@ -262,7 +226,7 @@ def imported_snapshot(imported):
     from monthly_production import arrival_sort, local_datetime
     rows = [dict(row, _record_key=key(row)) for row in imported['rows']]
     for row in rows:
-        received = local_datetime(row.get('_received_at')) or local_datetime(row.get('Date')) or local_datetime(row.get('In-Time'))
+        received = local_datetime(row.get('Date')) or local_datetime(row.get('In-Time'))
         row['_received_at'] = received.isoformat() if received else ''
     # Completed imported orders move to the completion month only when Out Time
     # is later than their arrival month. Daily reports retain the arrival date.
@@ -383,7 +347,7 @@ def report_frames(snapshot, settings):
     frames['Daily Status Report'] = matrix(daily_status + [daily_total], daily_status_columns)
     counts = Counter(str(r.get('Status', '')).strip() or '(Blank)' for r in all_rows)
     frames['Status Report'] = [['Status', 'Orders', 'Share']] + [[s, n, n / len(all_rows)] for s, n in counts.items()]
-    frames['SLA Status'] = sheet_summary_values(build_sla_status(snapshot))
+    frames['SLA Status'] = sheet_summary_values(build_sla_status(snapshot.get('sla_snapshot', snapshot)))
     capacity = capacity_report(reports, dict(settings, mode=settings.get('mode', snapshot.get('mode', 'tracker'))))
     monthly = capacity['monthly']
     year = capacity['month'][:4]
@@ -521,8 +485,11 @@ def publish_reports(book, snapshot, settings, backup_root, daily_only=False, _co
             requests.append({'updateCells': {'range': {'sheetId': number},
                 'rows': output_rows, 'fields': 'userEnteredValue'}})
         if title == 'SLA Status':
-            from sla_status import sheet_format_requests
-            requests.extend(sheet_format_requests(number, values, existing or {}))
+            from sla_status import sheet_format_requests, preserve_table_formats
+            if existing and snapshot.get('sla_snapshot') is not None:
+                requests.extend(preserve_table_formats(number, originals[props['title']], values))
+            else:
+                requests.extend(sheet_format_requests(number, values, existing or {}))
         else:
             requests.extend(format_requests(number, values, (existing or {}).get('conditionalFormats', []),
                                             replace_rules=title == 'Status Report', grid_shape=(
@@ -530,8 +497,9 @@ def publish_reports(book, snapshot, settings, backup_root, daily_only=False, _co
                                                 max(cols, old_grid.get('columnCount', 0)))))
         # Old report fills can extend far beyond the current data. Clear those
         # blank rows as well; status rules are bounded to populated rows.
-        requests.append({'repeatCell': {'range': {'sheetId': number, 'startRowIndex': len(values),
-            'endColumnIndex': cols}, 'cell': {}, 'fields': 'userEnteredFormat'}})
+        if title != 'SLA Status' or snapshot.get('sla_snapshot') is None:
+            requests.append({'repeatCell': {'range': {'sheetId': number, 'startRowIndex': len(values),
+                'endColumnIndex': cols}, 'cell': {}, 'fields': 'userEnteredFormat'}})
         requests.append({'repeatCell': {'range': {'sheetId': number, 'startRowIndex': len(values),
             'endRowIndex': max(len(values)+25, old_grid.get('rowCount', 0)),
             'endColumnIndex': cols}, 'cell': {}, 'fields': 'userEnteredValue'}})
@@ -550,10 +518,11 @@ def publish_reports(book, snapshot, settings, backup_root, daily_only=False, _co
                 'endRowIndex': max(len(values), old_grid.get('rowCount', len(values))),
                 'startColumnIndex': cols, 'endColumnIndex': old_cols},
                 'cell': {}, 'fields': 'userEnteredValue'}})
-            requests.append({'repeatCell': {'range': {'sheetId': number,
-                'endRowIndex': max(len(values), old_grid.get('rowCount', len(values))),
-                'startColumnIndex': cols, 'endColumnIndex': old_cols},
-                'cell': {}, 'fields': 'userEnteredFormat'}})
+            if title != 'SLA Status' or snapshot.get('sla_snapshot') is None:
+                requests.append({'repeatCell': {'range': {'sheetId': number,
+                    'endRowIndex': max(len(values), old_grid.get('rowCount', len(values))),
+                    'startColumnIndex': cols, 'endColumnIndex': old_cols},
+                    'cell': {}, 'fields': 'userEnteredFormat'}})
         if title == 'Status Report' and len(values) > 1:
             requests.append({'repeatCell': {'range': {'sheetId': number, 'startRowIndex': 1,
                 'endRowIndex': len(values), 'startColumnIndex': 2, 'endColumnIndex': 3},
@@ -561,7 +530,8 @@ def publish_reports(book, snapshot, settings, backup_root, daily_only=False, _co
                 'fields': 'userEnteredFormat.numberFormat'}})
         if title == 'SLA Status':
             from sla_status import sheet_chart_requests
-            requests.extend(sheet_chart_requests(number, values, existing or {}))
+            requests.extend(sheet_chart_requests(number, values, existing or {},
+                            preserve_format=snapshot.get('sla_snapshot') is not None))
         if title == 'Daily Status Report':
             if len(values) > 2:
                 requests.append({'repeatCell': {'range': {'sheetId': number, 'startRowIndex': 1,
@@ -682,10 +652,27 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
                     if workspace.read().get('data_revision') == revision:
                         workspace.save(publication_state='working', sync_error=None)
                 book, _ = get_book()
-                with workspace.lock:
-                    snapshot = load_snapshot(force=True)
-                    settings = workspace.read()
-                    revision = settings.get('data_revision')
+                if sync_imported_tabs(workspace, book, settings):
+                    daily_only = False
+                settings = workspace.read()
+                revision = settings.get('data_revision')
+                snapshot = (imported_snapshot(settings['imported'])
+                            if settings['mode'] == 'excel' and settings.get('imported')
+                            else load_snapshot(force=True, tracker_only=True))
+                if settings['mode'] == 'tracker':
+                    from sla_status import preview_snapshot
+                    snapshot = dict(snapshot, sla_snapshot=preview_snapshot(workspace.store, settings, production=snapshot))
+                if snapshot.get('offline'):
+                    raise RuntimeError('Reconnect Google Sheets before publishing tracker reports.')
+                if workspace.read().get('data_revision') != revision:
+                    requested.set()
+                    return {'synced': False, 'queued': True}
+                if (settings.get('mode') == 'excel' and not settings.get('cloud_reset')
+                        and settings.get('cloud_baseline') and not daily_only
+                        and not tabs_unchanged(book, settings['cloud_baseline'])):
+                    requested.set()
+                    full_requested.set()
+                    return {'synced': False, 'queued': True}
                 result = publish_reports(book, snapshot, settings, workspace.store.root.parent / 'backups' / 'reports', daily_only)
             with workspace.lock:
                 if workspace.read().get('data_revision') != revision:
@@ -714,8 +701,6 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
                 continue
             try:
                 with workspace.lock:
-                    if not requested.is_set():
-                        continue
                     requested.clear()
                     full = full_requested.is_set()
                     full_requested.clear()
@@ -737,18 +722,39 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
         return {'synced': False, 'queued': True}
 
     app.extensions['queue_report_publication'] = queue_publication
-    def cancel_publication():
-        with workspace.lock:
-            requested.clear()
-            full_requested.clear()
-    app.extensions['cancel_report_publication'] = cancel_publication
 
     last_cloud_check = float('-inf')
     def refresh_imported_reports(force=False):
-        # Google Sheets is a destination. It cannot add rows to either local source.
-        invalidate()
+        nonlocal last_cloud_check
         settings = workspace.read()
-        return {'changed': False, 'mode': settings['mode'], 'source': 'Imported Excel' if settings['mode'] == 'excel' else 'Saved previews'}
+        if settings.get('mode') == 'excel' and not settings.get('imported'):
+            return {'changed': False, 'mode': 'excel'}
+        reset = settings.get('mode') == 'excel' and settings.get('cloud_reset')
+        if reset or (not force and time.monotonic() - last_cloud_check < 30):
+            return {'changed': False, 'busy': bool(reset)}
+        if not gate.acquire(blocking=False):
+            return {'changed': False, 'busy': True}
+        try:
+            last_cloud_check = time.monotonic()
+            with sync_lock(workspace.store.root):
+                book, _ = get_book()
+                if settings.get('mode') == 'excel':
+                    changed = sync_imported_tabs(workspace, book, workspace.read())
+                else:
+                    from status_updates import sync_tracker_status_tabs
+                    changed = sync_tracker_status_tabs(workspace, book)
+            if changed:
+                invalidate()
+            publication = queue_publication() if changed else None
+            return {'changed': changed, 'publication': publication, **workspace.public()}
+        except Exception as exc:
+            workspace.save(cloud_refresh_error=str(exc))
+            last_cloud_check = time.monotonic() + 30
+            if force:
+                raise
+            return {'changed': False, 'sync_error': str(exc)}
+        finally:
+            gate.release()
 
     app.extensions['refresh_imported_reports'] = refresh_imported_reports
 
@@ -943,8 +949,14 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
                     return jsonify(error='The report source changed. Reopen the order before saving.'), 409
                 book = None
                 if settings['mode'] == 'excel':
+                    if settings.get('cloud_baseline') and not settings.get('cloud_reset'):
+                        book, _ = get_book()
+                        sync_imported_tabs(workspace, book, settings)
                     snapshot = imported_snapshot(workspace.read()['imported'])
                 else:
+                    from status_updates import sync_tracker_status_tabs
+                    book, _ = get_book()
+                    sync_tracker_status_tabs(workspace, book)
                     snapshot = load_snapshot(force=True, tracker_only=True)
                 result = save_order(workspace, book, snapshot, body)
             invalidate()
@@ -969,9 +981,77 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
 
     @app.get('/api/sla-status')
     def get_sla_status():
-        from sla_status import build_sla_status
-        report = build_sla_status(load_snapshot())
-        return jsonify(**report, sync_error=workspace.read().get('cloud_refresh_error'))
+        try:
+            report = load_sla_report()
+        except ValueError as exc:
+            return jsonify(error=str(exc)), 400
+        except KeyError:
+            return jsonify(error='That preview is no longer available. Choose another preview.'), 404
+        return jsonify(report)
+
+    sla_status_cache = {'checked': float('-inf'), 'revision': None, 'snapshot': None}
+
+    def load_sla_report(preview_id=None):
+        from sla_status import build_sla_status, preview_snapshot, tracker_status_rows
+        settings = workspace.read()
+        if settings['mode'] != 'tracker':
+            return dict(build_sla_status(load_snapshot()), sync_error=settings.get('cloud_refresh_error'))
+        raw = request.args.get('preview_id') if preview_id is None else preview_id
+        if raw is not None and (isinstance(raw, bool) or not str(raw).isdecimal() or int(raw) < 1):
+            raise ValueError('Choose a valid saved preview.')
+        snapshot = preview_snapshot(workspace.store, settings, int(raw) if raw is not None else None)
+        if snapshot['uses_queue_status']:
+            try:
+                if (time.monotonic()-sla_status_cache['checked'] >= 30 or
+                        sla_status_cache['revision'] != settings.get('data_revision')):
+                    book, _ = get_book()
+                    status_rows = tracker_status_rows(book)
+                    sla_status_cache.update(checked=time.monotonic(), revision=settings.get('data_revision'),
+                        snapshot={'sheets': {'Overview': {'rows': status_rows}}})
+                snapshot = preview_snapshot(workspace.store, settings,
+                    int(raw) if raw is not None else None, production=sla_status_cache['snapshot'])
+            except Exception:
+                # A saved preview remains usable while its tracker is offline.
+                pass
+        return dict(build_sla_status(snapshot), sync_error=settings.get('sla_sync_error'))
+
+    def publish_selected_sla(report):
+        from sla_status import publish_preview_sla
+        try:
+            book, _ = get_book()
+            result = publish_preview_sla(book, report, workspace.store.root.parent / 'backups' / 'reports')
+            workspace.save(sla_sync_error=None, sla_synced_at=datetime.now(timezone.utc).isoformat())
+            return result
+        except Exception as exc:
+            workspace.save(sla_sync_error=str(exc))
+            return {'synced': False, 'sync_error': str(exc)}
+
+    @app.post('/api/sla-preview')
+    def choose_sla_preview():
+        body = request.get_json(silent=True) or {}
+        if workspace.read()['mode'] != 'tracker':
+            return jsonify(error='Choose Tracker report before selecting an SLA preview.'), 409
+        preview_id = body.get('preview_id')
+        if type(preview_id) is not int or preview_id < 1:
+            return jsonify(error='Choose a valid saved preview.'), 400
+        try:
+            workspace.store.get(preview_id)
+        except KeyError:
+            return jsonify(error='That preview is no longer available. Choose another preview.'), 404
+        latest = workspace.store.list()[0]['id']
+        workspace.save(sla_preview_id=None if preview_id == latest else preview_id)
+        sla_status_cache['checked'] = float('-inf')
+        report = load_sla_report(preview_id)
+        if not gate.acquire(blocking=False):
+            workspace.save(sla_sync_error='Wait for the current capture or Sheets update, then refresh SLA Status.')
+            return jsonify(**report, publication={'synced': False,
+                'sync_error': 'Wait for the current capture or Sheets update, then refresh SLA Status.'})
+        try:
+            with sync_lock(workspace.store.root):
+                publication = publish_selected_sla(report)
+            return jsonify(**report, publication=publication)
+        finally:
+            gate.release()
 
     @app.post('/api/order-status')
     def edit_order_status():
@@ -983,15 +1063,38 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
                 or not old or not new or len(new) > 1000 or old == new or not isinstance(selected, list)
                 or not selected or any(not isinstance(n, str) or not n.strip() for n in selected)):
             raise ValueError('Choose a different, nonblank status and the orders to update.')
+        if 'preview_id' in body and workspace.read()['mode'] != 'tracker':
+            return jsonify(error='The report source changed. Reopen SLA Status before editing.'), 409
         if not gate.acquire(blocking=False):
             return jsonify(error='Wait for the current capture or Sheets update to finish, then save.'), 409
         try:
             with sync_lock(workspace.store.root):
                 settings = workspace.read()
+                if settings['mode'] == 'tracker' and 'preview_id' in body:
+                    from sla_status import preview_snapshot, rename_preview_status
+                    preview_id = body['preview_id']
+                    if type(preview_id) is not int or preview_id < 1:
+                        return jsonify(error='Choose a valid saved preview.'), 400
+                    try:
+                        report = load_sla_report(preview_id)
+                        snapshot = {'preview_id': preview_id, 'sheets': {'Overview': {
+                            'rows': report['rows'] + report['excluded_rows']}}}
+                    except KeyError:
+                        return jsonify(error='That preview is no longer available. Choose another preview.'), 404
+                    count = rename_preview_status(workspace, snapshot, old, new,
+                                                  [number.strip().casefold() for number in selected])
+                    workspace.save(sla_preview_id=preview_id)
+                    return jsonify(updated=count, status=new,
+                                   publication=publish_selected_sla(load_sla_report(preview_id)))
                 book = None
                 if settings.get('mode') == 'excel':
+                    book, _ = get_book()
+                    sync_imported_tabs(workspace, book, settings)
+                    settings = workspace.read()
                     snapshot = imported_snapshot(settings['imported'])
                 else:
+                    book, _ = get_book()
+                    sync_tracker_status_tabs(workspace, book)
                     snapshot = load_snapshot(force=True, tracker_only=True)
                 count = rename_status(workspace, book, snapshot, old, new,
                                       [number.strip().casefold() for number in selected])
@@ -1010,14 +1113,22 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
         from openpyxl.chart import BarChart, LineChart, Reference
         from openpyxl.chart.series import SeriesLabel
         from tracker_formatting import REPORT_COLORS
-        snapshot = load_snapshot()
         if request.args.get('sheet') == 'SLA Status':
-            from sla_status import build_sla_status, excel_report
-            report = build_sla_status(snapshot)
+            from sla_status import excel_report
+            try:
+                report = load_sla_report()
+            except ValueError as exc:
+                return jsonify(error=str(exc)), 400
+            except KeyError:
+                return jsonify(error='That preview is no longer available. Choose another preview.'), 404
             return send_file(excel_report(report), as_attachment=True,
-                download_name=f'TV_Status_{report["as_of"]}.xlsx',
+                download_name=f'TV_Status_{report.get("preview_name") + "_" if report.get("preview_name") else ""}{report["as_of"]}.xlsx',
                 mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+        snapshot = load_snapshot()
         settings = workspace.read()
+        if settings['mode'] == 'tracker':
+            from sla_status import preview_snapshot
+            snapshot = dict(snapshot, sla_snapshot=preview_snapshot(workspace.store, settings, production=snapshot))
         month = request.args.get('month')
         if month:
             if not re.fullmatch(r'\d{4}-(0[1-9]|1[0-2])', month):

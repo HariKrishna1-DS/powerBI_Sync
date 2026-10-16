@@ -337,14 +337,14 @@ class AutomaticApiTests(unittest.TestCase):
         self.assertFalse(client.get('/api/health').json['running'])
         self.assertEqual(calls, [1])
 
-    def test_google_failure_does_not_block_local_preview_reports(self):
+    def test_live_sheet_failure_is_not_replaced_by_preview_totals(self):
         from server import create_app
         client = create_app(root=self.root).test_client()
         with patch('server.target_worksheet', side_effect=RuntimeError('offline')):
             for route in ('/api/live-sheets', '/api/daily-orders', '/api/monthly-orders'):
                 response = client.get(route)
-                self.assertEqual(response.status_code, 200)
-                self.assertEqual(response.json['source'], 'Saved previews')
+                self.assertEqual(response.status_code, 502)
+                self.assertNotIn('rows', response.json)
 
 
 if __name__ == '__main__':

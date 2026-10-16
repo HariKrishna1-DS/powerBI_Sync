@@ -79,8 +79,6 @@ class NewFeaturesTests(unittest.TestCase):
         self.assertEqual(report['Completed Orders'], 1)
         self.assertEqual(report['missing_ids'], [])
         book = Book([rows, []])
-        self.store.restore(1, list(rows[0]), rows, created='2026-09-30T09:00:00+05:30')
-        self.store.restore(2, list(rows[0]), [rows[0]], created='2026-09-30T10:00:00+05:30')
         with patch('server.target_worksheet', return_value=(book, book.sheets[0])):
             response = create_app(self.store.root).test_client().get('/api/monthly-orders')
         self.assertEqual(response.status_code, 200)

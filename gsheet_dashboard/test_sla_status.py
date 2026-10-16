@@ -133,6 +133,7 @@ class SlaStatusTests(unittest.TestCase):
         from report_workspace import ReportWorkspace, register_report_routes
         with tempfile.TemporaryDirectory() as root:
             workspace = ReportWorkspace(PreviewStore(Path(root)))
+            workspace.save(mode='excel')
             app = Flask(__name__)
             register_report_routes(app, workspace, threading.Lock(), lambda: self.snapshot, lambda: None, lambda: None)
             with app.test_client() as client:
