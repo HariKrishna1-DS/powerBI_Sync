@@ -125,11 +125,15 @@ const {once} = require('node:events');
     const sheetUrl='https://docs.google.com/spreadsheets/d/native-fixture-production/edit';
     const nativeState=await reopened.evaluate(()=>fetch('/api/state').then(r=>r.json()));
     await reopened.route('**/api/state*',route=>route.fulfill({json:{...nativeState,sheet_url:sheetUrl}}));
-    await reopened.route('**/api/live-sheets*',route=>route.fulfill({json:{mode:'tracker',updated_at:'2026-10-05T05:30:00Z',sheets:{Overview:{columns:['Order Number','Product','Status'],rows:[{'Order Number':'DESKTOP-001',Product:'Full Title',Status:'Available'}]}}}}));
+    await reopened.route('**/api/live-sheets*',route=>route.fulfill({json:{mode:'tracker',source:'Saved previews',report_origin:'previews',
+      data_revision:nativeState.report_workspace.data_revision,preview_count:nativeState.previews.length,preview_name:'preview1',
+      updated_at:'2026-10-05T05:30:00Z',sheets:{Overview:{columns:['Order Number','Product','Status'],rows:[{'Order Number':'DESKTOP-001',Product:'Full Title',Status:'Available'}]}}}}));
     await app.evaluate(({shell})=>{global.testOpenedSheet='';shell.openExternal=async url=>{global.testOpenedSheet=url;};});
     await reopened.reload();
     await reopened.getByRole('button',{name:'Overview',exact:true}).click();
-    await reopened.getByRole('link',{name:'Live Google Sheets',exact:true}).click();
+    await reopened.getByLabel('Workspace context').getByText('Saved previews',{exact:true}).waitFor();
+    assert.equal(await reopened.getByRole('button',{name:/Preview orders/}).locator('strong').innerText(),'1');
+    await reopened.getByRole('link',{name:/Open Google Sheet/}).click();
     assert.equal(await app.evaluate(()=>global.testOpenedSheet),sheetUrl);
     await reopened.screenshot({path:path.join(output,'desktop-production-link.png')});
     await reopened.unroute('**/api/state*');
