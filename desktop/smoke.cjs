@@ -133,7 +133,7 @@ const {once} = require('node:events');
     await reopened.getByRole('button',{name:'Overview',exact:true}).click();
     await reopened.getByLabel('Workspace context').getByText('Saved previews',{exact:true}).waitFor();
     assert.equal(await reopened.getByRole('button',{name:/Preview orders/}).locator('strong').innerText(),'1');
-    await reopened.getByRole('link',{name:/Open Google Sheet/}).click();
+    await reopened.getByLabel('Workspace context').getByRole('link',{name:'Open Google Sheet',exact:true}).click();
     assert.equal(await app.evaluate(()=>global.testOpenedSheet),sheetUrl);
     await reopened.screenshot({path:path.join(output,'desktop-production-link.png')});
     await reopened.unroute('**/api/state*');

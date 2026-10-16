@@ -20,7 +20,7 @@ test('source switches replace every report dataset and tracker labels show saved
     if(name==='/api/report-source')mode=route.request().postDataJSON().mode;
     const rows=selectedRows(), settings=workspace();
     let body=fixture.response(name);
-    if(name==='/api/state')body={...body,report_workspace:settings};
+    if(name==='/api/state')body={...body,report_workspace:settings,sheet_url:'https://docs.google.com/spreadsheets/d/report-destination/edit'};
     if(['/api/report-workspace','/api/report-source'].includes(name))body={...settings,publication:{synced:true}};
     if(name==='/api/live-sheets')body={...body,mode,source:mode==='tracker'?'Saved previews':'Imported Excel',
       data_revision:settings.data_revision,report_origin:mode==='tracker'?'previews':'excel',preview_count:2,preview_name:'preview32',
@@ -33,6 +33,7 @@ test('source switches replace every report dataset and tracker labels show saved
   await page.getByRole('button',{name:'Overview',exact:true}).click();
   const context=page.getByLabel('Workspace context');
   await expect(context).toContainText('Saved previews');
+  await expect(context.getByRole('link',{name:'Open Google Sheet',exact:true})).toHaveAttribute('href','https://docs.google.com/spreadsheets/d/report-destination/edit');
   await expect(page.getByRole('button',{name:/Preview orders/})).toContainText('3');
   await expect(page.getByRole('button',{name:/Saved captures/})).toContainText('2');
   await expect(page.getByRole('button',{name:/Duplicate Orders/})).toHaveCount(0);
