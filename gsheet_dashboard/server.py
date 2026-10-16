@@ -915,7 +915,8 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
 
     def production_snapshot(force=False, known_revision=None, tracker_only=False):
         from report_workspace import imported_snapshot
-        if not tracker_only and app.extensions.get('refresh_imported_reports'):
+        can_reconcile = not desktop_mode or bool(SPREADSHEET_ID and os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON'))
+        if not tracker_only and can_reconcile and app.extensions.get('refresh_imported_reports'):
             app.extensions['refresh_imported_reports']()
         settings = report_workspace.read()
         if not tracker_only and settings['mode'] == 'excel' and settings.get('imported'):

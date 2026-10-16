@@ -17,4 +17,6 @@ Production, imported Excel, daily and monthly reports retain their existing beha
 
 Existing user connections, captures and imported files remain in the application profile. Local runtime files, credentials and captures are excluded from release source.
 
+Desktop startup keeps local capture imports available before a Google Sheets connection is configured. Backups from 1.0.6 remain restorable.
+
 This release continues the existing unsigned Windows distribution. Windows may show an unknown-publisher warning.
