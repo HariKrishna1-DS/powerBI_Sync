@@ -33,7 +33,8 @@ class ImportedSlaManualTests(unittest.TestCase):
         self.start = patch('threading.Thread.start')
         self.start.start()
         self.addCleanup(self.start.stop)
-        register_report_routes(self.app, self.workspace, threading.Lock(),
+        self.gate = threading.Lock()
+        register_report_routes(self.app, self.workspace, self.gate,
             lambda **kwargs: imported_snapshot(self.workspace.read()['imported']), lambda: (self.book, None), lambda: None)
         self.client = self.app.test_client()
 
@@ -147,6 +148,20 @@ class ImportedSlaManualTests(unittest.TestCase):
         retained = preserve_sheet_edits(previous, combined)
         actual = next(r for r in retained['rows'] if r['Order Number'] == '001' and r['Source workbook'] == 'full.xlsx')
         self.assertEqual((actual['Borrower'], actual['Status']), ('Keep local', 'Manual review'))
+
+    def test_excel_manual_save_waits_for_an_active_background_publication(self):
+        import _thread
+        import time
+        self.gate.acquire()
+        def finish_publication():
+            time.sleep(0.15)
+            self.gate.release()
+        _thread.start_new_thread(finish_publication, ())
+        started = time.monotonic()
+        response = self.post('/api/sla-statuses', status='Waited for sync')
+        self.assertEqual(response.status_code, 200, response.json)
+        self.assertGreaterEqual(time.monotonic()-started, 0.1)
+        self.assertIn('Waited for sync', self.report()['custom_statuses'])
 
 
 if __name__ == '__main__':

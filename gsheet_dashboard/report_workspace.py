@@ -1196,7 +1196,8 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
     def edit_manual_sla():
         from sla_manual import save_order, save_status, delete_status
         body = request.get_json(silent=True) or {}
-        if not gate.acquire(blocking=False):
+        acquired = gate.acquire(timeout=10) if body.get('mode') == 'excel' else gate.acquire(blocking=False)
+        if not acquired:
             return jsonify(error='Wait for the current capture or Sheets update to finish, then save.'), 409
         try:
             with sync_lock(workspace.store.root):
@@ -1241,7 +1242,8 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
             return jsonify(error='The report source changed. Reopen SLA Status before editing.'), 409
         if 'sla_report_date' in body and workspace.read()['mode'] != 'excel':
             return jsonify(error='The report source changed. Reopen SLA Status before editing.'), 409
-        if not gate.acquire(blocking=False):
+        acquired = gate.acquire(timeout=10) if 'sla_report_date' in body else gate.acquire(blocking=False)
+        if not acquired:
             return jsonify(error='Wait for the current capture or Sheets update to finish, then save.'), 409
         try:
             with sync_lock(workspace.store.root):
