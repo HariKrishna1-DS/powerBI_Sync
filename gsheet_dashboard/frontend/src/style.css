@@ -5028,18 +5028,18 @@ tr:hover td {
   .sidebar .brand { padding:12px 18px; }
   .sidebar .sidebar-section-label { padding-bottom:4px; }
   .sidebar nav { padding-bottom:6px; }
-  .sidebar .nav-item { min-height:30px; padding-block:5px; margin-block:1px; }
+  .sidebar .nav-item { min-height:28px; padding-block:4px; margin-block:1px; line-height:18px; }
   .sidebar .nav-subsection { margin-top:5px; padding-top:4px; }
   .sidebar .sidebar-footer { padding-block:6px; }
   .sidebar .theme-control { padding-block:3px; }
   .sidebar .preview-heading { padding-block:9px; }
 }
 @media (max-height: 700px) {
-  .sidebar .brand { padding-block:10px; }
+  .sidebar .brand { padding-block:8px; }
   .sidebar .brand span { display:none; }
   .sidebar .brand-mark { width:32px; height:32px; }
   .sidebar .sidebar-section-label { padding-bottom:2px; }
-  .sidebar .nav-item { min-height:26px; padding-block:3px; }
+  .sidebar .nav-item { min-height:24px; padding-block:3px; }
   .sidebar .sidebar-preferences .connection-status,
   .sidebar .sidebar-preferences>a { display:none; }
   .sidebar .preview-heading { padding-block:7px; }

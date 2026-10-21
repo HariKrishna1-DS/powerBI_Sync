@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const puppeteer = require('puppeteer');
+const puppeteer = require('../desktop/extractor/node_modules/puppeteer-core');
 
 // Run the actual scraper against an isolated two-page portal fixture.
 (async () => {
@@ -11,7 +11,7 @@ const puppeteer = require('puppeteer');
     const fullComment = 'Continue - Full review details that are only present in the tooltip.';
     const describedComment = 'Additional comment details including the complete second paragraph.';
     const browser = await puppeteer.launch({headless: true,
-        executablePath:process.env.PUPPETEER_EXECUTABLE_PATH || await puppeteer.executablePath()});
+        ...(process.env.PUPPETEER_EXECUTABLE_PATH ? {executablePath:process.env.PUPPETEER_EXECUTABLE_PATH} : {channel:'chrome'})});
     const originalNewPage = browser.newPage.bind(browser);
     browser.newPage = async () => {
         const page = await originalNewPage();

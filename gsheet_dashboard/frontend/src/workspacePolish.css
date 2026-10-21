@@ -7,7 +7,7 @@
   --toolbar: #fffffff2;
   --ink: #162d3d;
   --text: #334b5d;
-  --muted: #607587;
+  --muted: #526878;
   --line: #dae4ed;
   --hover: #edf4f8;
   --accent: #087f7b;
@@ -61,7 +61,9 @@ h3 { font-weight:650; }
 .topbar { box-shadow:0 1px 0 var(--line); }
 .brand-copy { font-size:21px; font-weight:750; letter-spacing:-.6px; }
 .brand-copy>span { font-size:10px; font-weight:500; letter-spacing:.2px; }
-.nav-item { min-height:42px; border-radius:10px; font-size:13px; font-weight:550; }
+.nav-item { min-height:40px; border-radius:10px; font-size:13px; font-weight:550; }
+.sidebar-footer a { min-height:24px; padding-block:2px; }
+.sidebar .preview-heading { padding-block:6px; }
 .nav-item.selected { box-shadow:inset 3px 0 var(--accent); font-weight:700; }
 .nav-item.selected svg { color:var(--accent); }
 .preview-item { border-radius:11px; }
