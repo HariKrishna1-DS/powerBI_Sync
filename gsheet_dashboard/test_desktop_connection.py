@@ -56,7 +56,7 @@ class ConnectionTests(unittest.TestCase):
 
     def test_empty_workspace_preserves_authentication_error_and_key_id(self):
         message = 'Google Sheets authentication failed: Invalid JWT Signature. Key ID fixture-key-id.'
-        with patch('server.target_worksheet', side_effect=RuntimeError(message)):
+        with patch('server.SPREADSHEET_ID', 'fixture'), patch('server.target_worksheet', side_effect=RuntimeError(message)):
             response = create_app().test_client().post('/api/desktop/check-connection', headers=self.headers)
         self.assertEqual(response.status_code, 502)
         self.assertIn(message, response.json['error'])
