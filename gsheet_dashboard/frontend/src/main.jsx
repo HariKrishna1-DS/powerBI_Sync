@@ -1,3 +1,4 @@
+import {FilterableTable} from './ColumnFilters';
 import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Activity, Camera, Home, ListFilter, Settings2, ArrowDown, ArrowUp, ArrowDownToLine, ArrowLeftRight, BarChart3, CalendarDays, Check, ChevronLeft, ChevronRight, Clock3, CloudUpload, Database, FileSpreadsheet, Filter, HardDrive, LoaderCircle, Maximize2, Minimize2, Play, Plus, Printer, Search, SlidersHorizontal, Table2, Trash2, Upload, X } from 'lucide-react';
@@ -81,7 +82,7 @@ function TriggerClock({schedule, clock, onClearHistory, clearingHistory}) {
 function StatusReport({rows}) {
   const counts=new Map();
   rows.forEach(row=>{const raw=str(row.Status).trim()||'(Blank)';const key=raw.toLowerCase();const entry=counts.get(key)||{name:raw,count:0};entry.count++;counts.set(key,entry);});
-  return <section className="status-report"><div className="section-heading"><h2>Status Report</h2><span className="row-tally">{counts.size} statuses</span></div><div className="status-report-scroll"><table className="status-report-table"><thead><tr><th>Status</th><th>Orders</th><th>Share</th></tr></thead><tbody>{[...counts.values()].sort((a,b)=>b.count-a.count).map(item=>{const bg=statusColor(item.name);return <tr key={item.name} style={{backgroundColor:bg,color:textColorForBg(bg)}}><td>{item.name}</td><td>{item.count.toLocaleString()}</td><td>{rows.length?(item.count/rows.length*100).toFixed(1):'0.0'}%</td></tr>;})}</tbody></table></div></section>;
+  return <section className="status-report"><div className="section-heading"><h2>Status Report</h2><span className="row-tally">{counts.size} statuses</span></div><div className="status-report-scroll"><FilterableTable className="status-report-table"><thead><tr><th>Status</th><th>Orders</th><th>Share</th></tr></thead><tbody>{[...counts.values()].sort((a,b)=>b.count-a.count).map(item=>{const bg=statusColor(item.name);return <tr key={item.name} style={{backgroundColor:bg,color:textColorForBg(bg)}}><td>{item.name}</td><td>{item.count.toLocaleString()}</td><td>{rows.length?(item.count/rows.length*100).toFixed(1):'0.0'}%</td></tr>;})}</tbody></FilterableTable></div></section>;
 }
 
 

@@ -52,7 +52,7 @@ class ReportDateDetailsTests(unittest.TestCase):
                 'month': editor['month'], 'mode': editor['mode'], 'version': editor['version'],
                 'report_date': report_date, 'changes': changes})
 
-    def test_capacity_groups_reconcile_with_summary_and_next_available_dates(self):
+    def test_capacity_groups_reconcile_with_direct_counts_without_carryover(self):
         reports = self.snapshot()['reports']
         original = deepcopy(reports)
         details = capacity_details(reports, '2026-10-02')
@@ -60,11 +60,12 @@ class ReportDateDetailsTests(unittest.TestCase):
         self.assertEqual(details['previous_date'], '2026-09-30')
         self.assertEqual(details['next_date'], '2026-10-05')
         self.assertEqual(len(groups['received']), details['counts']['Received'])
-        self.assertEqual(len(groups['received']), 4)
-        self.assertEqual({row['Order Number'] for row in groups['rollover']}, {'A', 'B'})
+        self.assertEqual(len(groups['received']), 2)
+        self.assertEqual(groups['clarification'], [])
+        self.assertEqual(groups['vendor'], [])
+        self.assertEqual([row['Order Number'] for row in groups['in_house']], ['D'])
         self.assertEqual([row['Order Number'] for row in groups['completed']], ['C'])
-        self.assertEqual([row['Order Number'] for row in groups['next_added']], ['E'])
-        self.assertEqual([row['Order Number'] for row in groups['next_completed']], ['E'])
+        self.assertEqual(set(groups), {'received','completed','clarification','cancelled','vendor','in_house'})
         final = capacity_details(reports, '2026-10-05')
         self.assertIsNone(final['next_date'])
         self.assertEqual(len(next(group['rows'] for group in final['groups'] if group['key'] == 'completed')), 1)
@@ -164,6 +165,24 @@ class ReportDateDetailsTests(unittest.TestCase):
         self.assertEqual(result['order']['Order Number'], 'A')
         self.assertNotIn('Missing column', result['editable_columns'])
         self.assertNotIn('Order Number', result['editable_columns'])
+
+    def test_out_time_only_edit_sets_status_in_local_import_and_google_tracker(self):
+        result=self.save(self.editor(),{'Out Time':'10/04/2026 02:00 PM'})
+        self.assertEqual(result.status_code,200,result.json)
+        saved=next(row for row in self.workspace.read()['imported']['rows'] if row['Order Number']=='D')
+        self.assertEqual(saved['Status'],'Completed and Delivered')
+        self.assertEqual({row['Column'] for row in recorded_changes(self.workspace,'excel','2026-10-02')},{'Status','Out Time'})
+        self.book=StatusBook([order('D')])
+        for sheet in self.book.sheets:
+            sheet.values[0].append('Out Time')
+            for cells in sheet.values[1:]:
+                cells.append('')
+        self.workspace.save(mode='tracker')
+        result=self.save(self.editor(),{'Out Time':'10/04/2026 03:00 PM'})
+        self.assertEqual(result.status_code,200,result.json)
+        values=self.book.worksheet(FULL).values
+        self.assertEqual(values[1][values[0].index('Status')],'Completed and Delivered')
+        self.assertEqual(values[1][values[0].index('Out Time')],'10/04/2026 03:00 PM')
 
     def test_failed_backup_cannot_change_the_imported_order(self):
         before = deepcopy(self.workspace.read()['imported'])

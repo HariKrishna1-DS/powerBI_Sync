@@ -240,8 +240,8 @@ def validate_queue(df):
 def powerbi_table(df, timestamp):
     result = df.copy()
     # Portal dates have no timezone. Do not invent a year for partial SLA dates.
-    arrival = pd.to_datetime(result['Arrival Time'], format='%m/%d/%Y %I:%M %p', errors='coerce')
-    result['Arrival Date'] = arrival.dt.strftime('%Y-%m-%d').fillna('')
+    from reporting_dates import arrival_details
+    result['Arrival Date'] = [arrival_details(row)['Arrival Date'] for row in result.to_dict('records')]
     duration = result.get('Time Since Arrival', pd.Series('', index=df.index)).str.extract(
         r'^(?:(\d+)d\s*)?(?:(\d+)h\s*)?(?:(\d+)m\s*)?$')
     hours = duration.apply(pd.to_numeric, errors='coerce')
@@ -453,7 +453,12 @@ def apply_status_rules(df, rules, reporting_date=None):
     for column in columns:
         result[column] = result[column].map(lambda value: mapping.get(str(value).strip().casefold(), value))
         from production_rules import mapped_status
-        for index, row in result.iterrows():
+        from sla_status import queue_rule
+        for (index, row), original in zip(result.iterrows(), df[column]):
+            # A fallback must not replace an explicit status conversion.
+            # Specific ETA and queue evidence still uses the shared rule.
+            if str(original).strip().casefold() in mapping and queue_rule(row)[0] >= 7:
+                continue
             result.at[index, column] = mapped_status(row, row[column])
     if 'Is Available' in result.columns and columns:
         result['Is Available'] = result[columns[0]].astype(str).str.strip().str.casefold().eq('available')

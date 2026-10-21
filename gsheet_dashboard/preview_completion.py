@@ -17,11 +17,11 @@ def missing_completion(row, out, previous=None):
     result = dict(row)
     if status(row) in ('cancelled', 'canceled', 'task suspended', 'workflow suspended'):
         return result
-    arrival = local_datetime(row.get('In-Time') or row.get('Date'))
+    arrival = local_datetime(row.get('In-Time') or row.get('Arrival Time') or row.get('RequestArrivalTime') or row.get('Date'))
     if out is None or (arrival and out < arrival):
         return result
     result['Status'] = 'Completed and Delivered'
-    if not precise_timestamp(row.get('Out Time')):
+    if not local_datetime(row.get('Out Time')):
         result['Out Time'] = out.strftime('%m/%d/%Y %I:%M:%S %p')
     # A countdown is relative to the last preview that actually contained the order.
     from tracker_sync import deadline, value
@@ -40,7 +40,7 @@ def reconcile_completions(trackers, history):
     in this archive and the order returns. Unrelated manual times are retained.
     """
     from tracker_sync import key
-    from production_timing import precise_timestamp, sla_result, status
+    from production_timing import precise_timestamp, sla_result, status, completion_from_out_time
     groups = defaultdict(list)
     for row in history:
         name = str(row.get('Preview', ''))
@@ -82,14 +82,20 @@ def reconcile_completions(trackers, history):
     for title, rows in trackers.items():
         from monthly_production import tab_identity, ARCHIVE
         month = tab_identity(title)
-        if month and month[1] <= ARCHIVE:
-            result[title] = [dict(row) for row in rows]
+        archived = bool(month and month[1] <= ARCHIVE)
+        if archived:
+            result[title] = [completion_from_out_time(row) for row in rows]
+            for before, after in zip(rows, result[title]):
+                if after != before:
+                    changes.append({'Order Number': before.get('Order Number', ''), 'Action': 'updated',
+                                    'Old Status': before.get('Status', ''), 'New Status': after.get('Status', ''),
+                                    'Out Time': after.get('Out Time', '')})
             continue
         result[title] = []
         for row in rows:
             changed = dict(row)
             identity = key(row)
-            if counts[identity] == 1 and status(row) not in ('cancelled', 'canceled', 'task suspended', 'workflow suspended'):
+            if not archived and counts[identity] == 1 and status(row) not in ('cancelled', 'canceled', 'task suspended', 'workflow suspended'):
                 if identity in absent:
                     out, raw, stamp = absent[identity]
                     if precise_timestamp(row.get('Out Time')) in inferred[identity] and precise_timestamp(row.get('Out Time')) != out:
@@ -101,6 +107,7 @@ def reconcile_completions(trackers, history):
                     from tracker_sync import mapped_status
                     changed['Status'] = mapped_status(present[identity], new=True)
                     changed['Out Time'] = ''
+            changed = completion_from_out_time(changed)
             sla, _ = sla_result(changed)
             if sla or 'Free Site' in changed:
                 changed['Free Site'] = sla
@@ -110,3 +117,18 @@ def reconcile_completions(trackers, history):
                     'Old Status': row.get('Status', ''), 'New Status': changed.get('Status', ''),
                     'Out Time': changed.get('Out Time', '')})
     return result, changes
+
+
+def comparison_completions(rows, previous, latest, history=None):
+    """Decorate comparison records while keeping the saved captures immutable."""
+    from production_timing import completion_from_out_time
+    captures = history if history is not None else [previous, latest]
+    end = latest.get('id')
+    archive = []
+    for capture in captures:
+        if end is not None and capture.get('id', end) > end:
+            continue
+        for row in capture['rows'] or [{}]:
+            archive.append(dict(row, Preview=capture['name'], **{'Preview Timestamp': capture.get('created', '')}))
+    repaired, _ = reconcile_completions({'Comparison': rows}, archive)
+    return [completion_from_out_time(row) for row in repaired['Comparison']]

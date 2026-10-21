@@ -17,16 +17,13 @@ test('charts show values and selected periods, production overview is available,
     'In-House Pending':i===29?190:1,'Clarification':i===29?72:0,
     columns,rows,missing_ids:[],new_ids:[],unchanged_ids:[]})).reverse();
   await page.route('**/api/**',async route=>{
-    const url=new URL(route.request().url()),path=url.pathname;
+    const path=new URL(route.request().url()).pathname;
     let body={};
     if(path==='/api/state')body={previews:[preview],job:{running:false,stage:'Ready'},schedule:{enabled:true,times:['12:07']},
       clock:{epoch_ms:Date.parse('2026-10-02T06:30:00Z')+performance.now()-started,synchronized:true,timezone:'Asia/Kolkata'},remaining_products:[]};
     if(path.startsWith('/api/previews/'))body={...preview,rows,columns};
     if(path==='/api/live-sheets')body={mode:'tracker',sheets:{'All Products':{columns,rows},'Full Title':{columns,rows:rows.slice(0,1)},'Remaining Products':{columns,rows:rows.slice(1)}}};
     if(path==='/api/daily-orders')body={rows:history,selected_date:'2026-09-30'};
-    if(path==='/api/report-date')body={synced:true,highlighted_date:route.request().postDataJSON().date};
-    if(path==='/api/daily-orders/details')body={mode:'tracker',date:url.searchParams.get('date'),source:'Fixture',columns,
-      groups:[{key:'received',label:'Received',rows}]};
     if(path==='/api/monthly-orders')body={rows:[{Month:'2026-09',MonthLabel:'September 2026',Days:[],Previews:['preview2'],
       'Month Orders':4000,'Completed Orders':3000,'Unchanged':2900,'Awaiting for Clarification':200,'SLA On Time':90,'SLA Missed':10,
       rows,columns,missing_ids:[],completed_ids:[],new_ids:[],unchanged_ids:[],sla_rows:[]}],selected_month:'2026-09',sla_error:null};
@@ -53,10 +50,6 @@ test('charts show values and selected periods, production overview is available,
   expect(await daily.locator('.recharts-bar-rectangle path').count()).toBeGreaterThan(0);
   await daily.screenshot({path:'test-results/daily-chart-values.png'});
   await daily.getByRole('button',{name:'Earlier',exact:true}).click();
-  const details=page.getByRole('dialog',{name:'Daily orders · 27-09-26',exact:true});
-  await expect(details).toBeVisible();
-  await expect(details.getByRole('button',{name:/^Received\s*3$/})).toBeVisible();
-  await details.getByRole('button',{name:'Close dialog',exact:true}).click();
   await expect(page.getByLabel('Daily orders date')).toHaveValue('2026-09-27');
   await page.getByRole('button',{name:'Monthly Orders',exact:true}).click();
   const monthly=page.getByRole('region',{name:'Monthly orders bar chart'});

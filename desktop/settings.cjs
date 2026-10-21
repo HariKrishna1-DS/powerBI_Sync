@@ -87,11 +87,14 @@ function validateUiPreferences(input, previous = {theme:'system', orderViews:[]}
       if (!object(view) || !text(view.name,50) || !view.name.trim() || !text(view.search,2048) ||
           !['all','attention'].includes(view.group) || !text(view.product,512) || !object(view.filters) ||
           Object.keys(view.filters).length > 100) throw Error('Invalid saved view.');
-      for (const [column,filter] of Object.entries(view.filters)) {
-        if (!text(column,256) || !object(filter) ||
-            (filter.values != null && (!Array.isArray(filter.values) || filter.values.length > 2000 || !filter.values.every(v=>text(v,2048)))) ||
-            (filter.operator != null && !operators.includes(filter.operator)) ||
-            (filter.query != null && !text(filter.query,2048)) || (filter.end != null && !text(filter.end,2048))) throw Error('Invalid saved filter.');
+      for (const filters of [view.filters,view.columnFilters??{}]) {
+        if (!object(filters) || Object.keys(filters).length>100) throw Error('Invalid saved filter.');
+        for (const [column,filter] of Object.entries(filters)) {
+          if (!text(column,256) || !object(filter) ||
+              (filter.values != null && (!Array.isArray(filter.values) || filter.values.length > 2000 || !filter.values.every(v=>text(v,2048)))) ||
+              (filter.operator != null && !operators.includes(filter.operator)) ||
+              (filter.query != null && !text(filter.query,2048)) || (filter.end != null && !text(filter.end,2048))) throw Error('Invalid saved filter.');
+        }
       }
     }
     next.orderViews = JSON.parse(JSON.stringify(input.orderViews));

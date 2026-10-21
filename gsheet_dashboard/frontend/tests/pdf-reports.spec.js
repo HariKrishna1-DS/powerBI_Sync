@@ -99,7 +99,7 @@ test('batch report import, source switching, daily publication and capacity view
   await expect(page.getByRole('button',{name:'Import Excel report',exact:true})).toHaveAttribute('aria-pressed','true');
   await page.keyboard.press('Escape');
   await page.getByRole('button',{name:'Daily Orders',exact:true}).click();
-  await expect(page.getByRole('columnheader',{name:'Vendor Pending',exact:true})).toBeVisible();
+  await expect(page.getByRole('columnheader',{name:/^Vendor Pending/})).toBeVisible();
   await expect(page.getByRole('option',{name:'01-10-26',exact:true})).toHaveAttribute('value','2026-10-01');
   await page.getByRole('button',{name:'01-10-26',exact:true}).click();
   await expect(page.getByText('01-10-26 is highlighted in Daily Status Report and filtered in All Products.')).toBeVisible();

@@ -339,7 +339,7 @@ def comparison_value(value):
     return rendered.casefold() if rendered.casefold() in ('true', 'false') else rendered
 
 
-def compare(previous, latest, keys=None, ignore=None):
+def compare(previous, latest, keys=None, ignore=None, history=None):
     ignored = IGNORED if ignore is None else set(ignore)
     columns = [c for c in dict.fromkeys(previous['columns'] + latest['columns']) if c not in ignored]
     old, new = previous['rows'], latest['rows']
@@ -414,6 +414,15 @@ def compare(previous, latest, keys=None, ignore=None):
     record_counts = {'matched': counts['modified'] + counts['unchanged'],
                      'missing': counts['removed'], 'newly_added': counts['added'],
                      'unchanged': counts['unchanged']}
+    from production_timing import completion_from_out_time
+    if keys == ['Order Number']:
+        from preview_completion import comparison_completions
+        decorated = comparison_completions(matched_rows + unmatched_rows, previous, latest, history)
+    else:
+        decorated = [completion_from_out_time(row) for row in matched_rows + unmatched_rows]
+    matched_rows, unmatched_rows = decorated[:len(matched_rows)], decorated[len(matched_rows):]
+    if any(row.get('Status') == 'Completed and Delivered' for row in decorated):
+        record_columns = list(dict.fromkeys(['Comparison Status', 'Order Number', 'Status', 'Out Time'] + record_columns))
     return {'columns': CHANGE_COLUMNS, 'rows': changes, 'counts': counts, 'keys': keys, 'method': method,
             'record_columns': record_columns, 'matched_rows': matched_rows,
             'unmatched_rows': unmatched_rows, 'record_counts': record_counts,

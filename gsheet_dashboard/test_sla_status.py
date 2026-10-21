@@ -52,7 +52,7 @@ class SlaStatusTests(unittest.TestCase):
         self.assertEqual(len(book['Sheet2']._charts), 1)
         pivot = book['Sheet2']._pivots[0]
         self.assertEqual(pivot.cache.cacheSource.worksheetSource.sheet, 'Sheet1')
-        self.assertEqual(pivot.cache.cacheSource.worksheetSource.ref, 'A1:M4')
+        self.assertEqual(pivot.cache.cacheSource.worksheetSource.ref, 'A1:T4')
         self.assertEqual(book['Sheet1']['M2'].value, 'full.xlsx')
         self.assertEqual(pivot.cache.recordCount, 3)
         self.assertEqual(pivot.cache.records.count, 3)

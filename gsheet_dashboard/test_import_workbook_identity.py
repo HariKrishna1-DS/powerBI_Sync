@@ -85,11 +85,11 @@ class ImportedWorkbookIdentityTests(unittest.TestCase):
         self.assertEqual(imported,original)
         filtered=all_products_date_filter(1,frames['All Products'],'2026-10-13')['setBasicFilter']['filter']
         self.assertEqual(list(filtered['criteria']),[str(frames['All Products'][0].index('Date'))])
-        # A real completion on the 14th must still be reported on that day.
+        # Capacity uses report Date even when the completion timestamp is later.
         imported['rows'][0].update(Status='Completed and Delivered',**{'Out Time':'10/14/2026'})
         capacity=report_frames(imported_snapshot(imported),{'mode':'excel','capacity_month':'2026-10'})[1]
         last=capacity['daily'][-1]
-        self.assertEqual((last['Date'],last['Raw Received'],last['Completed']),('2026-10-14',0,1))
+        self.assertEqual((last['Date'],last['Raw Received'],last['Completed']),('2026-10-13',2,1))
 
     def test_google_sheet_round_trip_and_manual_edit_keep_both_copies(self):
         baseline=editable_frames(self.snapshot(),{'mode':'excel'})
@@ -101,10 +101,11 @@ class ImportedWorkbookIdentityTests(unittest.TestCase):
         for cells in values[1:]:
             if cells[headers.index('Order Number')]=='A' and cells[headers.index('Source workbook')]=='other.xlsx':
                 cells[headers.index('Status')]='Cancelled'
+                cells[headers.index('Out Time')]=''
         updated,events=reconcile(self.imported,baseline,remote)
         copies={record['Source workbook']:record['Status'] for record in updated['rows'] if record['Order Number']=='A'}
         self.assertEqual(copies,{'full.xlsx':'Completed and Delivered','other.xlsx':'Cancelled'})
-        self.assertEqual(len(events),1)
+        self.assertEqual(len(events),2)
         for kind in ('missing','blank'):
             bad=deepcopy(baseline);values=bad['All Products'];index=values[0].index('Source workbook')
             if kind=='missing':
@@ -123,12 +124,16 @@ class ImportedWorkbookIdentityTests(unittest.TestCase):
         with patch('threading.Thread.start'):
             response=client.post('/api/order-details',json={'order_number':'A','mode':'excel','month':'',
                 'source_workbook':editor['source_workbook'],'version':editor['version'],
-                'report_date':'2026-10-01','changes':{'Status':'Cancelled'}})
+                'report_date':'2026-10-01','changes':{'Status':'Cancelled','Out Time':''}})
         self.assertEqual(response.status_code,200,response.json)
         copies={record['Source workbook']:record['Status'] for record in self.workspace.read()['imported']['rows'] if record['Order Number']=='A'}
         self.assertEqual(copies,{'full.xlsx':'Cancelled','other.xlsx':'Completed and Delivered'})
 
     def test_status_rename_checks_workbook_records_independently(self):
+        imported=self.workspace.read()['imported']
+        for record in imported['rows']:
+            record['Out Time']=''
+        self.workspace.save(imported=imported)
         snapshot=self.snapshot()
         selected=[key(record) for record in snapshot['sheets']['Overview']['rows'] if record['Status']=='Completed and Delivered']
         self.assertEqual(len(selected),3)

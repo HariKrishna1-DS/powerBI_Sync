@@ -96,6 +96,7 @@ def full_title(row):
 
 def merge_trackers(preview, previous, tracker_rows):
     """Return stable rows and a pass report; never mutate inputs or manual fields."""
+    from production_timing import completion_from_out_time
     anchor = capture_time(preview['created'])
     output = [[dict(row) for row in rows] for rows in tracker_rows]
     existing = {}
@@ -138,7 +139,7 @@ def merge_trackers(preview, previous, tracker_rows):
             row = dict.fromkeys(TRACKER_COLUMNS, '')
             row['No'] = max(serials, default=0) + 1
             for name in ('Date', 'Order Number', 'TraceQ Id', 'State', 'County', 'Client',
-                         'Online/Ground', 'Product', 'ETA', 'Comments', 'Assignee', 'In-Time', 'SLA Expiration'):
+                         'Online/Ground', 'Product', 'ETA', 'Comments', 'Assignee', 'In-Time', 'Out Time', 'SLA Expiration'):
                 row[name] = field(raw, name) if field(raw, name) is not None else ''
             if not row['Date']:
                 arrived = timestamp(row['In-Time'])
@@ -158,10 +159,7 @@ def merge_trackers(preview, previous, tracker_rows):
             old_raw = prior.get(key)
             from sla_status import queue_rule
             from tracker_sync import driving
-            from production_timing import precise_timestamp
-            if queue_rule(raw)[1] and precise_timestamp(row.get('Out Time')):
-                row['Status'] = 'Completed and Delivered'
-            elif queue_rule(raw)[1] or old_raw is None or driving(raw) != driving(old_raw):
+            if queue_rule(raw)[1] or old_raw is None or driving(raw) != driving(old_raw):
                 row['Status'] = mapped_status(raw, row.get('Status', ''))
             for name in ('ETA', 'Comments', 'Assignee', 'SLA Expiration'):
                 value = field(raw, name)
@@ -174,6 +172,9 @@ def merge_trackers(preview, previous, tracker_rows):
                     row['Out Time'] = completed.strftime('%m/%d/%Y %I:%M:%S %p')
                 elif text(raw.get('Completed Time')):
                     report['ambiguous'].append({'order': identity, 'reason': 'Completed Time is not a timestamp; Out Time retained.'})
+        if timestamp(raw.get('Out Time')):
+            row['Out Time'] = raw['Out Time']
+        row.update(completion_from_out_time(row))
         sla_text = text(row.get('SLA Expiration'))
         negative_sla = sla_text.startswith('-')
         sla = expiration(sla_text, anchor)
@@ -193,4 +194,14 @@ def merge_trackers(preview, previous, tracker_rows):
                                       'new_status': row.get('Status', '')})
         else:
             report['unchanged'] += 1
+    for rows in output:
+        for row in rows:
+            normalized = completion_from_out_time(row)
+            if normalized != row:
+                old_status = row.get('Status', '')
+                row.update(normalized)
+                row['Free Site'] = free_site(row)[0]
+                report['updated'] += 1
+                report['updates'].append({'order': row.get('Order Number', ''),
+                                          'old_status': old_status, 'new_status': row['Status']})
     return output, report

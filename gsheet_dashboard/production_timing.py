@@ -2,9 +2,24 @@
 from datetime import datetime
 import re
 
+COMPLETED_STATUS = 'Completed and Delivered'
+
+
+def completion_from_out_time(row):
+    """A recorded completion date makes Status authoritative in every report."""
+    from monthly_production import local_datetime
+    result = dict(row)
+    if local_datetime(row.get('Out Time')):
+        result['Status'] = COMPLETED_STATUS
+        if 'Task Status' in result:
+            result['Task Status'] = COMPLETED_STATUS
+        if row.get('Status') != COMPLETED_STATUS and ('Free Site' in row or 'SLA Expiration' in row):
+            result['Free Site'] = sla_result(result)[0]
+    return result
+
 
 def status(row):
-    return ' '.join(str(row.get('Status', '') or '').casefold().split())
+    return ' '.join(str(row.get('Status') or row.get('Task Status') or '').casefold().split())
 
 
 def completed(row):

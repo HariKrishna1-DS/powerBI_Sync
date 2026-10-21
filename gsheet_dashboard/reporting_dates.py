@@ -2,6 +2,24 @@
 from datetime import datetime
 
 
+def arrival_details(row):
+    """Keep source arrival wall-clock values; never substitute capture time."""
+    from monthly_production import local_datetime
+    import re
+    values = {re.sub(r'[^a-z0-9]', '', str(key).casefold()): value for key, value in row.items()}
+    def value(name):
+        return values.get(re.sub(r'[^a-z0-9]', '', name.casefold()), '')
+    timestamps = [value(name) for name in ('Arrival Time', 'RequestArrivalTime', 'In-Time')]
+    timestamp = next((raw for raw in timestamps if local_datetime(raw)), '')
+    received = next((parsed for name in ('Arrival Date', 'Date')
+                     if (parsed := local_datetime(value(name)))), None) or local_datetime(timestamp)
+    # Some Excel reports put the full timestamp in Date and have no In-Time.
+    if not timestamp and received and (received.hour or received.minute or received.second):
+        timestamp = next((value(name) for name in ('Arrival Date', 'Date') if local_datetime(value(name))), '')
+    return {'Arrival Date': received.date().isoformat() if received else '',
+            'Arrival Time': str(timestamp).strip() if timestamp else ''}
+
+
 def arrival_date(row):
     for column in ('Arrival Time', 'RequestArrivalTime', 'Arrival Date'):
         value = str(row.get(column, '') or '').strip()

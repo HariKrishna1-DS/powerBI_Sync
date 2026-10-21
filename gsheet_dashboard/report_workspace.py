@@ -44,6 +44,22 @@ class ReportWorkspace:
                     self.save(imported=updated, files=updated['files'], row_count=len(updated['rows']),
                               cloud_baseline=None, cloud_reset=True, cloud_refresh_error=None,
                               **({'publication_state': 'pending'} if latest['mode'] == 'excel' else {}))
+        from production_timing import completion_from_out_time
+        settings = self.read()
+        imported = settings.get('imported')
+        if imported:
+            repaired = [completion_from_out_time(row) for row in imported['rows']]
+            if repaired != imported['rows']:
+                from tracker_sync import sync_lock
+                from workspace_backup import save_safety_backup
+                with sync_lock(store.root), self.lock:
+                    settings = self.read()
+                    imported = settings['imported']
+                    repaired = [completion_from_out_time(row) for row in imported['rows']]
+                    if repaired != imported['rows']:
+                        save_safety_backup(store, 'before-update')
+                        self.save(imported=dict(imported, rows=repaired), completion_status_repair_pending=True,
+                                  **({'publication_state': 'pending'} if settings['mode'] == 'excel' else {}))
 
     def read(self):
         with self.store.connect() as db:
@@ -62,7 +78,7 @@ class ReportWorkspace:
 
     def public(self):
         value = self.read()
-        public = {k: v for k, v in value.items() if k not in ('imported', 'cloud_baseline', 'tracker_status_baseline', 'sla_preview_statuses')}
+        public = {k: v for k, v in value.items() if k not in ('imported', 'cloud_baseline', 'tracker_status_baseline', 'other_tab_status_baseline', 'sheet_status_overrides', 'sheet_status_override_previews', 'sla_preview_statuses', 'sla_preview_order_edits', 'sla_preview_manual_orders', 'sla_preview_custom_statuses')}
         effective = Counter(row.get('Source workbook', '') for row in (value.get('imported') or {}).get('rows', []))
         public['imports'] = [{'name': s['name'], 'rows': len(s['rows']), 'orders': len((value.get('imported') or {}).get('rows', [])) if s.get('legacy') else effective[s['name']],
                               'worksheets': len(s['files']), 'legacy': s.get('legacy', False)}
@@ -108,7 +124,7 @@ def read_report_files(uploads):
     """Read all order worksheets, preserving text IDs and positional headers."""
     from openpyxl import load_workbook
     from tracker_sync import canonical_headers, text, key, STATUS_NAMES
-    from production_timing import sla_result
+    from production_timing import sla_result, completion_from_out_time
     if not 1 <= len(uploads) <= 30:
         raise ValueError('Choose between 1 and 30 Excel or CSV files.')
     saved, columns, counts, reviews, sources = {}, [], [], [], []
@@ -195,6 +211,7 @@ def read_report_files(uploads):
                             raise ValueError(f'{name} / {title}: order {row["Order Number"]} needs a Product.')
                     status = ' '.join((row.get('Status') or row.get('Task Status', '')).casefold().split())
                     row['Status'] = STATUS_NAMES.get(status, {'canceled': 'Cancelled', 'completed': 'Completed and Delivered'}.get(status, row.get('Status') or row.get('Task Status', '')))
+                    row = completion_from_out_time(row)
                     result, reason = sla_result(row)
                     if row.get('Free Site') not in ('On Time', 'Missing'):
                         row['Free Site'] = result
@@ -224,7 +241,8 @@ def read_report_files(uploads):
 def imported_snapshot(imported):
     from tracker_sync import FULL, REMAINING, HEADERS, sheet_reports, key
     from monthly_production import arrival_sort, local_datetime
-    rows = [dict(row, _record_key=key(row)) for row in imported['rows']]
+    from production_timing import completion_from_out_time
+    rows = [dict(completion_from_out_time(row), _record_key=key(row)) for row in imported['rows']]
     for row in rows:
         received = local_datetime(row.get('Date')) or local_datetime(row.get('In-Time'))
         row['_received_at'] = received.isoformat() if received else ''
@@ -295,10 +313,11 @@ def current_capacity_month():
 
 
 def capacity_report(reports, settings):
-    from capacity_calculations import capacity_days, COUNTS
+    from capacity_calculations import capacity_days, capacity_total, COUNTS
     daily_capacity = settings.get('capacity', 700)
     extended = settings.get('extended_capacity', 750)
-    activity, missing_dates = capacity_days(reports)
+    use_report_date = settings.get('mode') == 'excel'
+    activity, missing_dates = capacity_days(reports, use_report_date=use_report_date)
     days = [dict(row, Capacity=daily_capacity, **{'Ext capacity': extended}) for row in activity]
     # A Daily Orders selection must not move the live capacity table back to an
     # earlier month. Only an explicitly requested monthly export overrides IST.
@@ -306,20 +325,22 @@ def capacity_report(reports, settings):
     monthly = []
     for key in sorted({day['Date'][:7] for day in days}):
         items = [day for day in days if day['Date'].startswith(key)]
-        totals = {column: sum(int(day.get(column, 0) or 0) for day in items) for column in COUNTS}
-        monthly.append(dict(Date=key, **totals, Capacity=len(items)*daily_capacity,
+        totals = capacity_total(items, key)
+        monthly.append(dict(totals, **{'Raw Received': sum(day['Raw Received'] for day in items),
+                            'Rollover Received': sum(day['Rollover Received'] for day in items)}, Capacity=len(items)*daily_capacity,
                             **{'Ext capacity': len(items)*extended}))
     return {'columns': CAPACITY_COLUMNS, 'monthly': monthly,
             'daily': sorted([r for r in days if r['Date'].startswith(month)], key=lambda r: r['Date']),
             'month': month, 'scope_label': datetime.strptime(month, '%Y-%m').strftime('%B %Y'),
             'capacity': daily_capacity, 'extended_capacity': extended,
-            'missing_completion_date_count': missing_dates}
+            'missing_completion_date_count': missing_dates,
+            'completion_date_basis': 'report_date' if use_report_date else 'completion_time'}
 
 
 def report_frames(snapshot, settings):
     from tracker_sync import matrix
     from monthly_views import view_name, product_view_headers
-    from sla_status import build_sla_status, sheet_summary_values
+    from sla_status import build_sla_status, sheet_summary_values, imported_date_snapshot
     reports = snapshot['reports']
     selected = settings.get('selected_date')
     day = next((r for r in reports['daily'] if r['Date'] == selected), None)
@@ -347,12 +368,16 @@ def report_frames(snapshot, settings):
     frames['Daily Status Report'] = matrix(daily_status + [daily_total], daily_status_columns)
     counts = Counter(str(r.get('Status', '')).strip() or '(Blank)' for r in all_rows)
     frames['Status Report'] = [['Status', 'Orders', 'Share']] + [[s, n, n / len(all_rows)] for s, n in counts.items()]
-    frames['SLA Status'] = sheet_summary_values(build_sla_status(snapshot.get('sla_snapshot', snapshot)))
+    sla_snapshot = snapshot.get('sla_snapshot', snapshot)
+    if sla_snapshot.get('mode') == 'excel':
+        sla_snapshot = imported_date_snapshot(sla_snapshot, settings.get('sla_import_date'), strict=False)
+    frames['SLA Status'] = sheet_summary_values(build_sla_status(sla_snapshot))
     capacity = capacity_report(reports, dict(settings, mode=settings.get('mode', snapshot.get('mode', 'tracker'))))
     monthly = capacity['monthly']
     year = capacity['month'][:4]
-    total = {'Date': f'{year} YTD Total', **{c: sum(r.get(c, 0) for r in monthly if str(r['Date']).startswith(year)) for c in capacity['columns'][1:]}}
-    daily_total = {'Date': 'Total', **{c: sum(r.get(c, 0) for r in capacity['daily']) for c in capacity['columns'][1:]}}
+    from capacity_calculations import capacity_total
+    total = capacity_total([r for r in monthly if str(r['Date']).startswith(year)], f'{year} YTD Total', capacity['columns'][1:])
+    daily_total = capacity_total(capacity['daily'], 'Total', capacity['columns'][1:])
     frames['PR Excel'] = (matrix(monthly + [total], capacity['columns'])
                                  + matrix(capacity['daily'] + [daily_total], capacity['columns']))
     return frames, capacity
@@ -401,7 +426,7 @@ def all_products_date_filter(sheet_id, values, selected_date):
     return {'setBasicFilter': {'filter': filter_}}
 
 
-def publish_reports(book, snapshot, settings, backup_root, daily_only=False, _collision_retry=0):
+def publish_reports(book, snapshot, settings, backup_root, daily_only=False, _collision_retry=0, only_titles=None):
     """Back up replaced reports, publish atomically, and keep public report tabs visible.
 
     Internal tracker/history tabs are hidden because sync and recovery need them.
@@ -417,6 +442,12 @@ def publish_reports(book, snapshot, settings, backup_root, daily_only=False, _co
         # Publish the rows and filter together so a date never filters stale data.
         frames = {'All Products': all_products_frame,
                   'Daily Status Report': frames['Daily Status Report']}
+    if only_titles:
+        if daily_only:
+            raise ValueError('Choose either specific report tabs or the daily publication.')
+        if set(only_titles)-frames.keys():
+            raise ValueError('Choose an existing report tab to publish.')
+        frames = {title: values for title, values in frames.items() if title in only_titles}
     metadata = book.fetch_sheet_metadata(params={'fields': 'sheets(properties,conditionalFormats,charts)'})['sheets']
     by_title = {s['properties']['title']: s for s in metadata}
     if daily_only and 'All Products' not in by_title:
@@ -428,7 +459,7 @@ def publish_reports(book, snapshot, settings, backup_root, daily_only=False, _co
     requests, originals, retired_value_ranges = [], {}, []
     retired = by_title.get('Daily Orders')
     retired_id = retired['properties']['sheetId'] if retired else None
-    if retired:
+    if retired and not only_titles:
         originals['Daily Orders'] = book.worksheet('Daily Orders').get_all_values(value_render_option='FORMULA')
         requests.append({'deleteSheet': {'sheetId': retired_id}})
     for title, values in frames.items():
@@ -458,10 +489,18 @@ def publish_reports(book, snapshot, settings, backup_root, daily_only=False, _co
         old_grid = props.get('gridProperties', {})
         old_cols = max(old_grid.get('columnCount', cols),
                        max((len(row) for row in originals.get(props.get('title'), [])), default=cols))
-        requests.append({'updateSheetProperties': {'properties': {'sheetId': number, 'hidden': False,
-            'gridProperties': {'rowCount': max(len(values) + 25, old_grid.get('rowCount', 0)),
-                               'columnCount': max(cols, 18 if title == 'SLA Status' else 0, old_cols), 'frozenRowCount': 2 if title == 'SLA Status' else 1}},
-            'fields': 'hidden,gridProperties'}})
+        preserve_capacity_format = bool(only_titles and existing and title == 'PR Excel')
+        if preserve_capacity_format:
+            growth = {field: size for field, size in (('rowCount', len(values)+25), ('columnCount', cols))
+                      if size > old_grid.get(field, 0)}
+            if growth:
+                requests.append({'updateSheetProperties': {'properties': {'sheetId': number, 'gridProperties': growth},
+                    'fields': ','.join('gridProperties.'+field for field in growth)}})
+        else:
+            requests.append({'updateSheetProperties': {'properties': {'sheetId': number, 'hidden': False,
+                'gridProperties': {'rowCount': max(len(values) + 25, old_grid.get('rowCount', 0)),
+                                   'columnCount': max(cols, 18 if title == 'SLA Status' else 0, old_cols), 'frozenRowCount': 2 if title == 'SLA Status' else 1}},
+                'fields': 'hidden,gridProperties'}})
         sheet_values = capacity_sheet_values(values) if title in ('PR Excel', 'Daily Status Report') else values
         if existing:
             # Small status edits should not resend hundreds of thousands of
@@ -490,14 +529,14 @@ def publish_reports(book, snapshot, settings, backup_root, daily_only=False, _co
                 requests.extend(preserve_table_formats(number, originals[props['title']], values))
             else:
                 requests.extend(sheet_format_requests(number, values, existing or {}))
-        else:
+        elif not preserve_capacity_format:
             requests.extend(format_requests(number, values, (existing or {}).get('conditionalFormats', []),
                                             replace_rules=title == 'Status Report', grid_shape=(
                                                 max(len(values) + 25, old_grid.get('rowCount', 0)),
                                                 max(cols, old_grid.get('columnCount', 0)))))
         # Old report fills can extend far beyond the current data. Clear those
         # blank rows as well; status rules are bounded to populated rows.
-        if title != 'SLA Status' or snapshot.get('sla_snapshot') is None:
+        if not preserve_capacity_format and (title != 'SLA Status' or snapshot.get('sla_snapshot') is None):
             requests.append({'repeatCell': {'range': {'sheetId': number, 'startRowIndex': len(values),
                 'endColumnIndex': cols}, 'cell': {}, 'fields': 'userEnteredFormat'}})
         requests.append({'repeatCell': {'range': {'sheetId': number, 'startRowIndex': len(values),
@@ -518,7 +557,7 @@ def publish_reports(book, snapshot, settings, backup_root, daily_only=False, _co
                 'endRowIndex': max(len(values), old_grid.get('rowCount', len(values))),
                 'startColumnIndex': cols, 'endColumnIndex': old_cols},
                 'cell': {}, 'fields': 'userEnteredValue'}})
-            if title != 'SLA Status' or snapshot.get('sla_snapshot') is None:
+            if not preserve_capacity_format and (title != 'SLA Status' or snapshot.get('sla_snapshot') is None):
                 requests.append({'repeatCell': {'range': {'sheetId': number,
                     'endRowIndex': max(len(values), old_grid.get('rowCount', len(values))),
                     'startColumnIndex': cols, 'endColumnIndex': old_cols},
@@ -571,14 +610,23 @@ def publish_reports(book, snapshot, settings, backup_root, daily_only=False, _co
                     {'series': source(c), 'type': kind, 'targetAxis': 'LEFT_AXIS'} for c, kind in ((1, 'COLUMN'), (2, 'COLUMN'), (7, 'LINE'), (8, 'LINE'))]}}
             chart = next((c for c in (existing or {}).get('charts', []) if c.get('spec', {}).get('title', '').startswith('Overall')), None)
             if chart:
+                if only_titles:
+                    from copy import deepcopy
+                    preserved = deepcopy(chart['spec'])
+                    preserved['title'] = spec['title']
+                    preserved['basicChart']['domains'] = spec['basicChart']['domains']
+                    for before, after in zip(preserved['basicChart']['series'], spec['basicChart']['series']):
+                        before['series'] = after['series']
+                    spec = preserved
                 requests.append({'updateChartSpec': {'chartId': chart['chartId'], 'spec': spec}})
-                requests.append({'updateEmbeddedObjectPosition': {'objectId': chart['chartId'], 'newPosition': {'overlayPosition': {'anchorCell': {'sheetId': number, 'rowIndex': len(values)+2, 'columnIndex': 0}, 'widthPixels': 900, 'heightPixels': 350}}, 'fields': 'anchorCell,widthPixels,heightPixels'}})
+                if not only_titles:
+                    requests.append({'updateEmbeddedObjectPosition': {'objectId': chart['chartId'], 'newPosition': {'overlayPosition': {'anchorCell': {'sheetId': number, 'rowIndex': len(values)+2, 'columnIndex': 0}, 'widthPixels': 900, 'heightPixels': 350}}, 'fields': 'anchorCell,widthPixels,heightPixels'}})
             else:
                 requests.append({'addChart': {'chart': {'spec': spec, 'position': {'overlayPosition': {'anchorCell': {'sheetId': number, 'rowIndex': len(values)+2, 'columnIndex': 0}, 'widthPixels': 900, 'heightPixels': 350}}}}})
     date_filter = all_products_date_filter(all_products_id, all_products_frame, settings.get('selected_date', ''))
-    if date_filter:
+    if date_filter and not only_titles:
         requests.append(date_filter)
-    if not daily_only:
+    if not daily_only and not only_titles:
         shown_ids = {req['updateSheetProperties']['properties']['sheetId'] for req in requests if req.get('updateSheetProperties', {}).get('properties', {}).get('hidden') is False}
         for item in metadata:
             props = item['properties']
@@ -601,7 +649,7 @@ def publish_reports(book, snapshot, settings, backup_root, daily_only=False, _co
         from gspread.exceptions import APIError
         message = str(exc).casefold()
         if isinstance(exc, APIError) and 'addsheet' in message and 'already exists' in message and not _collision_retry:
-            return publish_reports(book, snapshot, settings, backup_root, daily_only, _collision_retry=1)
+            return publish_reports(book, snapshot, settings, backup_root, daily_only, _collision_retry=1, only_titles=only_titles)
         raise
     # A failed/lost reply leaves the source saved and retryable. Each retry rereads
     # metadata, so no chart, tab or appended data can be duplicated.
@@ -626,7 +674,7 @@ def publish_reports(book, snapshot, settings, backup_root, daily_only=False, _co
         if normalized(actual) != normalized(wanted):
             raise RuntimeError(f'{title} could not be verified. Retry publishing the saved report.')
     highlighted = settings.get('selected_date', '')
-    highlighted = highlighted if any(str(row[0]) == highlighted for row in frames['Daily Status Report'][1:-1]) else ''
+    highlighted = highlighted if any(str(row[0]) == highlighted for row in frames.get('Daily Status Report', [])[1:-1]) else ''
     return {'tabs': list(frames), 'backup': str(backup), 'highlighted_date': highlighted}
 
 
@@ -680,6 +728,7 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
                     return dict(result, synced=False, queued=True)
                 workspace.save(sync_error=None, publication_state='synced', highlighted_date=result['highlighted_date'],
                                synced_at=datetime.now(timezone.utc).isoformat(), cloud_refresh_error=None,
+                               completion_status_repair_pending=False,
                                **({'cloud_baseline': editable_frames(snapshot, settings), 'cloud_reset': False}
                                   if settings.get('mode') == 'excel' and not daily_only else {}))
             return dict(result, synced=True)
@@ -737,15 +786,19 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
         try:
             last_cloud_check = time.monotonic()
             with sync_lock(workspace.store.root):
+                settings = workspace.read()
                 book, _ = get_book()
                 if settings.get('mode') == 'excel':
                     changed = sync_imported_tabs(workspace, book, workspace.read())
                 else:
                     from status_updates import sync_tracker_status_tabs
                     changed = sync_tracker_status_tabs(workspace, book)
+                    from monthly_views import refresh_monthly_views
+                    changed = refresh_monthly_views(book, return_changed=True, only_completions=True) or changed
             if changed:
                 invalidate()
-            publication = queue_publication() if changed else None
+            publication = queue_publication() if changed or (force and settings.get('publication_state') == 'error') or (settings.get('mode') == 'excel'
+                and settings.get('completion_status_repair_pending')) else None
             return {'changed': changed, 'publication': publication, **workspace.public()}
         except Exception as exc:
             workspace.save(cloud_refresh_error=str(exc))
@@ -785,7 +838,7 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
         with workspace.lock:
             if mode == 'excel' and not workspace.read().get('imported'):
                 raise ValueError('Import Excel files before selecting the Excel report.')
-            workspace.save(mode=mode, enabled=True, selected_date='', cloud_baseline=None,
+            workspace.save(mode=mode, enabled=True, selected_date='', sla_import_date='', cloud_baseline=None,
                            cloud_reset=mode == 'excel', cloud_refresh_error=None)
         invalidate()
         return jsonify(**workspace.public(), publication=queue_publication())
@@ -811,7 +864,7 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
             imported = combine_sources(sources)
             imported = preserve_sheet_edits(previous_imported, imported, uploaded_names, replace_all)
             workspace.save(imported=imported, files=imported['files'], row_count=len(imported['rows']),
-                           imported_at=imported['created'], mode='excel', enabled=True, selected_date='',
+                           imported_at=imported['created'], mode='excel', enabled=True, selected_date='', sla_import_date='',
                            cloud_baseline=None, cloud_reset=True, cloud_refresh_error=None)
         invalidate()
         publication = queue_publication()
@@ -834,7 +887,7 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
             imported = preserve_sheet_edits(previous_imported, imported, [name] if isinstance(name, str) else [], body.get('all') is True)
             # An empty Excel report stays empty until the user selects Tracker.
             workspace.save(imported=imported, files=imported['files'], row_count=len(imported['rows']),
-                           imported_at=imported['created'], selected_date='', cloud_baseline=None,
+                           imported_at=imported['created'], selected_date='', sla_import_date='', cloud_baseline=None,
                            cloud_reset=True, cloud_refresh_error=None)
         invalidate()
         return jsonify(**workspace.public(), publication=queue_publication())
@@ -858,6 +911,19 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
         snapshot = load_snapshot()
         return jsonify(**capacity_report(snapshot['reports'], workspace.read()),
                        source=snapshot.get('source'), offline=snapshot.get('offline', False))
+
+    @app.get('/api/report-order-search')
+    def search_report_orders():
+        query = request.args.get('search', '').strip().casefold()[:200]
+        if not query:
+            return jsonify(rows=[], columns=[], total=0)
+        snapshot = load_snapshot()
+        overview = snapshot['sheets']['Overview']
+        rows = overview['rows']
+        exact = [row for row in rows if str(row.get('Order Number', '')).strip().casefold() == query]
+        matches = exact or [row for row in rows if query in str(row.get('Order Number', '')).casefold()]
+        return jsonify(rows=matches[:200], columns=overview['columns'], total=len(matches),
+                       mode=snapshot.get('mode'), source=snapshot.get('source'), offline=snapshot.get('offline', False))
 
     @app.get('/api/capacity-report/details')
     def get_capacity_details():
@@ -889,13 +955,13 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
                            **month_fields, mode=mode, source=snapshot.get('source'), offline=snapshot.get('offline', False))
         changes = recorded_changes(workspace, mode, date)
         try:
-            details = capacity_details(snapshot['reports'], date)
+            details = capacity_details(snapshot['reports'], date, use_report_date=mode == 'excel')
         except ValueError as exc:
             if not changes:
                 return jsonify(error=str(exc)), 404
             details = {'date': date, 'previous_date': None, 'next_date': None, 'raw_received': 0,
                        'rollover_received': 0, 'columns': [], 'groups': [{'key': 'received',
-                       'label': 'Received workload', 'rows': [],
+                       'label': 'Received', 'rows': [],
                        'description': 'No orders remain assigned to this reporting date. Its recorded changes are retained.'}]}
         details['groups'].append({'key': 'changes', 'label': 'Recorded changes',
             'description': 'Edits saved from this report date or detected on this date in India time. History starts when changes were first recorded.',
@@ -991,11 +1057,14 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
 
     sla_status_cache = {'checked': float('-inf'), 'revision': None, 'snapshot': None}
 
-    def load_sla_report(preview_id=None):
-        from sla_status import build_sla_status, preview_snapshot, tracker_status_rows
+    def load_sla_report(preview_id=None, report_date=None):
+        from sla_status import build_sla_status, preview_snapshot, tracker_status_rows, imported_date_snapshot
         settings = workspace.read()
         if settings['mode'] != 'tracker':
-            return dict(build_sla_status(load_snapshot()), sync_error=settings.get('cloud_refresh_error'))
+            selected = request.args.get('date') if report_date is None else report_date
+            snapshot = imported_date_snapshot(load_snapshot(),
+                selected if selected is not None else settings.get('sla_import_date'), strict=selected is not None)
+            return dict(build_sla_status(snapshot), sync_error=settings.get('cloud_refresh_error'))
         raw = request.args.get('preview_id') if preview_id is None else preview_id
         if raw is not None and (isinstance(raw, bool) or not str(raw).isdecimal() or int(raw) < 1):
             raise ValueError('Choose a valid saved preview.')
@@ -1026,6 +1095,30 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
             workspace.save(sla_sync_error=str(exc))
             return {'synced': False, 'sync_error': str(exc)}
 
+    @app.post('/api/sla-report-date')
+    def choose_sla_report_date():
+        body = request.get_json(silent=True) or {}
+        if workspace.read()['mode'] != 'excel':
+            return jsonify(error='Choose Import Excel report before selecting an SLA report date.'), 409
+        selected = body.get('date', '')
+        if not isinstance(selected, str):
+            return jsonify(error='Choose an available report date.'), 400
+        try:
+            report = load_sla_report(report_date=selected)
+        except ValueError as exc:
+            return jsonify(error=str(exc)), 400
+        latest = next(iter(report['report_dates']), {}).get('date', '')
+        workspace.save(sla_import_date='' if report['report_date'] == latest else report['report_date'])
+        if not gate.acquire(blocking=False):
+            return jsonify(**report, publication={'synced': False,
+                'sync_error': 'Report date selected locally. Wait for the current Sheets update, then sync to Sheets.'})
+        try:
+            with sync_lock(workspace.store.root):
+                publication = publish_selected_sla(report)
+            return jsonify(**report, publication=publication)
+        finally:
+            gate.release()
+
     @app.post('/api/sla-preview')
     def choose_sla_preview():
         body = request.get_json(silent=True) or {}
@@ -1053,17 +1146,75 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
         finally:
             gate.release()
 
+    def manual_sla_report(preview_id):
+        if workspace.read()['mode'] != 'tracker':
+            raise ValueError('Choose Tracker report before editing preview orders.')
+        if type(preview_id) is not int or preview_id < 1:
+            raise ValueError('Choose a valid saved preview.')
+        return load_sla_report(preview_id)
+
+    @app.get('/api/sla-order')
+    def lookup_sla_order():
+        from sla_manual import find_order, editable_fields, revision
+        try:
+            raw = request.args.get('preview_id', '')
+            report = manual_sla_report(int(raw) if raw.isdecimal() else None)
+            number = request.args.get('order_number', '').strip()
+            if not number:
+                raise ValueError('Enter an Order Number to look up.')
+            row = find_order(report, number)
+            return jsonify(exists=row is not None, row=row,
+                           fields=editable_fields(row) if row else {},
+                           revision=revision(row) if row else None)
+        except ValueError as exc:
+            return jsonify(error=str(exc)), 400
+        except KeyError:
+            return jsonify(error='That preview is no longer available. Choose another preview.'), 404
+
+    @app.post('/api/sla-statuses')
+    @app.post('/api/sla-order')
+    def edit_manual_sla():
+        from sla_manual import save_order, save_status, delete_status
+        body = request.get_json(silent=True) or {}
+        if not gate.acquire(blocking=False):
+            return jsonify(error='Wait for the current capture or Sheets update to finish, then save.'), 409
+        try:
+            with sync_lock(workspace.store.root):
+                report = manual_sla_report(body.get('preview_id'))
+                if request.path == '/api/sla-statuses':
+                    action = body.get('action', 'create')
+                    if action == 'delete':
+                        result = delete_status(workspace, report, body)
+                    elif action == 'create':
+                        result = {'status': save_status(workspace, report, body.get('status'), body.get('previous'))}
+                    else:
+                        raise ValueError('Choose create or delete for a manual status.')
+                else:
+                    result = save_order(workspace, report, body)
+                return jsonify(**result, publication=publish_selected_sla(load_sla_report(report['preview_id'])))
+        except ValueError as exc:
+            return jsonify(error=str(exc)), 409
+        except KeyError:
+            return jsonify(error='That preview is no longer available. Choose another preview.'), 404
+        finally:
+            gate.release()
+
     @app.post('/api/order-status')
     def edit_order_status():
         from status_updates import status_name, rename_status, sync_tracker_status_tabs
         body = request.get_json(silent=True) or {}
         old, new = status_name(body.get('status')), status_name(body.get('replacement'))
         selected = body.get('order_numbers')
+        edit_scope = body.get('edit_scope', 'group')
+        if edit_scope not in ('group', 'orders'):
+            raise ValueError('Choose all orders in the status or specific order numbers.')
         if (not isinstance(body.get('status'), str) or not isinstance(body.get('replacement'), str)
                 or not old or not new or len(new) > 1000 or old == new or not isinstance(selected, list)
                 or not selected or any(not isinstance(n, str) or not n.strip() for n in selected)):
             raise ValueError('Choose a different, nonblank status and the orders to update.')
         if 'preview_id' in body and workspace.read()['mode'] != 'tracker':
+            return jsonify(error='The report source changed. Reopen SLA Status before editing.'), 409
+        if 'sla_report_date' in body and workspace.read()['mode'] != 'excel':
             return jsonify(error='The report source changed. Reopen SLA Status before editing.'), 409
         if not gate.acquire(blocking=False):
             return jsonify(error='Wait for the current capture or Sheets update to finish, then save.'), 409
@@ -1082,7 +1233,8 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
                     except KeyError:
                         return jsonify(error='That preview is no longer available. Choose another preview.'), 404
                     count = rename_preview_status(workspace, snapshot, old, new,
-                                                  [number.strip().casefold() for number in selected])
+                                                  [number.strip().casefold() for number in selected],
+                                                  individual=edit_scope == 'orders')
                     workspace.save(sla_preview_id=preview_id)
                     return jsonify(updated=count, status=new,
                                    publication=publish_selected_sla(load_sla_report(preview_id)))
@@ -1092,12 +1244,18 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
                     sync_imported_tabs(workspace, book, settings)
                     settings = workspace.read()
                     snapshot = imported_snapshot(settings['imported'])
+                    if 'sla_report_date' in body:
+                        from sla_status import imported_date_snapshot
+                        if not isinstance(body['sla_report_date'], str):
+                            raise ValueError('Choose an available report date.')
+                        snapshot = imported_date_snapshot(snapshot, body['sla_report_date'])
                 else:
                     book, _ = get_book()
                     sync_tracker_status_tabs(workspace, book)
                     snapshot = load_snapshot(force=True, tracker_only=True)
                 count = rename_status(workspace, book, snapshot, old, new,
-                                      [number.strip().casefold() for number in selected])
+                                      [number.strip().casefold() for number in selected],
+                                      individual=edit_scope == 'orders')
             invalidate()
             publication = queue_publication()
             return jsonify(updated=count, status=new, publication=publication)
@@ -1122,7 +1280,7 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
             except KeyError:
                 return jsonify(error='That preview is no longer available. Choose another preview.'), 404
             return send_file(excel_report(report), as_attachment=True,
-                download_name=f'TV_Status_{report.get("preview_name") + "_" if report.get("preview_name") else ""}{report["as_of"]}.xlsx',
+                download_name=f'TV_Status_{report.get("preview_name") + "_" if report.get("preview_name") else ""}{report.get("report_date") or report["as_of"]}.xlsx',
                 mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
         snapshot = load_snapshot()
         settings = workspace.read()

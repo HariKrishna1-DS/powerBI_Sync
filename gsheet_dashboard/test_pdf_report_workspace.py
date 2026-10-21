@@ -103,9 +103,9 @@ class PdfReportWorkspaceTests(unittest.TestCase):
                 **{'Out Time':'10/02/2026 12:00:00 AM'})]))])
         reports=imported_snapshot(imported)['reports']
         self.assertEqual([(item['Date'],item['Received'],item['Completed'])
-                          for item in reports['daily']], [('2026-09-25',3,2)])
+                          for item in reports['daily']], [('2026-09-25',3,3)])
         self.assertEqual([(item['Month'],item['Received'],item['Completed'])
-                          for item in reports['monthly']], [('2026-10',1,1),('2026-09',2,1)])
+                          for item in reports['monthly']], [('2026-10',2,2),('2026-09',1,1)])
         self.assertEqual(reports['monthly'][1]['completed_ids'], ['2'])
 
     def test_selected_date_frames_share_schema_and_capacity_uses_real_days(self):

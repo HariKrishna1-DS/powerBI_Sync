@@ -29,16 +29,16 @@ async function setup(page,{rejectSave=false,legacyDetailsOnce=false,sameNumberAc
       if(name==='/api/state')body={...body,report_workspace:settings};
       if(name==='/api/report-workspace')body=settings;
       if(name==='/api/live-sheets')body={...body,mode:'excel'};
-      if(name==='/api/capacity-report')body={columns:capacityColumns,monthly:[{Date:'2026-08',Received:1},{Date:'2026-09',Received:6},{Date:'2026-10',Received:80,Completed:3}],
-        daily:[{Date:day,Received:65,Completed:2},{Date:'2026-10-02',Received:15,Completed:1}],month:'2026-10',capacity:700,extended_capacity:750,source:'Imported Excel'};
-      if(name==='/api/capacity-report/details')body={date:day,previous_date:'2026-09-30',next_date:'2026-10-02',raw_received:60,rollover_received:5,
+      if(name==='/api/capacity-report')body={completion_date_basis:'report_date',columns:capacityColumns,monthly:[{Date:'2026-08',Received:1},{Date:'2026-09',Received:6},{Date:'2026-10',Received:80,Completed:3,Clarification:16,Cancelled:5,'Vendor Pending':9,'In-House Pending':47}],
+        daily:[{Date:day,Received:65,Completed:2,Clarification:12,Cancelled:3,'Vendor Pending':6,'In-House Pending':42},{Date:'2026-10-02',Received:15,Completed:1,Clarification:4,Cancelled:2,'Vendor Pending':3,'In-House Pending':5}],month:'2026-10',capacity:700,extended_capacity:750,source:'Imported Excel'};
+      if(name==='/api/capacity-report/details')body={date:day,previous_date:'2026-09-30',next_date:'2026-10-02',raw_received:65,rollover_received:0,
         mode:'excel',source:'Imported Excel',columns,groups:[
-          {key:'received',label:'Received workload',rows:fixture.rows.slice(0,65)},
-          {key:'new',label:'Newly received',rows:fixture.rows.slice(0,60)},
-          {key:'rollover',label:'Carryover',rows:fixture.rows.slice(60,65)},
+          {key:'received',label:'Received',rows:fixture.rows.slice(0,65)},
           {key:'completed',label:'Completed',rows:fixture.rows.slice(4,6)},
-          {key:'next_added',label:'Added next reporting date',rows:fixture.rows.slice(65)},
-          {key:'next_completed',label:'Completed next reporting date',rows:fixture.rows.slice(4,5)},
+          {key:'clarification',label:'Clarification',rows:fixture.rows.slice(6,18)},
+          {key:'cancelled',label:'Cancelled',rows:fixture.rows.slice(18,21)},
+          {key:'vendor',label:'Vendor Pending',rows:fixture.rows.slice(21,27)},
+          {key:'in_house',label:'In-House Pending',rows:fixture.rows.slice(0,4).concat(fixture.rows.slice(27,65))},
           {key:'changes',label:'Recorded changes',rows:changes},
         ]};
       if(name==='/api/daily-orders')body={rows:[{Date:day,Received:60,Completed:2,Clarification:12,Cancelled:0,'Vendor Pending':6,'In-House Pending':40,'SLA OnTime':2,Missing:0,status_counts:{'Search In Progress':36,'Search Completed':12,'Awaiting for Clarification':12},columns,rows:fixture.rows.slice(0,60),sla_rows:[],Previews:[]}],selected_date:day,mode:'excel',source:'Imported Excel'};
@@ -51,7 +51,7 @@ async function setup(page,{rejectSave=false,legacyDetailsOnce=false,sameNumberAc
         const rows=august?fixture.rows.slice(0,1):date==='2026-09-25'?fixture.rows.slice(0,5):fixture.rows.slice(5,6);
         body={...body,date,month,month_label:august?'August 2026':'September 2026',daily,capacity_columns:capacityColumns,
           previous_date:null,next_date:date==='2026-09-25'?'2026-09-30':null,raw_received:rows.length,rollover_received:0,
-          groups:[{key:'received',label:'Received workload',rows},{key:'changes',label:'Recorded changes',rows:changes}]};
+          groups:[{key:'received',label:'Received',rows},{key:'changes',label:'Recorded changes',rows:changes}]};
       }
       if(name==='/api/order-details'){
         if(route.request().method()==='GET'){
@@ -79,15 +79,18 @@ async function setup(page,{rejectSave=false,legacyDetailsOnce=false,sameNumberAc
   return {fixture,writes,errors};
 }
 
-test('capacity date opens searchable paginated orders, carryover and next reporting date groups',async({page})=>{
+test('capacity totals sum direct counts and dates open exact received, completed and status groups',async({page})=>{
   const {fixture,writes,errors}=await setup(page);
   await page.getByRole('button',{name:'Capacity Report',exact:true}).click();
-  await expect(page.getByText('Saturday and Sunday receipts and completions are included on the preceding Friday',{exact:false})).toBeVisible();
+  const dailyTotal=page.locator('.capacity-daily-total');
+  await expect(dailyTotal.locator('td')).toHaveText(['Total','80','3','16','5','9','47','0','0']);
+  await expect(page.locator('.capacity-total').first().locator('td')).toHaveText(['2026 YTD Total','87','3','16','5','9','47','0','0']);
+  await page.screenshot({path:'test-results/capacity-direct-counts.png',fullPage:true});
   await page.getByRole('button',{name:'01-10-26',exact:true}).click();
   const dialog=page.getByRole('dialog',{name:'Capacity orders · 01-10-26'});
   await expect(dialog).toBeVisible();
-  await expect(dialog).toContainText('60 newly received + 5 carried over from 30-09-26');
-  await expect(dialog).toContainText('Next reporting date: 02-10-26');
+  await expect(dialog).toContainText('Received: 65 orders on this reporting date.');
+  await expect(dialog.getByRole('button',{name:/Carryover|next reporting date|Still incomplete/})).toHaveCount(0);
   await expect(dialog.locator('tbody tr')).toHaveCount(50);
   await dialog.getByRole('button',{name:'Next page',exact:true}).click();
   await expect(dialog.locator('tbody tr')).toHaveCount(15);
@@ -99,10 +102,10 @@ test('capacity date opens searchable paginated orders, carryover and next report
   await dialog.getByRole('button',{name:'Completed 2',exact:true}).click();
   await expect(dialog.locator('tbody tr')).toHaveCount(2);
   await expect(dialog.getByLabel('Search detail records')).toHaveValue('');
-  await dialog.getByRole('button',{name:'Added next reporting date 15',exact:true}).click();
-  await expect(dialog.locator('tbody tr')).toHaveCount(15);
-  await dialog.getByRole('button',{name:'Carryover 5',exact:true}).click();
-  await expect(dialog.locator('tbody tr')).toHaveCount(5);
+  for(const [label,count] of [['Clarification',12],['Cancelled',3],['Vendor Pending',6],['In-House Pending',42]]){
+    await dialog.getByRole('button',{name:`${label} ${count}`,exact:true}).click();
+    await expect(dialog.locator('tbody tr')).toHaveCount(count);
+  }
   await page.screenshot({path:'test-results/capacity-date-orders.png',fullPage:true});
   await page.setViewportSize({width:390,height:844});
   await expect(dialog).toBeVisible();

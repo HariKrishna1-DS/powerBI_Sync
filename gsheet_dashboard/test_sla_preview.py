@@ -44,7 +44,7 @@ class SlaPreviewTests(unittest.TestCase):
                          self.load, self.get_book, lambda: None)
         self.client = self.app.test_client()
 
-    def test_latest_and_explicit_previews_do_not_read_production_or_combine_history(self):
+    def test_selected_preview_does_not_add_orders_missing_since_its_predecessor(self):
         latest = self.client.get('/api/sla-status').json
         self.assertEqual(latest['preview_id'], 2)
         self.assertEqual(latest['preview_row_count'], 3)
@@ -150,8 +150,9 @@ class SlaPreviewTests(unittest.TestCase):
         report = build_sla_status(snapshot, datetime(2026,10,16,16,15))
         self.assertEqual(report['totals']['Grand Total'], 3)
         self.assertEqual(report['excluded_count'], 0)
-        self.assertEqual([row['Status'] for row in report['rows']], ['Search In Progress','Awaiting for Clarification','Assign to ABS'])
-        self.assertEqual([row['SLA Category'] for row in report['rows']], ['Today SLA','Negative SLA','Today SLA'])
+        current = [row for row in report['rows'] if row['Queue Presence']=='In selected preview']
+        self.assertEqual([row['Status'] for row in current], ['Search In Progress','Awaiting for Clarification','Assign to ABS'])
+        self.assertEqual([row['SLA Category'] for row in current], ['Today SLA','Negative SLA','Today SLA'])
         self.assertIn('2026-10-16', report['rows'][0]['SLA Expiration'])
 
     def test_cloud_failure_keeps_the_selection_and_local_preview_available(self):
@@ -166,13 +167,13 @@ class SlaPreviewTests(unittest.TestCase):
 
     def test_raw_queue_uses_tracker_business_status_for_its_orders_only(self):
         self.store.restore(3, ['Order Number','Task Name','Task Status','SLA Expiration*'], [
-            {'Order Number':'production-only','Task Name':'Search','Task Status':'Available','SLA Expiration*':'10/19 05:00 PM'},
+            {'Order Number':'production-only','Task Name':'Search','Task Status':'Available','Last User':'Named user','SLA Expiration*':'10/19 05:00 PM'},
             {'Order Number':'new-order','Task Name':'Search','Task Status':'Available','SLA Expiration*':'-1d'},
         ], created='2026-10-16T10:30:00Z')
         with patch('sla_status.tracker_status_rows', return_value=[{'Order Number': 'production-only', 'Status': 'Assign to ABS'}]):
             report = self.client.get('/api/sla-status?preview_id=3').json
         self.assertEqual(report['totals']['Grand Total'], 2)
-        self.assertEqual([r['Status'] for r in report['rows']], ['Assign to ABS','Search In Progress'])
+        self.assertEqual([r['Status'] for r in report['rows'] if r['Queue Presence']=='In selected preview'], ['Assign to ABS','Search In Progress'])
         self.load.assert_not_called()
         self.assertEqual(self.workspace.read()['mode'], 'tracker')
 

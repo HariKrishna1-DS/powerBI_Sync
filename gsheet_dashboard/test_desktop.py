@@ -87,6 +87,7 @@ class DesktopTests(unittest.TestCase):
             restored = json.loads(connection.execute('SELECT payload FROM capture_settings WHERE id=1').fetchone()[0])
         self.assertEqual(restored, {'auto_recover': False})
 
+
     def test_restore_rejects_invalid_1_0_6_capture_settings(self):
         store = PreviewStore(self.root / 'previews')
         first = store.save(pd.DataFrame([{'Order Number': 'SAFE'}]))
@@ -97,6 +98,7 @@ class DesktopTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'invalid capture recovery settings'):
             restore_backup(store, raw)
         self.assertEqual(store.get(first['id'])['rows'][0]['Order Number'], 'SAFE')
+
 
     def test_restore_rejects_traversal_and_keeps_current_data(self):
         store = PreviewStore(self.root / 'previews')

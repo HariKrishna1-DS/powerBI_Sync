@@ -179,23 +179,24 @@ class UpgradeReliabilityTests(unittest.TestCase):
         from test_production_sync import Book
         book = Book([[{'Order Number':'A','Product':'Full Title','Status':'Available','Date':'10/05/2026'}],[]])
         with patch.dict(os.environ, {'DATATRACE_DESKTOP':'1','DATATRACE_DESKTOP_TOKEN':'test-token'}):
-            client = create_app(self.root / 'previews').test_client()
+            app = create_app(self.root / 'previews')
+        app.extensions['refresh_imported_reports'] = Mock(return_value=False)
+        client = app.test_client()
         headers = {'X-DataTrace-Token':'test-token'}
-        with patch('server.target_worksheet', return_value=(book,book.sheets[0])) as read, patch('server.read_pass_report',return_value={}):
+        with patch('server.target_worksheet', return_value=(book,book.sheets[0])) as read, patch('server.read_pass_report',return_value={}), \
+                patch('production_cache.time.monotonic', return_value=100.0):
             first = client.get('/api/live-sheets',headers=headers).json
             self.assertIn('sheets', first)
             self.assertIn('reports', first)
-            initial_reads = read.call_count
-            self.assertGreater(initial_reads, 0)
             small = client.get('/api/live-sheets',query_string={'revision':first['revision']},headers=headers).json
             self.assertTrue(small['unchanged'])
             self.assertNotIn('sheets', small)
-            self.assertEqual(read.call_count, initial_reads)
+            self.assertEqual(read.call_count, 1)
             full = client.get('/api/live-sheets',headers=headers).json
             self.assertEqual(full['sheets'], first['sheets'])
             self.assertEqual(full['reports'], first['reports'])
             client.get('/api/live-sheets?refresh=1',headers=headers)
-            self.assertEqual(read.call_count, initial_reads + 1)
+            self.assertEqual(read.call_count, 2)
 
     def test_malformed_offline_cache_does_not_prevent_online_recovery(self):
         (self.root/'production-cache.json').write_text('[]')
@@ -218,6 +219,7 @@ class UpgradeReliabilityTests(unittest.TestCase):
                 with patch.dict(os.environ, {'GOOGLE_SERVICE_ACCOUNT_JSON':'{}'}):
                     self.assertEqual(client.get('/api/live-sheets',headers=headers).status_code,200)
                 refresh.assert_called_once_with()
+
 
     def test_light_poll_preserves_full_sync_report_for_existing_callers(self):
         store = PreviewStore(self.root/'previews')

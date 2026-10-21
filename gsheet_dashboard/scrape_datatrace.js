@@ -179,6 +179,33 @@ const outputPath = process.env.DATATRACE_OUTPUT_JSON || path.join(__dirname, 'qu
                 headers = Array.from(headerRow.cells).map(cell => cell.textContent.trim().replace(/\s+/g, ' '));
             }
 
+            function cellValue(cell, column) {
+                if (!['etacomments', 'comment', 'comments'].includes(column.toLowerCase().replace(/[^a-z]/g, ''))) {
+                    return cell.textContent.trim().replace(/\s+/g, ' ');
+                }
+                // Comment cells display a shortened label; native/custom tooltip
+                // attributes retain the original text. Other columns keep their
+                // displayed values so action labels never replace order IDs.
+                const clean = value => String(value || '').replace(/\r\n?/g, '\n').replace(/[^\S\n]+/g, ' ').trim();
+                const flat = value => value.replace(/\s+/g, ' ').trim();
+                const shown = clean(cell.innerText || cell.textContent);
+                const prefix = flat(shown).replace(/[.\u2026]+$/, '').trim().toLowerCase();
+                let full = shown;
+                const attributes = ['title', 'data-original-title', 'data-bs-original-title', 'data-tooltip', 'data-tooltip-content', 'aria-label'];
+                const selector = attributes.map(name => `[${name}]`).concat('[aria-describedby]').join(',');
+                for (const node of [cell, ...cell.querySelectorAll(selector)]) {
+                    const candidates = attributes.map(name => node.getAttribute(name));
+                    for (const id of (node.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean)) {
+                        candidates.push(document.getElementById(id)?.textContent);
+                    }
+                    for (const candidate of candidates) {
+                        const value = clean(candidate);
+                        if (value.length > full.length && (!prefix || flat(value).toLowerCase().includes(prefix))) full = value;
+                    }
+                }
+                return full;
+            }
+
             const records = [];
             for (const row of rows) {
                 // Skip header row and pager row
@@ -193,7 +220,7 @@ const outputPath = process.env.DATATRACE_OUTPUT_JSON || path.join(__dirname, 'qu
                 const rowObj = {};
                 cells.forEach((cell, idx) => {
                     const colName = headers[idx] || `Column_${idx + 1}`;
-                    rowObj[colName] = cell.textContent.trim().replace(/\s+/g, ' ');
+                    rowObj[colName] = cellValue(cell, colName);
                 });
 
                 if (Object.keys(rowObj).length > 0 && Object.values(rowObj).some(val => val !== "")) {

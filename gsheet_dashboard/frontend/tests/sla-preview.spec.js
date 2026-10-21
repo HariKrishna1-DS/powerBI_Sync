@@ -3,7 +3,7 @@ import {readFile} from 'node:fs/promises';
 import path from 'node:path';
 import {workspaceFixture} from './workspace-fixture.js';
 
-async function setup(page,{empty=false}={}){
+async function setup(page,{empty=false,comparison=false}={}){
   const fixture=workspaceFixture(35);
   const previews=empty?[]:[3,2,1].map((id,index)=>({id,name:`preview${id}`,row_count:[3,4,2][index],created:`2026-10-${16-index}T04:00:00Z`}));
   let selected=3,mode='tracker';
@@ -14,6 +14,7 @@ async function setup(page,{empty=false}={}){
     const count=mode==='excel'?1:preview?.row_count||0;
     const rows=Array.from({length:count},(_,i)=>({'Order Number':`${mode==='excel'?'import':`preview${id}`}-${i}`,
       Status:['Assign to ABS','Cancelled','Completed and Delivered','QC in Progress'][i%4],Product:'Full Search',
+      ...(comparison?{'Queue Presence':i===count-1?'Missing from selected preview':'In selected preview','Status Reason':i===count-1?'Order missing from preview3 compared with preview2':'Saved preview Status'}:{}),
       'SLA Expiration':'2026-10-16 05:00 PM','SLA Category':['Future SLA','Negative SLA','Today SLA'][i%3]}));
     const categories=['Future SLA','Negative SLA','Today SLA'];
     const summary=[...new Set(rows.map(row=>row.Status))].map(Status=>({Status,
@@ -21,6 +22,7 @@ async function setup(page,{empty=false}={}){
       'Grand Total':rows.filter(row=>row.Status===Status).length}));
     return {as_of:'2026-10-16',mode,source:mode==='excel'?'Imported Excel':'Saved preview',columns,rows,summary,
       report_scope:mode==='tracker'?'preview':null,preview_id:mode==='tracker'&&preview?id:null,
+      ...(comparison?{previous_preview_name:'preview2',captured_order_count:count-1,missing_order_count:1}:{}),
       preview_name:mode==='tracker'&&preview?preview.name:null,preview_row_count:count,previews,
       summary_columns:['Status',...categories,'Grand Total'],excluded_count:0,excluded_rows:[],
       totals:{Status:'Grand Total',...Object.fromEntries(categories.map(category=>[category,rows.filter(r=>r['SLA Category']===category).length])),'Grand Total':count}};
@@ -102,5 +104,18 @@ test('an empty preview history shows zero SLA totals and never the production re
   await expect(page.getByRole('combobox',{name:'SLA preview'})).toBeDisabled();
   await expect(page.getByRole('button',{name:'Grand Total 0',exact:true})).toBeVisible();
   await expect(page.getByText('No orders with a valid SLA expiration.',{exact:true})).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('SLA status shows only selected-preview orders and its category counts reconcile',async({page})=>{
+  const {errors}=await setup(page);
+  await expect(page.getByText('Only orders in preview3 are included.',{exact:false})).toBeVisible();
+  await expect(page.locator('.sla-total-equation')).toHaveText('Future SLA 1 + Negative SLA 1 + Today SLA 1 = Grand Total 3');
+  await expect(page.getByRole('button',{name:'View missing orders',exact:true})).toHaveCount(0);
+  await page.getByRole('button',{name:'View current orders',exact:true}).click();
+  const dialog=page.getByRole('dialog');
+  await expect(dialog.locator('tbody tr')).toHaveCount(3);
+  await expect(dialog).toContainText('preview3-2');
+  await expect(dialog).not.toContainText('preview2-');
   expect(errors).toEqual([]);
 });

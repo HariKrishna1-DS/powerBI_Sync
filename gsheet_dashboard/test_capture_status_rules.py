@@ -24,6 +24,8 @@ class CaptureStatusRulesTests(unittest.TestCase):
             ({'Product': 'Home Builders', 'ETA Comments': 'abstractor'}, 'Home Builder'),
             ({'TaskName': 'CRSP2', 'ETA Comments': 'abstractor'}, 'SearchFix'),
             ({'Product': 'Quality Control', 'ETA Comments': 'abstractor'}, 'SearchFix'),
+            ({'TaskName': 'TypingModule', 'TaskStatus': 'In Progress'}, 'Typing in Progress'),
+            ({'TaskStatus': 'Workflow Suspended'}, 'Awaiting for Clarification'),
         ]
         for fields, expected in cases:
             with self.subTest(fields=fields):
@@ -49,15 +51,14 @@ class CaptureStatusRulesTests(unittest.TestCase):
         actual, _ = merge_trackers({FULL: [], REMAINING: [tracker]}, [raw], [raw], datetime(2026, 10, 20, 9))
         self.assertEqual(actual[REMAINING][0]['Status'], 'Completed and Delivered')
 
-    def test_comment_changes_drive_assignment_and_other_products_keep_their_status(self):
+    def test_comment_only_and_product_only_changes_are_status_drivers(self):
         old = {'Order Number': 'A', 'Product': 'Current Owner', 'Task Name': 'Search', 'Task Status': 'Available'}
-        for changed, expected in (({'ETA Comments': 'As per the abstractor, ETA is tomorrow'}, 'Assign to ABS'),
-                                  ({'Product': 'Attorney Approval'}, 'Search In Progress')):
+        for changed in ({'ETA Comments': 'As per the abstractor, ETA is tomorrow'}, {'Product': 'Attorney Approval'}):
             raw = dict(old, **changed)
             self.assertNotEqual(driving(old), driving(raw))
             tracker = dict(old, Status='Search In Progress')
             actual, _ = merge_trackers({FULL: [], REMAINING: [tracker]}, [raw], [old], datetime(2026, 10, 20, 9))
-            self.assertEqual(actual[REMAINING][0]['Status'], expected)
+            self.assertEqual(actual[REMAINING][0]['Status'], queue_rule(raw)[1])
 
     def test_new_orders_and_legacy_merge_use_the_same_classification(self):
         raw = {'Order Number': 'A', 'Product': 'Full Title', 'Task Name': 'Search', 'Task Status': 'Available',

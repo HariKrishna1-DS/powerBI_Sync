@@ -1,3 +1,4 @@
+import {FilterableTable,useColumnFilters} from './ColumnFilters';
 import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Activity, ArrowDown, ArrowUp, ArrowDownToLine, ArrowLeftRight, BarChart3, CalendarDays, Check, ChevronLeft, ChevronRight, Clock3, CloudUpload, Database, FileSpreadsheet, Filter, HardDrive, LoaderCircle, Maximize2, Minimize2, Play, Plus, Printer, Search, SlidersHorizontal, Table2, Trash2, Upload, X } from 'lucide-react';
@@ -8,13 +9,13 @@ import remainingProducts from '../../remaining_products.json';
 const DateOrdersDialog=React.lazy(()=>import('./DateOrdersDialog'));
 
 import {EMPTY, DEFAULT_IGNORE, colors, str, label, normalized, orderKey, badgeClass, STATUS_COLORS, statusColor, textColorForBg, api, saveBlob, csvDownload, matches, IconButton} from './workspaceUtils';
-function SideDrawer({title,rows,columns,onClose}) {
+function SideDrawer({title,rows,columns,onClose,renderActions,toolbar,showOrderStatus=false}) {
   const [search,setSearch]=useState('');
-  const query=useDeferredValue(search).toLowerCase();
-  const detailColumns=useMemo(()=>{const names=new Set(columns);for(const row of rows)for(const column of Object.keys(row))if(!column.startsWith('_'))names.add(column);return [...names].filter(column=>!column.startsWith('_'));},[columns,rows]);
-  const visible=useMemo(()=>rows.filter(row=>!query||detailColumns.some(column=>str(row[column]).toLowerCase().includes(query))),[rows,detailColumns,query]);
+  const query=useDeferredValue(search).trim().toLowerCase();
+  const detailColumns=useMemo(()=>{const names=new Set(columns);for(const row of rows)for(const column of Object.keys(row))if(!column.startsWith('_'))names.add(column);const priority=showOrderStatus?['Order Number','Status','SLA Category','Arrival Date','Arrival Time']:[];return [...new Set([...priority,...names])].filter(column=>!column.startsWith('_'));},[columns,rows,showOrderStatus]);
+  const visible=useMemo(()=>{const exact=showOrderStatus&&query?rows.filter(row=>str(row['Order Number']).trim().toLowerCase()===query):[];return exact.length?exact:rows.filter(row=>!query||detailColumns.some(column=>str(row[column]).toLowerCase().includes(query)));},[rows,detailColumns,query,showOrderStatus]);
   if(!title)return null;
-  return <Dialog title={title} onClose={onClose} className="detail-dialog"><div className="dialog-content"><p className="muted">{rows.length.toLocaleString()} matching records</p><div className="search-input"><Search size={16}/><input aria-label="Search detail records" placeholder="Search all details" value={search} onChange={event=>setSearch(event.target.value)}/></div><DataTable rows={visible} columns={detailColumns} filters={{}} openFilter={()=>{}} filterable={false} name={title}/></div></Dialog>;
+  return <Dialog title={title} onClose={onClose} className="detail-dialog"><div className="dialog-content"><p className="muted">{rows.length.toLocaleString()} records in this group</p><div className="search-input"><Search size={16}/><input aria-label="Search detail records" placeholder="Search all details" value={search} onChange={event=>setSearch(event.target.value)}/></div>{showOrderStatus&&query&&visible.length===1&&<div className="sla-order-match" role="status" aria-label="Matching order status"><strong>{visible[0]['Order Number']}</strong><span>Current status: <strong>{visible[0].Status||'(Blank)'}</strong></span>{visible[0]['SLA Category']&&<span>{visible[0]['SLA Category']}</span>}</div>}<DataTable rows={visible} columns={detailColumns} filters={{}} openFilter={()=>{}} filterable={false} name={title} renderActions={renderActions} toolbar={toolbar}/></div></Dialog>;
 }
 function MaximizedModal({title,subtitle,children,onClose}) {
   return <Dialog title={title} onClose={onClose} className="chart-dialog"><div className="dialog-content">{subtitle&&<p className="muted">{subtitle}</p>}{children}</div></Dialog>;
@@ -357,13 +358,13 @@ function FilterPanel({column, rows, filters, setFilters, close}) {
             <span className="row-tally">{statusCounts.length.toLocaleString()} statuses</span>
           </div>
           <div className="status-report-scroll">
-            <table className="status-report-table">
+            <FilterableTable className="status-report-table">
               <thead><tr><th>Status</th><th>Orders</th><th>Share</th></tr></thead>
               <tbody>{statusCounts.map(item => {
                 const bg = statusColor(item.name);
                 return <tr key={item.name} style={{backgroundColor:bg,color:textColorForBg(bg)}}><td>{item.name}</td><td>{item.count.toLocaleString()}</td><td>{item.percent}%</td></tr>;
               })}</tbody>
-            </table>
+            </FilterableTable>
             {!statusCounts.length && <div className="table-empty">No status values match the current filters.</div>}
           </div>
         </details>
@@ -456,14 +457,15 @@ function Chart({rows, columns, onSelect}) {
   </section>;
 }
 
-function DataTable({rows, columns, filters, openFilter, name, filterable=true, onClose, id, onEdit, editDisabled=false}) {
+function DataTable({rows, columns, filters, openFilter, name, filterable=true, onClose, id, onEdit, editDisabled=false,renderActions,toolbar}) {
   const [page, setPage] = useState(0), [size, setSize] = useState(50), [sort, setSort] = useState(null);
-  useEffect(()=>setPage(0),[rows,size]);
-  const sorted = useMemo(()=>sort ? [...rows].sort((a,b)=>str(a[sort.column]).localeCompare(str(b[sort.column]),undefined,{numeric:true})*(sort.desc?-1:1)) : rows,[rows,sort]);
-  const pages = Math.max(1,Math.ceil(rows.length/size)), safePage = Math.min(page,pages-1);
-  return <section className="table-section" id={id} tabIndex={id?-1:undefined}><div className="section-heading"><h2>{name}</h2><div className="inline"><button className="secondary" disabled={!rows.length} onClick={()=>csvDownload(sorted,columns,`${name}-filtered.csv`)}><ArrowDownToLine size={16}/>Filtered CSV</button>{onClose&&<IconButton title="Close chart details" onClick={onClose}><X size={17}/></IconButton>}</div></div>
-    <div className="table-scroll"><table><thead><tr>{columns.map(c=><th key={c}><div className="th-inner">{filterable?<button className={filters[c]?'column-button active-filter':'column-button'} title={`Filter ${c} and view unique values`} onClick={()=>openFilter(c)}>{c}<Filter size={13}/></button>:<span className="column-label">{c}</span>}<IconButton title={`Sort ${c}`} onClick={()=>setSort({column:c,desc:sort?.column===c?!sort.desc:false})}>{sort?.column===c&&sort.desc?<ArrowDown size={13}/>:<ArrowUp size={13}/>}</IconButton></div></th>)}</tr></thead><tbody>{sorted.slice(safePage*size,(safePage+1)*size).map((row,i)=><tr key={i}>{columns.map(c=><td key={c} title={str(row[c])}>{c==='Order Number'&&onEdit?<button type="button" className="text-button" aria-label={`Edit order ${str(row[c])}`} disabled={editDisabled||row.Change==='Removed'} onClick={()=>onEdit(row)}>{label(row[c])}</button>:c==='Change'||c==='Comparison Status'?<span className={`badge ${badgeClass(row[c])}`}>{c==='Comparison Status'&&row[c]==='Missing'?'Missing Previews':str(row[c])}</span>:label(row[c])}</td>)}</tr>)}</tbody></table>{!rows.length&&<div className="table-empty">No matching rows</div>}</div>
-    <footer className="table-footer"><span>{rows.length.toLocaleString()} rows</span><div className="inline"><label>Rows <select aria-label="Rows per page" value={size} onChange={e=>setSize(Number(e.target.value))}>{[25,50,100,250].map(n=><option key={n}>{n}</option>)}</select></label><IconButton title="Previous page" disabled={safePage===0} onClick={()=>setPage(safePage-1)}><ChevronLeft size={16}/></IconButton><span>{safePage+1} / {pages}</span><IconButton title="Next page" disabled={safePage+1===pages} onClick={()=>setPage(safePage+1)}><ChevronRight size={16}/></IconButton></div></footer>
+  const tableFilters=useColumnFilters(rows,columns),visible=tableFilters.rows;
+  useEffect(()=>setPage(0),[rows,size,tableFilters.state]);
+  const sorted = useMemo(()=>sort ? [...visible].sort((a,b)=>str(a[sort.column]).localeCompare(str(b[sort.column]),undefined,{numeric:true})*(sort.desc?-1:1)) : visible,[visible,sort]);
+  const pages = Math.max(1,Math.ceil(visible.length/size)), safePage = Math.min(page,pages-1);
+  return <section className="table-section" id={id} tabIndex={id?-1:undefined}><div className="section-heading"><h2>{name}</h2><div className="inline">{toolbar}<button className="secondary" disabled={!visible.length} onClick={()=>csvDownload(sorted,columns,`${name}-filtered.csv`)}><ArrowDownToLine size={16}/>Filtered CSV</button>{onClose&&<IconButton title="Close chart details" onClick={onClose}><X size={17}/></IconButton>}</div></div>
+    <div className="table-scroll"><FilterableTable controls={tableFilters} columnNames={renderActions?[null,...columns]:columns}><thead><tr>{renderActions&&<th className="sla-row-actions">Actions</th>}{columns.map(c=><th key={c}><div className="th-inner"><span className="column-label">{c}</span><IconButton title={`Sort ${c}`} onClick={()=>setSort({column:c,desc:sort?.column===c?!sort.desc:false})}>{sort?.column===c&&sort.desc?<ArrowDown size={13}/>:<ArrowUp size={13}/>}</IconButton></div></th>)}</tr></thead><tbody>{sorted.slice(safePage*size,(safePage+1)*size).map((row,i)=><tr key={i} className={normalized(row.Status||row['Task Status'])==='completed and delivered'?'completed-order-row':undefined} style={normalized(row.Status||row['Task Status'])==='completed and delivered'?{'--order-status-bg':STATUS_COLORS['completed and delivered'],'--order-status-ink':textColorForBg(STATUS_COLORS['completed and delivered'])}:undefined}>{renderActions&&<td className="sla-row-actions">{renderActions(row)}</td>}{columns.map(c=><td key={c} className={['ETA Comments','Comment','Comments'].includes(c)?'full-comment-cell':undefined} title={str(row[c])}>{c==='Order Number'&&onEdit?<button type="button" className="text-button" aria-label={`Edit order ${str(row[c])}`} disabled={editDisabled||row.Change==='Removed'} onClick={()=>onEdit(row)}>{label(row[c])}</button>:c==='Change'||c==='Comparison Status'?<span className={`badge ${badgeClass(row[c])}`}>{c==='Comparison Status'&&row[c]==='Missing'?'Missing Previews':str(row[c])}</span>:label(row[c])}</td>)}</tr>)}</tbody></FilterableTable>{!visible.length&&<div className="table-empty">No matching rows</div>}</div>
+    <footer className="table-footer"><span>{visible.length.toLocaleString()} rows</span><div className="inline"><label>Rows <select aria-label="Rows per page" value={size} onChange={e=>setSize(Number(e.target.value))}>{[25,50,100,250].map(n=><option key={n}>{n}</option>)}</select></label><IconButton title="Previous page" disabled={safePage===0} onClick={()=>setPage(safePage-1)}><ChevronLeft size={16}/></IconButton><span>{safePage+1} / {pages}</span><IconButton title="Next page" disabled={safePage+1===pages} onClick={()=>setPage(safePage+1)}><ChevronRight size={16}/></IconButton></div></footer>
   </section>;
 }
 
@@ -523,7 +525,7 @@ function DailyOrdersChart({history, selectedDate, onSelect, series=DAILY_SERIES}
 function ImportedStatusSummary({report}) {
   const counts=report?.status_counts;
   if(!counts)return null;
-  return <section className="status-report"><div className="section-heading"><h3>All imported statuses</h3><span>{Object.keys(counts).length} statuses / {report.Received} orders</span></div><div className="status-report-scroll"><table className="status-report-table"><thead><tr><th>Status</th><th>Orders</th><th>Share</th></tr></thead><tbody>{Object.entries(counts).map(([name,count])=><tr key={name}><td><span className="report-status-name"><i style={{background:statusColor(name)}}/>{name}</span></td><td>{count.toLocaleString()}</td><td>{report.Received?(count/report.Received*100).toFixed(1):'0.0'}%</td></tr>)}</tbody></table></div></section>;
+  return <section className="status-report"><div className="section-heading"><h3>All imported statuses</h3><span>{Object.keys(counts).length} statuses / {report.Received} orders</span></div><div className="status-report-scroll"><FilterableTable className="status-report-table"><thead><tr><th>Status</th><th>Orders</th><th>Share</th></tr></thead><tbody>{Object.entries(counts).map(([name,count])=><tr key={name}><td><span className="report-status-name"><i style={{background:statusColor(name)}}/>{name}</span></td><td>{count.toLocaleString()}</td><td>{report.Received?(count/report.Received*100).toFixed(1):'0.0'}%</td></tr>)}</tbody></FilterableTable></div></section>;
 }
 const importedSeries=snapshot=>(snapshot?.statuses||[]).map(name=>({name:'Status: '+name,color:statusColor(name)}));
 const dailyDateLabel=value=>/^\d{4}-\d{2}-\d{2}$/.test(str(value))?`${value.slice(8,10)}-${value.slice(5,7)}-${value.slice(2,4)}`:str(value);
@@ -557,7 +559,8 @@ function DailyOrders({preview, running, revision}) {
     }catch(e){setError(e.message);}finally{setPublishing(false);}
   }
   const selectedDay=history.find(day=>day.Date===date)||history[0];
-  const columns=selectedDay?.columns||[];
+  const sourceColumns=selectedDay?.columns||[];
+  const columns=[...new Set(['Order Number','Status','Out Time',...sourceColumns])].filter(column=>sourceColumns.includes(column));
   const rows=(selectedDay?.rows||[]).filter(row=>!search||columns.some(column=>str(row[column]).toLowerCase().includes(search.toLowerCase())));
   const onTimeOrders=new Set((selectedDay?.sla_rows||[]).filter(row=>row['Free Site']==='On Time').map(orderKey));
   const missingSlaOrders=new Set((selectedDay?.sla_rows||[]).filter(row=>row['Free Site']==='Missing').map(orderKey));
@@ -589,7 +592,7 @@ function DailyOrders({preview, running, revision}) {
       <div className="section-heading"><h2>Daily production orders</h2><div className="monthly-actions"><a className="secondary" href="/api/export/report?sheet=Daily%20Orders" download>Download Daily Orders</a><button type="button" className="secondary" disabled={publishing||!history.length} onClick={()=>chooseDate('')}>Reset date</button><label>Date<select aria-label="Daily orders date" value={selectedDay?.Date||''} disabled={publishing} onChange={e=>chooseDate(e.target.value)}>{history.map(day=><option key={day.Date} value={day.Date}>{dailyDateLabel(day.Date)}</option>)}</select></label></div></div>
       <div className="metrics">{names.map((name,index)=><button type="button" className={`metric ${DAILY_TONES[index]}`} key={name} aria-pressed={activeGroup===index} aria-controls={`daily-orders-group-${index}`} disabled={!selectedDay} onClick={()=>showGroup(index)}><span>{name}</span><strong>{selectedDay?.[name]??0}</strong></button>)}</div>
       <ImportedStatusSummary report={selectedDay}/><p className="report-context">Click a date to open its order table, highlight it in Daily Status Report and filter the Google Sheets All Products tab to that day. Select an Order Number in the dialog to edit its details.</p><DailyOrdersChart history={history} selectedDate={selectedDay?.Date} onSelect={chooseDate} series={snapshot?.mode==='excel'?importedSeries(snapshot):DAILY_SERIES}/>
-      <div className="table-scroll"><table><thead><tr>{['Date',...historyNames].map(name=><th key={name}>{name}</th>)}</tr></thead><tbody>{history.map(day=><tr key={day.Date} className={day.Date===selectedDay?.Date?'daily-date-selected':undefined}><td><button className="text-button" aria-pressed={day.Date===selectedDay?.Date} disabled={publishing} onClick={()=>chooseDate(day.Date)}>{dailyDateLabel(day.Date)}</button></td>{historyNames.map(name=><td key={name}>{day[name]??0}</td>)}</tr>)}</tbody></table></div>
+      <div className="table-scroll"><FilterableTable><thead><tr>{['Date',...historyNames].map(name=><th key={name}>{name}</th>)}</tr></thead><tbody>{history.map(day=><tr key={day.Date} className={day.Date===selectedDay?.Date?'daily-date-selected':undefined}><td><button className="text-button" aria-pressed={day.Date===selectedDay?.Date} disabled={publishing} onClick={()=>chooseDate(day.Date)}>{dailyDateLabel(day.Date)}</button></td>{historyNames.map(name=><td key={name}>{day[name]??0}</td>)}</tr>)}</tbody></FilterableTable></div>
       <div className="filter-toolbar"><div className="search-input"><Search size={16}/><input aria-label="Search daily orders" placeholder="Search all columns" value={search} onChange={e=>setSearch(e.target.value)}/></div></div>
       {selectedDay?detailGroups.map(([name,items],index)=><DataTable key={`${name}-${index}`} id={`daily-orders-group-${index}`} rows={items} columns={columns} filters={{}} openFilter={()=>{}} filterable={false} name={`${name} · ${items.length}`}/>):<div className="table-empty">No daily orders</div>}
     </>}
@@ -624,8 +627,9 @@ function SlaOrdersTable({rows, statusFilter, onStatusFilter, onSave, running}) {
   const [error,setError]=useState(''), [message,setMessage]=useState('');
   const [selected,setSelected]=useState({}), [bulkStatus,setBulkStatus]=useState('');
   const pageCheckbox=useRef(null);
-  const filtered=rows.filter(row=>(!statusFilter||row['Free Site']===statusFilter)&&(!group||row['Product Group']===group)&&
+  const matching=rows.filter(row=>(!statusFilter||row['Free Site']===statusFilter)&&(!group||row['Product Group']===group)&&
     (!search||SLA_COLUMNS.some(column=>str(row[column]).toLowerCase().includes(search.toLowerCase()))));
+  const tableFilters=useColumnFilters(matching,SLA_COLUMNS),filtered=tableFilters.rows;
   const pages=Math.max(1,Math.ceil(filtered.length/25)), currentPage=Math.min(page,pages-1);
   const pageRows=filtered.slice(currentPage*25,(currentPage+1)*25);
   const selectable=filtered.filter(row=>row['Order Number']);
@@ -633,7 +637,7 @@ function SlaOrdersTable({rows, statusFilter, onStatusFilter, onSave, running}) {
   const selectedRows=Object.values(selected), selectedCount=selectedRows.length;
   const checkedPage=selectablePage.filter(row=>selected[slaRowKey(row)]).length;
   const allPage=selectablePage.length>0&&checkedPage===selectablePage.length;
-  useEffect(()=>{setPage(0);setSelected({});setBulkStatus('');},[search,group,statusFilter]);
+  useEffect(()=>{setPage(0);setSelected({});setBulkStatus('');},[search,group,statusFilter,tableFilters.state]);
   useEffect(()=>{if(pageCheckbox.current)pageCheckbox.current.indeterminate=checkedPage>0&&!allPage;},[checkedPage,allPage]);
   const selectRows=(items,checked)=>{
     setEditing(null);setError('');setMessage('');
@@ -670,12 +674,12 @@ function SlaOrdersTable({rows, statusFilter, onStatusFilter, onSave, running}) {
       <button className="primary" disabled={saving||running||!bulkStatus} onClick={()=>save(selectedRows,bulkStatus)}>{saving?<LoaderCircle size={16} className="spin"/>:<Check size={16}/>} {saving?'Saving…':`Update ${selectedCount} selected`}</button>
       <button className="secondary" disabled={saving} onClick={()=>{setSelected({});setBulkStatus('');setError('');}}>Clear selection</button>
     </div>}
-    <div className="table-scroll"><table aria-label="SLA orders"><thead><tr><th className="sla-check"><input ref={pageCheckbox} type="checkbox" aria-label="Select all orders on this page" checked={allPage} disabled={saving||running||!selectablePage.length} onChange={e=>selectRows(selectablePage,e.target.checked)}/></th>{SLA_COLUMNS.map(column=><th key={column}>{column==='Free Site'?'Free Site / SLA':column}</th>)}<th>Action</th></tr></thead>
+    <div className="table-scroll"><FilterableTable controls={tableFilters} columnNames={[null,...SLA_COLUMNS,null]} aria-label="SLA orders"><thead><tr><th className="sla-check"><input ref={pageCheckbox} type="checkbox" aria-label="Select all orders on this page" checked={allPage} disabled={saving||running||!selectablePage.length} onChange={e=>selectRows(selectablePage,e.target.checked)}/></th>{SLA_COLUMNS.map(column=><th key={column}>{column==='Free Site'?'Free Site / SLA':column}</th>)}<th>Action</th></tr></thead>
       <tbody>{pageRows.map(row=><tr key={slaRowKey(row)} className={selected[slaRowKey(row)]?'sla-selected':''}>
         <td className="sla-check"><input type="checkbox" aria-label={`Select order ${row['Order Number']}`} checked={!!selected[slaRowKey(row)]} disabled={saving||running||!row['Order Number']} onChange={e=>selectRows([row],e.target.checked)}/></td>
         {SLA_COLUMNS.map(column=><td key={column} title={str(row[column])}>{column==='Free Site'?<span className={`sla-badge ${row[column]==='On Time'?'on-time':'missed'}`}>{row[column]}</span>:str(row[column])||'—'}</td>)}
         <td><button className="secondary" aria-label={`Edit SLA for order ${row['Order Number']}`} disabled={saving||running||!row['Order Number']} onClick={()=>{setSelected({});setBulkStatus('');setEditing(row);setDraft(row['Free Site']);setError('');setMessage('');}}>Edit</button></td>
-      </tr>)}</tbody></table>{!filtered.length&&<div className="table-empty">No matching SLA orders</div>}</div>
+      </tr>)}</tbody></FilterableTable>{!filtered.length&&<div className="table-empty">No matching SLA orders</div>}</div>
     <div className="table-footer"><span>Page {currentPage+1} of {pages}</span><div className="inline"><button className="secondary" aria-label="Previous SLA page" disabled={currentPage===0} onClick={()=>setPage(currentPage-1)}><ChevronLeft size={16}/>Previous</button><button className="secondary" aria-label="Next SLA page" disabled={currentPage>=pages-1} onClick={()=>setPage(currentPage+1)}>Next<ChevronRight size={16}/></button></div></div>
   </section>;
 }
@@ -756,7 +760,7 @@ function MonthlyOrders({preview,running,reportMode='tracker'}) {
       <div className="metrics sla-metrics">{names.slice(4).map(name=>{const value=name==='SLA On Time'?'On Time':'Missing';return <button className={`metric sla-metric ${value==='On Time'?'green':'red'}`} key={name} disabled={saving||!selectedMonth} aria-pressed={slaFilter===value} onClick={()=>showMetric(name)}><span>{name}</span><strong>{selectedMonth?.[name]??(error?'—':0)}</strong><small>{monthlyPercentage(selectedMonth,name)} of {(selectedMonth?.['SLA On Time']||0)+(selectedMonth?.['SLA Missed']||0)} SLA results</small></button>;})}</div>
       <SlaOrdersTable key={selectedMonth?.Month||'empty'} rows={selectedMonth?.sla_rows||[]} statusFilter={slaFilter} onStatusFilter={setSlaFilter} onSave={saveSla} running={running||snapshot?.offline||reportMode==='excel'}/>
       <ImportedStatusSummary report={selectedMonth}/><MonthlyOrdersChart series={reportMode==='excel'?importedSeries(snapshot):MONTHLY_SERIES} history={history} selectedMonth={selectedMonth?.Month} onSelect={value=>{if(value){setMonth(value);setSearch('');}}}/>
-      <div className="table-scroll"><table><thead><tr>{['Month','Previews',...historyNames].map(name=><th key={name}>{name}</th>)}</tr></thead><tbody>{history.map(m=><tr key={m.Month}><td><button className="text-button" onClick={()=>{setMonth(m.Month);setSearch('');}}>{m.MonthLabel || m.Month}</button></td><td>{m.Previews.join(', ')}</td>{historyNames.map(name=><td key={name}>{`${m[name]??0} (${monthlyPercentage(m,name)})`}</td>)}</tr>)}</tbody></table></div>
+      <div className="table-scroll"><FilterableTable><thead><tr>{['Month','Previews',...historyNames].map(name=><th key={name}>{name}</th>)}</tr></thead><tbody>{history.map(m=><tr key={m.Month}><td><button className="text-button" onClick={()=>{setMonth(m.Month);setSearch('');}}>{m.MonthLabel || m.Month}</button></td><td>{m.Previews.join(', ')}</td>{historyNames.map(name=><td key={name}>{`${m[name]??0} (${monthlyPercentage(m,name)})`}</td>)}</tr>)}</tbody></FilterableTable></div>
       <div className="filter-toolbar"><div className="search-input"><Search size={16}/><input aria-label="Search monthly orders" placeholder="Search all columns" value={search} onChange={e=>setSearch(e.target.value)}/></div></div>
       {selectedMonth?groups.map(([name,items])=><DataTable key={name} rows={items} columns={columns} filters={{}} openFilter={()=>{}} filterable={false} name={`${name} · ${items.length}`}/>):<div className="table-empty">No monthly orders</div>}
       {detail&&<SideDrawer key={detail.title} {...detail} columns={columns} onClose={()=>setDetail(null)}/>}

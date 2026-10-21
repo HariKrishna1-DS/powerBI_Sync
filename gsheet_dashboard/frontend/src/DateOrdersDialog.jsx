@@ -1,3 +1,4 @@
+import {FilterableTable} from './ColumnFilters';
 import React, {useDeferredValue,useEffect,useMemo,useRef,useState} from 'react';
 import {LoaderCircle,Search} from 'lucide-react';
 import {Dialog,OfflineNotice} from './DesktopExperience';
@@ -32,9 +33,8 @@ export default function DateOrdersDialog({kind,date='',month='',onClose,onUpdate
   },[details?.date,editing,month]);
   const selected=details?.groups.find(item=>item.key===group)||details?.groups[0];
   const columns=useMemo(()=>{
-    const names=new Set(group==='changes'?['Changed At','Order Number','Column','Previous Value','New Value','Source Tabs']:kind==='capacity'?['Order Number',...(details?.columns.includes('Source workbook')?['Source workbook']:[]),'Date','Product','Status']:[]);
-    if(group==='received'&&kind==='capacity')names.add('Workload source');
-    for(const column of details?.columns||[])if(column!=='Workload source'||group==='received')names.add(column);
+    const names=new Set(group==='changes'?['Changed At','Order Number','Column','Previous Value','New Value','Source Tabs']:['Order Number',...(details?.columns.includes('Source workbook')?['Source workbook']:[]),'Status','Out Time','Date','Product']);
+    for(const column of details?.columns||[])names.add(column);
     for(const row of selected?.rows||[])for(const column of Object.keys(row))if(!column.startsWith('_'))names.add(column);
     return [...names].filter(column=>!column.startsWith('_'));
   },[details,selected,group,kind]);
@@ -67,7 +67,7 @@ export default function DateOrdersDialog({kind,date='',month='',onClose,onUpdate
         {!editing&&month&&details&&<section className="capacity-month-days" aria-busy={loading} aria-label={`Daily capacity for ${monthLabel}`}>
           <h3>Daily dates · {monthLabel}</h3>
           <p className="report-context">Select a date to view and edit its orders below. Saturday and Sunday activity is included on the preceding Friday.</p>
-          {details.daily?.length?<div ref={dateList} className="table-scroll"><table><thead><tr>{details.capacity_columns.map(column=><th key={column}>{column}</th>)}</tr></thead><tbody>{details.daily.map(day=><tr key={day.Date} className={details.date===day.Date?'daily-date-selected':undefined}>{details.capacity_columns.map(column=><td key={column}>{column==='Date'?<button type="button" className="text-button" aria-pressed={details.date===day.Date} disabled={busy} onClick={()=>{setSelectedDate(day.Date);setGroup('received');setSearch('');setEditError('');setMessage('');}}>{reportDateLabel(day.Date)}</button>:day[column]??0}</td>)}</tr>)}</tbody></table></div>:<p className="muted">No capacity activity is available for this month.</p>}
+          {details.daily?.length?<div ref={dateList} className="table-scroll"><FilterableTable><thead><tr>{details.capacity_columns.map(column=><th key={column}>{column}</th>)}</tr></thead><tbody>{details.daily.map(day=><tr key={day.Date} className={details.date===day.Date?'daily-date-selected':undefined}>{details.capacity_columns.map(column=><td key={column}>{column==='Date'?<button type="button" className="text-button" aria-pressed={details.date===day.Date} disabled={busy} onClick={()=>{setSelectedDate(day.Date);setGroup('received');setSearch('');setEditError('');setMessage('');}}>{reportDateLabel(day.Date)}</button>:day[column]??0}</td>)}</tr>)}</tbody></FilterableTable></div>:<p className="muted">No capacity activity is available for this month.</p>}
           {details.date&&<h3 className="capacity-selected-date">Orders · {reportDateLabel(details.date)}</h3>}
         </section>}
       {editing?<form className="date-order-editor" aria-label="Edit order details" onSubmit={save}>
@@ -78,7 +78,7 @@ export default function DateOrdersDialog({kind,date='',month='',onClose,onUpdate
         <div className="date-editor-actions"><button className="primary" disabled={busy||!Object.keys(changes).length}>{busy?<><LoaderCircle size={16} className="spin"/>Saving…</>:'Save order changes'}</button><button type="button" className="secondary" disabled={busy} onClick={()=>{setEditing(null);setEditError('');}}>Cancel</button></div>
       </form>:loading?<p className="loading"><LoaderCircle className="spin"/>Loading date orders…</p>:details&&<>
         <p className="muted">{details.source} · {selected?.rows.length.toLocaleString()||0} matching records</p>
-        {kind==='capacity'&&<p className="report-context">Received workload: {details.raw_received} newly received + {details.rollover_received} carried over{details.previous_date?` from ${reportDateLabel(details.previous_date)}`:''}. {details.next_date?`Next reporting date: ${reportDateLabel(details.next_date)}.`:'No later reporting date is available in this source.'}</p>}
+        {kind==='capacity'&&<p className="report-context">Received: {details.raw_received} orders on this reporting date. Status groups contain only this date’s received orders; Completed uses recorded completion dates.</p>}
         <div className="date-detail-groups" role="group" aria-label="Order groups">{details.groups.map(item=><button type="button" className={item.key===selected?.key?'active':''} key={item.key} aria-pressed={item.key===selected?.key} onClick={()=>{setGroup(item.key);setSearch('');setEditError('');}}><span>{item.label}</span><strong>{item.rows.length.toLocaleString()}</strong></button>)}</div>
         {selected?.description&&<p className="report-context">{selected.description}</p>}
         <div className="search-input"><Search size={16}/><input aria-label="Search detail records" placeholder="Search all details" value={search} onChange={event=>setSearch(event.target.value)}/></div>

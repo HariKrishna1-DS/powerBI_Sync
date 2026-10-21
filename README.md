@@ -1,8 +1,10 @@
-# Tv Tracker 1.0.9 — Windows desktop
+# Tv Tracker 1.0.10 — Windows desktop
 
 Tv Tracker is a local desktop workspace for TitleVision extraction, Google Sheets production tracking, saved captures, comparisons, and Power BI exports. Its Python and Node runtimes are bundled. No Render hosting or PostgreSQL service is required.
 
-The current source version is **1.0.9** on `tv-tracker-app`. Desktop and React package manifests and lockfiles use this version. See [the 1.0.9 release notes](docs/TV_TRACKER_1_0_9_RELEASE.md) for the included changes. Tracker SLA Status uses one selected saved preview; its dropdown updates the summary, cards, chart, Excel download and SLA tab in Google Sheets while preserving that tab's formatting.
+The current source version is **1.0.10** on `tv-tracker-app`. Desktop and React package manifests and lockfiles use this version. See [the 1.0.10 release notes](docs/TV_TRACKER_1_0_10_RELEASE.md) for the included changes. Tracker SLA Status uses one selected saved preview; its dropdown updates the summary, cards, chart, Excel download and SLA tab in Google Sheets while preserving that tab's formatting.
+
+Version 1.0.10 includes the complete working local application: manual SLA statuses and orders, order search, column filters, full ETA comments and arrival dates, imported-report date selection, completion normalization, and the current capacity calculations. Version 1.0.9 omitted these local changes.
 
 ## Desktop branch
 

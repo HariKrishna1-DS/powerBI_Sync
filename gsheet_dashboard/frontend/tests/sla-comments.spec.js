@@ -46,8 +46,8 @@ test('SLA detail filters, pagination, and edits in both directions update report
   const {requests}=await setup(page);
   const section=page.getByRole('region',{name:'SLA order details',exact:true});
   const table=page.getByRole('table',{name:'SLA orders',exact:true});
-  await expect(table.getByRole('columnheader',{name:'In Time',exact:true})).toBeVisible();
-  await expect(table.getByRole('columnheader',{name:'Out Time',exact:true})).toBeVisible();
+  await expect(table.getByRole('columnheader',{name:/^In Time/})).toBeVisible();
+  await expect(table.getByRole('columnheader',{name:/^Out Time/})).toBeVisible();
   await expect(section.getByText('31 / 31 orders')).toBeVisible();
   await expect(table.locator('tbody tr')).toHaveCount(25);
   await page.getByRole('button',{name:'Next SLA page'}).click();

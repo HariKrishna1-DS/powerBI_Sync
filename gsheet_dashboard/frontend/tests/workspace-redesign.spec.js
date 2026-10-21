@@ -107,7 +107,7 @@ test('chart drilldowns reflect active filters and native dialogs restore keyboar
   await page.getByRole('checkbox',{name:'Northstar Title & Escrow 80'}).check();
   await page.getByRole('button',{name:'Online: 60 (75.0%)',exact:true}).click();
   const dialog=page.getByRole('dialog',{name:'Online/ Ground: Online',exact:true});
-  await expect(dialog).toContainText('60 matching records');
+  await expect(dialog).toContainText('60 records in this group');
   await expect(dialog.locator('tbody')).not.toContainText('Pacific Coast');
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);

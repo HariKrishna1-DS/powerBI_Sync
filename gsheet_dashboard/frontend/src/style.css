@@ -3624,7 +3624,38 @@ input[type=checkbox],input[type=range] {
 .sla-status-label>.icon-button { flex-shrink: 0; }
 .status-edit-form { padding: 20px; margin-bottom: 20px; border: 1px solid var(--line); border-radius: var(--radius-card); background: var(--surface); }
 .status-edit-form p { overflow-wrap: anywhere; }
+.sla-status-label>.inline { flex-shrink:0; gap:4px; }
+.sla-status-heading { display:inline-flex; align-items:center; gap:12px; }
+.sla-delete-dialog { width:min(560px,calc(100vw - 32px)); }
+.sla-delete-dialog label { display:grid; gap:8px; margin:20px 0; }
+.sla-delete-dialog p { overflow-wrap:anywhere; }
+.sla-order-match { display:flex; align-items:center; flex-wrap:wrap; gap:10px 24px; margin:16px 0; padding:14px 16px; border:1px solid var(--line); border-radius:12px; background:var(--surface); overflow-wrap:anywhere; }
+.sla-row-actions { min-width:112px; width:112px; }
+.sla-row-actions .inline { flex-wrap:nowrap; gap:2px; }
+.sla-order-dialog { width:min(900px,calc(100vw - 32px)); }
+.sla-order-dialog .dialog-content { max-height:calc(100dvh - 150px); overflow-y:auto; }
+.sla-order-dialog label { display:grid; gap:6px; min-width:0; }
+.sla-order-dialog input,.sla-order-dialog textarea { width:100%; box-sizing:border-box; }
+.sla-order-dialog textarea { min-height:76px; resize:vertical; }
+.sla-order-dialog .sla-comment-field { grid-column:1 / -1; }
+.sla-order-dialog .sla-comment-field textarea { min-height:96px; font:inherit; line-height:1.6; }
+.sla-rule-result { padding:12px 16px; border:1px solid var(--line); border-radius:12px; margin:16px 0; }
+.sla-rule-result p { margin:6px 0 0; overflow-wrap:anywhere; }
+.table-scroll td.full-comment-cell { min-width:320px; width:420px; max-width:640px; white-space:pre-wrap; overflow-wrap:anywhere; overflow:visible; text-overflow:clip; vertical-align:top; }
+.sla-order-lookup { display:flex; align-items:end; flex-wrap:wrap; gap:12px; margin-bottom:16px; }
+.sla-order-lookup label { flex:1; min-width:200px; }
+.sla-target-status { margin:16px 0; }
+.sla-order-fields { margin:16px 0; padding:16px; border:1px solid var(--line); border-radius:12px; }
+.sla-order-fields legend { padding:0 8px; font-weight:600; }
+.sla-order-fields small { color:var(--muted); }
+.sla-order-footer { padding:12px 0; position:sticky; bottom:0; background:var(--surface); }
+@media(max-width:600px) { .sla-order-fields .form-grid { grid-template-columns:1fr; } }
 .status-edit-form label { display: grid; gap: 8px; margin: 16px 0; max-width: 480px; }
+.sla-order-options { max-height:240px; overflow:auto; margin:12px 0; border:1px solid var(--line); border-radius:8px; padding:8px 12px; }
+.status-edit-form .sla-order-choice { display:flex; flex-direction:row; align-items:center; justify-content:flex-start; gap:12px; max-width:none; margin:8px 0; }
+.sla-order-choice input { width:auto; flex-shrink:0; }
+.sla-order-choice span { flex:1; text-align:left; }
+.sla-order-choice small { display:block; color:var(--muted); }
 .brand .brand-copy { flex:1; min-width:0; }
 .brand>.icon-button { flex-shrink:0; margin-left:auto; }
 .sidebar-collapsed .brand { flex-direction:column; gap:8px; }
@@ -4997,18 +5028,18 @@ tr:hover td {
   .sidebar .brand { padding:12px 18px; }
   .sidebar .sidebar-section-label { padding-bottom:4px; }
   .sidebar nav { padding-bottom:6px; }
-  .sidebar .nav-item { min-height:28px; padding-block:4px; margin-block:1px; line-height:18px; }
+  .sidebar .nav-item { min-height:30px; padding-block:5px; margin-block:1px; }
   .sidebar .nav-subsection { margin-top:5px; padding-top:4px; }
   .sidebar .sidebar-footer { padding-block:6px; }
   .sidebar .theme-control { padding-block:3px; }
   .sidebar .preview-heading { padding-block:9px; }
 }
 @media (max-height: 700px) {
-  .sidebar .brand { padding-block:8px; }
+  .sidebar .brand { padding-block:10px; }
   .sidebar .brand span { display:none; }
   .sidebar .brand-mark { width:32px; height:32px; }
   .sidebar .sidebar-section-label { padding-bottom:2px; }
-  .sidebar .nav-item { min-height:24px; padding-block:3px; }
+  .sidebar .nav-item { min-height:26px; padding-block:3px; }
   .sidebar .sidebar-preferences .connection-status,
   .sidebar .sidebar-preferences>a { display:none; }
   .sidebar .preview-heading { padding-block:7px; }

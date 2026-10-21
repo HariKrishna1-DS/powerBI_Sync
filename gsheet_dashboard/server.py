@@ -926,9 +926,10 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
             sheets, trackers, groups = {}, {}, {}
             from monthly_production import decode, tab_identity, arrival_sort, ARCHIVE
             from tracker_sync import canonical_headers
+            from production_timing import completion_from_out_time
             for title, sheet, values in tracker_sources(book):
                 identity = tab_identity(sheet.title)
-                rows = [dict(r, _sheet=sheet.title, _tracker=title, _month=identity[1] if identity else '') for r in decode(values)]
+                rows = [dict(completion_from_out_time(r), _sheet=sheet.title, _tracker=title, _month=identity[1] if identity else '') for r in decode(values)]
                 trackers[sheet.title if identity else title] = rows
                 columns = canonical_headers(values[0]) if values else HEADERS
                 sheets[sheet.title] = {'columns': columns, 'rows': arrival_sort(rows)}
@@ -1339,7 +1340,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
     def comparison():
         body = request.get_json()
         previous, latest = store.get(int(body['previous'])), store.get(int(body['latest']))
-        result = compare(previous, latest, ['Order Number'], body.get('ignore'))
+        result = compare(previous, latest, ['Order Number'], body.get('ignore'), history=store.history())
         if body.get('download'):
             frame = pd.DataFrame(result['rows'], columns=result['columns'])
             frame['Previous Preview'] = previous['name']

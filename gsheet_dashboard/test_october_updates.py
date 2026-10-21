@@ -30,7 +30,7 @@ class OctoberTrackerTests(unittest.TestCase):
         self.assertEqual([r['Free Site'] for r in result[FULL]], ['On Time', 'Missing', ''])
         self.assertEqual(free_site({'Out Time': '10/01/2026 10:00 AM', 'SLA Expiration': 'PAUSED'}, datetime(2026, 10, 2))[0], '')
 
-    def test_out_time_does_not_complete_open_cancelled_or_new_orders(self):
+    def test_recorded_out_dates_complete_orders_but_need_time_for_sla(self):
         existing = [order('A', 'Awaiting for Clarification', **{'Out Time': '10/01/2026',
                     'SLA Expiration': '10/02/2026 01:00 PM'}),
                     order('B', 'Cancelled', **{'Out Time': '46279',
@@ -39,7 +39,7 @@ class OctoberTrackerTests(unittest.TestCase):
                     {'Order Number': 'C', 'Product': 'Full Title', 'Out Time': '10/01/2026',
                      'SLA Expiration': '10/02/2026 01:00 PM'}]
         result, _ = merge_trackers({FULL: existing, REMAINING: []}, incoming, [], datetime(2026, 10, 2))
-        self.assertEqual([r['Status'] for r in result[FULL]], ['Awaiting for Clarification', 'Cancelled', 'Search In Progress'])
+        self.assertEqual([r['Status'] for r in result[FULL]], ['Completed and Delivered'] * 3)
         self.assertEqual([r['Free Site'] for r in result[FULL]], [''] * 3)
 
     def test_exact_sample_colors_cover_free_site(self):

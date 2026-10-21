@@ -1,3 +1,4 @@
+import {FilterableTable} from './ColumnFilters';
 import React, {useEffect, useState} from 'react';
 import {LoaderCircle, ArrowDownToLine, X} from 'lucide-react';
 import {api, saveBlob} from './workspaceUtils';
@@ -53,7 +54,7 @@ export function MonthlyMaintenance({month, running, onChanged}) {
     {plan&&<section className="monthly-preview" aria-label="Monthly operation preview"><h3>{plan.kind==='rollover'?'Rollover dry run':plan.kind==='import'?'Import preview':'Monthly setup preview'}</h3>
       <p>Review these counts before confirming. Existing tabs are copied as backups before changes. A changed or expired preview must be refreshed.</p>
       {plan.kind==='rollover'&&<p><strong>{(plan.counts||[]).reduce((total,item)=>total+(item.moved||0),0)} orders would move.</strong> No orders have moved yet.</p>}
-      <div className="table-scroll"><table><thead><tr><th>Source / target</th>{fields.map(field=><th key={field}>{field[0].toUpperCase()+field.slice(1)}</th>)}</tr></thead><tbody>{(plan.counts||[]).map((c,i)=><tr key={i}><td>{c.source&&<span title={c.source}>{shortTitle(c.source)}<br/></span>}<span title={c.target}>{c.target?`To: ${shortTitle(c.target)}`:Object.keys(c.targets||{}).map(shortTitle).join(', ')}</span></td>{fields.map(k=><td key={k}>{c[k]??'—'}</td>)}</tr>)}</tbody></table></div>
+      <div className="table-scroll"><FilterableTable><thead><tr><th>Source / target</th>{fields.map(field=><th key={field}>{field[0].toUpperCase()+field.slice(1)}</th>)}</tr></thead><tbody>{(plan.counts||[]).map((c,i)=><tr key={i}><td>{c.source&&<span title={c.source}>{shortTitle(c.source)}<br/></span>}<span title={c.target}>{c.target?`To: ${shortTitle(c.target)}`:Object.keys(c.targets||{}).map(shortTitle).join(', ')}</span></td>{fields.map(k=><td key={k}>{c[k]??'—'}</td>)}</tr>)}</tbody></FilterableTable></div>
       {!plan.counts?.length&&<p>No eligible changes were found.</p>}
       {!!plan.reviews?.length&&<details><summary>{plan.reviews.length} review items</summary><ul className="monthly-review-list">{plan.reviews.slice(0,100).map((r,i)=><li key={i}>{r['Order Number']||`Row ${r.row||'unknown'}`}: {r.Reason}</li>)}</ul>{plan.reviews.length>100&&<p>Showing 100. Download the report for all items.</p>}</details>}
       <div className="monthly-actions"><button className="primary" disabled={busy||running||!plan.counts?.length} onClick={confirm}>Confirm {plan.kind==='rollover'?'rollover':plan.kind==='import'?'import':'monthly setup'}</button><button className="secondary" disabled={busy} onClick={()=>setPlan(null)}><X size={14}/>Cancel preview</button><button className="secondary" onClick={()=>saveBlob(new Blob([JSON.stringify(plan,null,2)],{type:'application/json'}),'monthly-preview.json')}>Download report</button></div>

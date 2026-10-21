@@ -87,7 +87,7 @@ def persist_edit(workspace, settings, events):
 
 def save_order(workspace, book, snapshot, body):
     from import_excel_changes import equivalent
-    from production_timing import sla_result
+    from production_timing import sla_result, completion_from_out_time
     from tracker_sync import key
     from workspace_backup import save_safety_backup
     settings = workspace.read()
@@ -105,10 +105,19 @@ def save_order(workspace, book, snapshot, body):
     if not isinstance(report_date, str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}|Undated', report_date):
         raise ValueError('Reopen the order from a report date before saving.')
     after = dict(before, **changes)
+    normalized = completion_from_out_time(after)
+    for column in ('Status', 'Task Status'):
+        if column in normalized and normalized[column] != after.get(column):
+            after[column] = normalized[column]
+            changes[column] = normalized[column]
     if 'Status' in changes and 'Task Status' in after:
         after['Task Status'] = changes['Status']
     elif 'Task Status' in changes:
         after['Status'] = changes['Task Status']
+    changes = {column: after[column] for column in changes
+               if not equivalent(column, before.get(column, ''), after[column])}
+    if not changes:
+        raise ValueError('A valid Out Time keeps this order Completed and Delivered. Clear Out Time before reopening it.')
     after['Free Site'] = sla_result(after)[0]
     backup = save_safety_backup(workspace.store, 'before-update')
     if settings['mode'] == 'excel':

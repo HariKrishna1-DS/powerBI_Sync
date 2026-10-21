@@ -90,6 +90,28 @@ test('SLA editor keeps the edit open when the source statuses have changed',asyn
   await expect(form.getByLabel('New order status',{exact:true})).toHaveValue('QC in Progress');
 });
 
+test('SLA editor changes only the chosen order number and retains its unselected peers',async({page})=>{
+  const {sla,saves,errors}=await setup(page);
+  await page.getByRole('button',{name:'SLA Status',exact:true}).click();
+  await page.getByRole('button',{name:'Edit status Assign to ABS',exact:true}).click();
+  const form=page.getByRole('form',{name:'Edit order status'});
+  await form.getByLabel('Orders to update',{exact:true}).selectOption('orders');
+  await form.getByLabel('New order status',{exact:true}).fill('Completed and Delivered');
+  await expect(form.getByRole('button',{name:'Save status',exact:true})).toBeDisabled();
+  const number=sla.rows[1]['Order Number'];
+  await form.getByLabel('Find order number',{exact:true}).fill(number);
+  await form.getByRole('checkbox',{name:`Select order ${number}`,exact:true}).check();
+  await expect(form).toContainText('1 selected');
+  await form.screenshot({path:'test-results/sla-selected-order-editor.png'});
+  await form.getByRole('button',{name:'Save status',exact:true}).click();
+  const table=page.getByRole('table',{name:'SLA status summary'});
+  await expect(table.getByRole('button',{name:'Assign to ABS, Grand Total: 2 orders',exact:true})).toBeVisible();
+  await expect(table.getByRole('button',{name:'Completed and Delivered, Grand Total: 1 orders',exact:true})).toBeVisible();
+  expect(saves[0].order_numbers).toEqual([number]);
+  expect(saves[0].edit_scope).toBe('orders');
+  expect(errors).toEqual([]);
+});
+
 test('custom chart starts with Status and allows manual grouping changes',async({page})=>{
   const {errors}=await setup(page);
   await page.getByRole('button',{name:'Overview',exact:true}).click();

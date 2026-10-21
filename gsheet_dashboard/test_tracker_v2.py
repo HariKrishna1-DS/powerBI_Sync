@@ -118,15 +118,15 @@ class TrackerRulesTests(unittest.TestCase):
     def test_case_trim_match_manual_columns_and_no_invented_completion(self):
         for task in ('TypingModule', 'SearchFix', 'CRSP2', 'N/A'):
             merged, report = self.merge([order('AbC')], [{'Order Number': ' abc ', 'Task Name': task, 'Task Status': 'Completed', 'Searcher': 'Overwrite'}])
-            self.assertEqual(merged[FULL][0]['Status'], 'In Progress')
+            self.assertEqual(merged[FULL][0]['Status'], 'SearchFix' if task in ('SearchFix', 'CRSP2') else 'In Progress')
             self.assertEqual(merged[FULL][0]['Searcher'], 'Manual searcher')
             self.assertEqual(merged[FULL][0]['Review/QC'], '=A1')
             self.assertEqual(report['added'], 0)
 
-    def test_unchanged_drivers_preserve_manually_completed_status(self):
+    def test_active_capture_rechecks_a_saved_completion_without_out_time(self):
         raw = {'Order Number': 'A', 'Task Name': 'Search', 'Task Status': 'Available'}
         result, _ = self.merge([order('A', 'Completed and Delivered')], [raw], [raw])
-        self.assertEqual(result[FULL][0]['Status'], 'Completed and Delivered')
+        self.assertEqual(result[FULL][0]['Status'], 'Search In Progress')
 
     def test_changed_drivers_apply_mapping(self):
         old = {'Order Number': 'A', 'Task Name': 'Search', 'Task Status': 'In Progress'}

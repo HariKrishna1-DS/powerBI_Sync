@@ -98,12 +98,21 @@ def tabs_unchanged(book, baseline):
     return True
 
 
+def new_edit_options(column, options, current):
+    """A tab catching up to the saved order is not a second manual edit.
+
+    A publication can commit on Sheets even when its verification reply is lost.
+    Per-tab baselines can then differ until the next verified publication.
+    """
+    return [(title, value) for title, value in options if not equivalent(column, current, value)]
+
+
 def reconcile(imported, baseline, remote):
     """Merge changes to fields; an unchanged copy in another tab is not a new edit."""
     from tracker_sync import key
     from monthly_views import view_identity
     from report_workspace import imported_snapshot
-    from production_timing import sla_result
+    from production_timing import sla_result, completion_from_out_time
     snapshot = imported_snapshot(imported)
     members = {label: {key(row) for row in snapshot['sheets'][label]['rows']}
                for label in ('Full Title', 'Remaining Products')}
@@ -131,6 +140,11 @@ def reconcile(imported, baseline, remote):
                     options = updates[identity].setdefault(column, [])
                     options.append((title, value))
     for identity, fields in updates.items():
+        if identity in current:
+            for column in list(fields):
+                fields[column] = new_edit_options(column, fields[column], current[identity].get(column, ''))
+                if not fields[column]:
+                    del fields[column]
         if identity in removals and fields:
             raise ValueError(f'Order {current.get(identity, {}).get("Order Number", identity)} was removed in one tab and edited in another. Make those edits agree before refreshing.')
         for column, options in fields.items():
@@ -184,6 +198,18 @@ def reconcile(imported, baseline, remote):
         if identity not in additions and before != after:
             event(identity, 'Updated', 'Report tab membership', ', '.join(before), ', '.join(after), tabs,
                   new_row=current[identity])
+    for identity, row in current.items():
+        normalized = completion_from_out_time(row)
+        status_changes = {column: normalized[column] for column in ('Status', 'Task Status')
+                          if column in normalized and normalized[column] != row.get(column)}
+        if status_changes:
+            old = dict(row)
+            row.update(status_changes)
+            if 'Free Site' not in updates.get(identity, {}):
+                row['Free Site'] = sla_result(row)[0]
+            for column, value in status_changes.items():
+                event(identity, 'Updated', column, old.get(column, ''), value,
+                      ['Out Time completion rule'], old_row=old, new_row=dict(row))
     if not events:
         return imported, []
     if len(current) > 100000:
@@ -244,7 +270,39 @@ def sync_imported_tabs(workspace, book, settings):
         return False
     baseline = baseline or editable_frames(imported_snapshot(settings['imported']), settings)
     remote = read_editable_tabs(book, baseline)
-    imported, events = reconcile(settings['imported'], baseline, remote)
+    # Older monthly order views remain editable copies of the same workbook
+    # records. Only their Status is an input; removing an older view row cannot
+    # remove an order from the active imported dataset.
+    from monthly_views import view_identity
+    from tracker_sync import key, canonical_headers, matrix
+    from monthly_production import decode
+    from status_updates import write_tracker_statuses
+    current = {key(row): row for row in settings['imported']['rows']}
+    other_copies, other_states = defaultdict(list), {}
+    merge_baseline, merge_remote = dict(baseline), dict(remote)
+    previous = settings.get('other_tab_status_baseline') or {}
+    for sheet in book.worksheets():
+        if sheet.title in baseline or not view_identity(sheet.title):
+            continue
+        values = sheet.get_all_values(value_render_option='UNFORMATTED_VALUE')
+        headers = canonical_headers(values[0]) if values else []
+        if not {'Order Number', 'Status', 'Source workbook'}.issubset(headers):
+            continue
+        old_rows, new_rows = [], []
+        other_states[sheet.title] = {}
+        for index, cells in enumerate(values[1:], 1):
+            decoded = decode([values[0], cells])
+            if not decoded or key(decoded[0]) not in current:
+                continue
+            row, identity = decoded[0], key(decoded[0])
+            other_copies[identity].append((sheet, headers, index, row))
+            other_states[sheet.title][identity] = row.get('Status', '')
+            minimal = {column: row.get(column, '') for column in ('Order Number', 'Source workbook', 'Status')}
+            new_rows.append(minimal)
+            old_rows.append(dict(minimal, Status=previous.get(sheet.title, {}).get(identity, current[identity].get('Status', ''))))
+        columns = ['Order Number', 'Source workbook', 'Status']
+        merge_baseline[sheet.title], merge_remote[sheet.title] = matrix(old_rows, columns), matrix(new_rows, columns)
+    imported, events = reconcile(settings['imported'], merge_baseline, merge_remote)
     with workspace.lock:
         latest = workspace.read()
         if latest.get('data_revision') != settings.get('data_revision'):
@@ -257,7 +315,15 @@ def sync_imported_tabs(workspace, book, settings):
             db.execute('INSERT OR REPLACE INTO report_workspace VALUES (1,?)', (json.dumps(latest),))
             db.executemany('INSERT INTO import_excel_changes(action,order_number,payload) VALUES (?,?,?)',
                           [(event['Change'], event['Order Number'], json.dumps(event)) for event in events])
-    return bool(events)
+    effective = {key(row): row for row in imported['rows']}
+    replacements = {identity: effective[identity].get('Status', '') for identity, copies in other_copies.items()
+                    if identity in effective and any(row.get('Status', '') != effective[identity].get('Status', '') for _, _, _, row in copies)}
+    write_tracker_statuses(workspace, book, other_copies, replacements)
+    for identity, status in replacements.items():
+        for sheet, _, _, _ in other_copies[identity]:
+            other_states[sheet.title][identity] = status
+    workspace.save(other_tab_status_baseline=other_states)
+    return bool(events or replacements)
 
 
 def change_history(workspace, action='', search='', offset=0, limit=100):

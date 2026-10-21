@@ -39,8 +39,8 @@ test('column visibility, widths, wrapping and pinning persist without changing e
   await page.getByLabel('Show Client',{exact:true}).uncheck();
   await page.getByLabel('Width for Order Number',{exact:true}).selectOption('240');
   await page.getByLabel('Wrap cell text',{exact:true}).check();
-  await expect(page.getByRole('columnheader',{name:'Client',exact:true})).toHaveCount(0);
-  const id=page.getByRole('columnheader',{name:'Order Number',exact:true});
+  await expect(page.getByRole('columnheader',{name:/^Client/})).toHaveCount(0);
+  const id=page.getByRole('columnheader',{name:/^Order Number/});
   await expect(id).toHaveClass(/pinned-identifier/);
   expect((await id.boundingBox()).width).toBeCloseTo(240,0);
   const downloadPromise=page.waitForEvent('download');
@@ -50,7 +50,7 @@ test('column visibility, widths, wrapping and pinning persist without changing e
   expect(csv).toContain('Northstar Title & Escrow');
   await page.reload();
   await expect(page.locator('.orders-table')).toHaveClass(/wrap-cells/);
-  await expect(page.getByRole('columnheader',{name:'Client',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('columnheader',{name:/^Client/})).toHaveCount(0);
   expect((await id.boundingBox()).width).toBeCloseTo(240,0);
 });
 

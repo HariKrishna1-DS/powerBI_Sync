@@ -58,7 +58,7 @@ class ReportRefinementTests(unittest.TestCase):
                 dict(self.completed(Status='Cancelled'), **{'Order Number':'B', 'Free Site':'On Time'}),
                 dict(self.completed(**{'SLA Expiration':'PAUSED'}), **{'Order Number':'C', 'Free Site':'Missing'})]
         report = sheet_reports({FULL:rows})['monthly'][0]
-        self.assertEqual((report['Month Orders'],report['SLA On Time'],report['SLA Missed']), (3,1,0))
+        self.assertEqual((report['Month Orders'],report['SLA On Time'],report['SLA Missed']), (3,2,0))
 
     def test_remaining_view_includes_every_non_full_product_with_exact_production_schema(self):
         rows = [order('B', Product='Update'), order('A', Product='  Full   Search  '),

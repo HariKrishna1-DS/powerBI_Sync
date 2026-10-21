@@ -7,7 +7,7 @@
   --toolbar: #fffffff2;
   --ink: #162d3d;
   --text: #334b5d;
-  --muted: #526878;
+  --muted: #607587;
   --line: #dae4ed;
   --hover: #edf4f8;
   --accent: #087f7b;
@@ -61,9 +61,7 @@ h3 { font-weight:650; }
 .topbar { box-shadow:0 1px 0 var(--line); }
 .brand-copy { font-size:21px; font-weight:750; letter-spacing:-.6px; }
 .brand-copy>span { font-size:10px; font-weight:500; letter-spacing:.2px; }
-.nav-item { min-height:40px; border-radius:10px; font-size:13px; font-weight:550; }
-.sidebar-footer a { min-height:24px; padding-block:2px; }
-.sidebar .preview-heading { padding-block:6px; }
+.nav-item { min-height:42px; border-radius:10px; font-size:13px; font-weight:550; }
 .nav-item.selected { box-shadow:inset 3px 0 var(--accent); font-weight:700; }
 .nav-item.selected svg { color:var(--accent); }
 .preview-item { border-radius:11px; }
@@ -108,6 +106,14 @@ td,.orders-table td { font-size:12.5px; line-height:1.5; padding:13px 16px; colo
 .column-label,.column-button,.orders-table th button { font-size:12px; font-weight:650; color:var(--ink); }
 .table-scroll tbody tr:nth-child(even)>td,.orders-table tbody tr:nth-child(even)>td { background:color-mix(in srgb,var(--muted) 3%,var(--surface)); }
 .table-scroll tbody tr:hover>td,.orders-table tbody tr:hover>td { background:color-mix(in srgb,var(--accent) 8%,var(--surface)); }
+.table-scroll tbody tr.completed-order-row>td,.table-scroll tbody tr.completed-order-row:hover>td { background:var(--order-status-bg); color:var(--order-status-ink); }
+.completed-order-row .text-button { color:inherit; }
+.report-order-search { margin:20px 0; min-width:0; }
+.report-order-search-label { display:block; max-width:420px; margin:0 0 8px auto; color:var(--text); font-size:13px; font-weight:650; }
+.report-order-search>.search-input { max-width:420px; margin-left:auto; }
+.report-order-search .search-input input { width:100%; min-width:0; }
+.report-order-search .search-input .icon-button { flex-shrink:0; }
+.report-order-search .table-section { margin-top:12px; }
 .orders-table tbody tr.selected>td,.daily-orders .table-scroll tbody tr.daily-date-selected>td { background:var(--accent-soft); color:var(--ink); }
 .daily-orders tr.daily-date-selected>td:first-child { box-shadow:inset 3px 0 var(--accent); }
 .daily-orders tr.daily-date-selected .text-button { color:var(--accent); font-weight:750; }

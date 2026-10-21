@@ -125,7 +125,9 @@ def suspended(row):
 
 def mapped_status(row, existing='', new=False):
     from production_timing import completed, precise_timestamp
-    from sla_status import queue_rule
+    from sla_status import queue_field, queue_rule
+    if timestamp(queue_field(row, 'Out Time')):
+        return 'Completed and Delivered'
     if completed(row) and (precise_timestamp(row.get('Out Time')) or precise_timestamp(row.get('Completed Time'))):
         return 'Completed and Delivered'
     if text(row.get('Status')).casefold() in ('cancelled', 'canceled'):
@@ -135,8 +137,6 @@ def mapped_status(row, existing='', new=False):
     _, automatic, _ = queue_rule(row)
     if automatic:
         return automatic
-    if suspended(row):
-        return 'Awaiting for Clarification'
     if new or (text(row.get('Task Name')).casefold() == 'search'
                and text(row.get('Task Status')).casefold() == 'available'):
         return 'Search In Progress'
@@ -181,6 +181,7 @@ def free_site(row, anchor):
 
 def merge_trackers(trackers, incoming, previous, anchor, completion_history=None):
     """Pure merge: preserve position/manual values, append new identities, report ambiguity."""
+    from production_timing import completion_from_out_time
     result = {title: [dict(r) for r in trackers.get(title, [])] for title in TRACKERS}
     locations, duplicates = {}, set()
     for title, rows in result.items():
@@ -229,9 +230,9 @@ def merge_trackers(trackers, incoming, previous, anchor, completion_history=None
             if product and route != title:
                 report['ambiguous'].append({'Order Number': row['Order Number'], 'Reason': 'Product route conflicts with tracker; row retained'})
             from sla_status import queue_rule
-            if queue_rule(raw)[1] and precise_timestamp(row.get('Out Time')):
-                row['Status'] = 'Completed and Delivered'
-            elif queue_rule(raw)[1] or identity not in old or driving(old[identity]) != driving(raw):
+            # Re-evaluate current queue evidence on every extraction. A saved
+            # completion label without a timestamp must not mask an active task.
+            if queue_rule(raw)[1] or identity not in old or driving(old[identity]) != driving(raw):
                 row['Status'] = mapped_status(raw, row.get('Status', ''))
             for c in UPDATABLE:
                 if c in ('Status', 'Out Time'):
@@ -251,6 +252,7 @@ def merge_trackers(trackers, incoming, previous, anchor, completion_history=None
         for column in EMPTY_COLUMNS:
             if column in row:
                 row[column] = ''
+        row.update(completion_from_out_time(row))
         row['Status'] = STATUS_NAMES.get(text(row.get('Status')).casefold(), row.get('Status', ''))
         raw_sla = row.get('SLA Expiration', '')
         due = deadline(raw_sla, anchor)
@@ -274,6 +276,13 @@ def merge_trackers(trackers, incoming, previous, anchor, completion_history=None
     # These computed/empty columns also apply to orders absent from this preview.
     for rows in result.values():
         for row in rows:
+            before_completion = dict(row)
+            row.update(completion_from_out_time(row))
+            if row != before_completion:
+                report['updated'] += 1
+                report['changes'].append({'Order Number': row.get('Order Number', ''), 'Action': 'updated',
+                    'Old Status': before_completion.get('Status', ''), 'New Status': row['Status'],
+                    'Out Time': row.get('Out Time', '')})
             for column in EMPTY_COLUMNS:
                 if column in row:
                     row[column] = ''
@@ -427,8 +436,8 @@ def sheet_reports(trackers, audit=None):
     """All totals originate in tracker rows returned by Google Sheets."""
     from sla_comments import sla_entry, sla_status
     from monthly_production import arrival_sort, tab_identity, local_datetime
-    from production_timing import sla_eligible
-    rows = [dict(row, _sheet=row.get('_sheet', title), _tracker=(tab_identity(title) or (title, ''))[0],
+    from production_timing import sla_eligible, completion_from_out_time
+    rows = [dict(completion_from_out_time(row), _sheet=row.get('_sheet', title), _tracker=(tab_identity(title) or (title, ''))[0],
                  _month=row.get('_month') or (tab_identity(title) or ('', ''))[1])
             for title, items in trackers.items() for row in items if key(row)]
     if len({(r['_month'], key(r)) for r in rows}) != len(rows):

@@ -30,6 +30,16 @@ test('workspace preferences use narrow bounded contracts and preserve other pref
   assert.equal('uiPreferences' in publicSettings({...DEFAULTS,uiPreferences:initial}),false);
 });
 
+test('saved column filters retain their values and validate the same bounds as other filters',()=>{
+  const view={name:'Current Owner',search:'',group:'all',product:'all',filters:{},
+    columnFilters:{Product:{values:['Current Owner'],operator:'none',query:'',end:''}}};
+  const saved=validateUiPreferences({orderViews:[view]});
+  assert.deepEqual(saved.orderViews[0].columnFilters,view.columnFilters);
+  for(const columnFilters of [[],42,{Product:{values:'invalid'}},{Product:{operator:'invalid'}}]) {
+    assert.throws(()=>validateUiPreferences({orderViews:[{...view,columnFilters}]}),/Invalid saved filter/);
+  }
+});
+
 test('spreadsheet URLs are normalized and empty passwords preserve saved credentials', () => {
   const value = validateSettings({spreadsheetId: 'https://docs.google.com/spreadsheets/d/1234567890123456789012345/edit', password: ''}, {...DEFAULTS, password: 'saved-value'});
   assert.equal(value.spreadsheetId, '1234567890123456789012345');

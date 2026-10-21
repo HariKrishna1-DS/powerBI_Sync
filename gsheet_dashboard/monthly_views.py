@@ -80,7 +80,7 @@ def keep_view_headers(values, prior):
     return values
 
 
-def refresh_monthly_views(book):
+def refresh_monthly_views(book, *, return_changed=False, only_completions=False):
     """Safe repair on repeat syncs, including captures committed before this feature."""
     from tracker_sync import tracker_sources, records, FULL, sheet_reports, matrix
     from monthly_production import snapshot, decode, encode, new_plan, fingerprint, apply_plan, preserve_formulas
@@ -93,6 +93,11 @@ def refresh_monthly_views(book):
     raw = records(raw_values)
     plan = new_plan(before, 'monthly_views')
     repaired, changes = reconcile_completions(trackers, raw)
+    if only_completions and not any(
+            before.get(column, '') != after.get(column, '')
+            for title, rows in repaired.items() for before, after in zip(trackers[title], rows)
+            for column in ('Status', 'Out Time')):
+        return False
     for title, rows in repaired.items():
         if rows != trackers[title]:
             original = decode(before[title]['values'])
@@ -146,4 +151,4 @@ def refresh_monthly_views(book):
         if 'Sheet1' in sheets:
             plan.setdefault('archive_fingerprints', {})['Sheet1'] = fingerprint(raw_values)
         apply_plan(book, preserve_formulas(plan, before))
-    return list(writes)
+    return bool(plan['writes'] or plan['renames']) if return_changed else list(writes)
