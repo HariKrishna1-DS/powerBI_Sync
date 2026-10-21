@@ -17,6 +17,8 @@ Selected saved previews recheck the rule against today without rewriting the cap
 
 Completion evidence, specific queue rules and manual SLA status edits retain priority. Existing connections, captures, imported files, selected-preview reporting and backup compatibility remain available.
 
+Orders without matching ETA comment evidence keep their existing tracker and task-status behavior. Dates without a time do not introduce new completion evidence.
+
 ## Windows release
 
 This release continues the existing unsigned Windows distribution. Windows may show an unknown-publisher warning. The release workflow verifies the installer, portable ZIP, source ZIP, update metadata and checksums before publication.

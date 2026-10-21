@@ -125,9 +125,7 @@ def suspended(row):
 
 def mapped_status(row, existing='', new=False):
     from production_timing import completed, precise_timestamp
-    from sla_status import queue_field, queue_rule
-    if timestamp(queue_field(row, 'Out Time')):
-        return 'Completed and Delivered'
+    from sla_status import queue_rule
     if completed(row) and (precise_timestamp(row.get('Out Time')) or precise_timestamp(row.get('Completed Time'))):
         return 'Completed and Delivered'
     if text(row.get('Status')).casefold() in ('cancelled', 'canceled'):
@@ -137,6 +135,8 @@ def mapped_status(row, existing='', new=False):
     _, automatic, _ = queue_rule(row)
     if automatic:
         return automatic
+    if suspended(row):
+        return 'Awaiting for Clarification'
     if new or (text(row.get('Task Name')).casefold() == 'search'
                and text(row.get('Task Status')).casefold() == 'available'):
         return 'Search In Progress'
@@ -229,7 +229,7 @@ def merge_trackers(trackers, incoming, previous, anchor, completion_history=None
             if product and route != title:
                 report['ambiguous'].append({'Order Number': row['Order Number'], 'Reason': 'Product route conflicts with tracker; row retained'})
             from sla_status import queue_rule
-            if timestamp(row.get('Out Time')):
+            if queue_rule(raw)[1] and precise_timestamp(row.get('Out Time')):
                 row['Status'] = 'Completed and Delivered'
             elif queue_rule(raw)[1] or identity not in old or driving(old[identity]) != driving(raw):
                 row['Status'] = mapped_status(raw, row.get('Status', ''))

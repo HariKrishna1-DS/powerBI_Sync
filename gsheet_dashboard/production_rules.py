@@ -158,7 +158,8 @@ def merge_trackers(preview, previous, tracker_rows):
             old_raw = prior.get(key)
             from sla_status import queue_rule
             from tracker_sync import driving
-            if timestamp(row.get('Out Time')):
+            from production_timing import precise_timestamp
+            if queue_rule(raw)[1] and precise_timestamp(row.get('Out Time')):
                 row['Status'] = 'Completed and Delivered'
             elif queue_rule(raw)[1] or old_raw is None or driving(raw) != driving(old_raw):
                 row['Status'] = mapped_status(raw, row.get('Status', ''))

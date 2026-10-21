@@ -70,9 +70,14 @@ def eta_commitment_date(comments, today):
 
 def queue_rule(row, as_of=None):
     """Return priority, status and evidence shared by extraction and SLA reports."""
-    from monthly_production import local_datetime
     from production_timing import completed, precise_timestamp
-    if local_datetime(queue_field(row, 'Out Time')):
+    comments = queue_field(row, 'ETA Comments')
+    # Apply the new queue classification only to its ETA comment evidence.
+    # Other captures keep the established tracker and task-status behavior.
+    if not re.search(r'\b(?:abstract(?:ors?)?|eod|sooner|apoloize|apologize|apologise)\b'
+                     r'|\bassigned\s+to\s+the\s+abst\b|\bon\s+hold\b', comments, re.I):
+        return 9, '', ''
+    if precise_timestamp(queue_field(row, 'Out Time')):
         return -1, 'Completed and Delivered', 'Valid Out Time'
     normalized = {name: queue_field(row, name) for name in ('Status', 'Task Status', 'Completed Time')}
     normalized['Status'] = normalized['Status'] or normalized['Task Status']
@@ -80,7 +85,6 @@ def queue_rule(row, as_of=None):
         return -1, 'Completed and Delivered', 'Completed status with a valid Completed Time'
     compact = lambda value: re.sub(r'[^a-z0-9]', '', value.casefold())
     product, task = compact(queue_field(row, 'Product')), compact(queue_field(row, 'Task Name'))
-    comments = queue_field(row, 'ETA Comments')
     task_status = compact(queue_field(row, 'Task Status'))
     if task in ('crsp2', 'searchfix'):
         return 0, 'SearchFix', 'Task Name is CRSP2' if task == 'crsp2' else 'Task Name is SearchFix'
