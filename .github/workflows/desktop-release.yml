@@ -89,6 +89,16 @@ jobs:
             release/${{ steps.build_version.outputs.number }}/latest.yml
             release/${{ steps.build_version.outputs.number }}/SHA256SUMS.txt
           retention-days: 14
+      - name: Retain interface and packaged validation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tv-tracker-validation-${{ github.sha }}
+          path: |
+            gsheet_dashboard/frontend/test-results/
+            desktop/test-output/
+          if-no-files-found: ignore
+          retention-days: 7
 
   publish:
     needs: build
