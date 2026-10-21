@@ -53,6 +53,7 @@ const {once} = require('node:events');
     await page.getByLabel('Find an action').fill('connections');
     await page.getByLabel('Find an action').press('Enter');
     await page.getByRole('heading',{name:'Connections & settings'}).waitFor();
+    await page.getByLabel('Spreadsheet URL or ID',{exact:true}).fill('native-fixture-production');
     await page.getByLabel('Username',{exact:true}).fill('desktop-test-user');
     await page.getByLabel('Password',{exact:true}).fill('desktop-test-secret-123');
     await page.screenshot({path:path.join(output,'desktop-settings.png')});
@@ -187,19 +188,19 @@ const {once} = require('node:events');
     assert.equal(await reopened.getByLabel('Appearance').inputValue(),'dark');
     assert.equal((await reopened.evaluate(()=>window.desktop.getPreferences())).orderViews[0].name,'Saved locally');
     assert.equal((await reopened.evaluate(()=>window.desktop.getPreferences())).tableLayout.widths['Order Number'],240);
-    // Exercise the native external-link handoff without contacting Google.
-    const sheetUrl='https://docs.google.com/spreadsheets/d/native-fixture-production/edit';
+    // Exercise the native handoff using the persisted synthetic workbook setting.
+    // No service-account credentials are configured and shell.openExternal is stubbed.
     const nativeState=await reopened.evaluate(()=>fetch('/api/state').then(r=>r.json()));
-    await reopened.route('**/api/state*',route=>route.fulfill({json:{...nativeState,sheet_url:sheetUrl}}));
-    await reopened.route('**/api/live-sheets*',route=>route.fulfill({json:{mode:'tracker',updated_at:'2026-10-05T05:30:00Z',sheets:{Overview:{columns:['Order Number','Product','Status'],rows:[{'Order Number':'DESKTOP-001',Product:'Full Title',Status:'Available'}]}}}}));
+    const sheetUrl=nativeState.sheet_url;
+    assert.equal(new URL(sheetUrl).pathname,'/spreadsheets/d/native-fixture-production/edit');
     await app.evaluate(({shell})=>{global.testOpenedSheet='';shell.openExternal=async url=>{global.testOpenedSheet=url;};});
-    await reopened.reload();
     await reopened.getByRole('button',{name:'Overview',exact:true}).click();
-    await reopened.getByRole('link',{name:'Live Google Sheets',exact:true}).click();
+    const productionLink=reopened.getByTitle('Open the production spreadsheet in your browser',{exact:true});
+    await productionLink.waitFor();
+    assert.equal(await productionLink.getAttribute('href'),sheetUrl);
+    await productionLink.click();
     assert.equal(await app.evaluate(()=>global.testOpenedSheet),sheetUrl);
     await reopened.screenshot({path:path.join(output,'desktop-production-link.png')});
-    await reopened.unroute('**/api/state*');
-    await reopened.unroute('**/api/live-sheets*');
     await new Promise(resolve=>setTimeout(resolve,5000));
     const idleCpuPercent=await app.evaluate(({app})=>Number(app.getAppMetrics().reduce((sum,item)=>sum+(item.cpu?.percentCPUUsage||0),0).toFixed(2)));
     assert.equal((await reopened.evaluate(()=>window.desktop.getSettings())).passwordSet,true);
