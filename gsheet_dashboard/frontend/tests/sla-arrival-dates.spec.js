@@ -60,7 +60,8 @@ test('latest imported date has matching totals, download date and arrival fields
   await page.getByRole('button',{name:'Grand Total 2',exact:true}).click();
   const dialog=page.getByRole('dialog');
   const headers=dialog.locator('thead th');
-  expect((await headers.allTextContents()).slice(0,5).map(value=>value.trim())).toEqual(['Order Number','Status','SLA Category','Arrival Date','Arrival Time']);
+  expect((await headers.allTextContents()).slice(0,6).map(value=>value.trim())).toEqual(['Actions','Order Number','Status','SLA Category','Arrival Date','Arrival Time']);
+  await expect(dialog.getByRole('button',{name:'Edit details LATEST-001',exact:true})).toBeVisible();
   await expect(dialog.getByRole('cell',{name:'10/13/2026 01:02:03 PM',exact:true})).toBeVisible();
   await dialog.getByLabel('Search detail records').fill('LATEST-001');
   const downloaded=page.waitForEvent('download');

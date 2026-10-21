@@ -78,7 +78,7 @@ class ReportWorkspace:
 
     def public(self):
         value = self.read()
-        public = {k: v for k, v in value.items() if k not in ('imported', 'cloud_baseline', 'tracker_status_baseline', 'other_tab_status_baseline', 'sheet_status_overrides', 'sheet_status_override_previews', 'sla_preview_statuses', 'sla_preview_order_edits', 'sla_preview_manual_orders', 'sla_preview_custom_statuses')}
+        public = {k: v for k, v in value.items() if k not in ('imported', 'cloud_baseline', 'tracker_status_baseline', 'other_tab_status_baseline', 'sheet_status_overrides', 'sheet_status_override_previews', 'sla_preview_statuses', 'sla_preview_order_edits', 'sla_preview_manual_orders', 'sla_preview_custom_statuses', 'sla_import_custom_statuses')}
         effective = Counter(row.get('Source workbook', '') for row in (value.get('imported') or {}).get('rows', []))
         public['imports'] = [{'name': s['name'], 'rows': len(s['rows']), 'orders': len((value.get('imported') or {}).get('rows', [])) if s.get('legacy') else effective[s['name']],
                               'worksheets': len(s['files']), 'legacy': s.get('legacy', False)}
@@ -371,6 +371,8 @@ def report_frames(snapshot, settings):
     sla_snapshot = snapshot.get('sla_snapshot', snapshot)
     if sla_snapshot.get('mode') == 'excel':
         sla_snapshot = imported_date_snapshot(sla_snapshot, settings.get('sla_import_date'), strict=False)
+        from sla_import_manual import decorate
+        sla_snapshot = decorate(sla_snapshot, settings)
     frames['SLA Status'] = sheet_summary_values(build_sla_status(sla_snapshot))
     capacity = capacity_report(reports, dict(settings, mode=settings.get('mode', snapshot.get('mode', 'tracker'))))
     monthly = capacity['monthly']
@@ -1064,6 +1066,8 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
             selected = request.args.get('date') if report_date is None else report_date
             snapshot = imported_date_snapshot(load_snapshot(),
                 selected if selected is not None else settings.get('sla_import_date'), strict=selected is not None)
+            from sla_import_manual import decorate
+            snapshot = decorate(snapshot, settings)
             return dict(build_sla_status(snapshot), sync_error=settings.get('cloud_refresh_error'))
         raw = request.args.get('preview_id') if preview_id is None else preview_id
         if raw is not None and (isinstance(raw, bool) or not str(raw).isdecimal() or int(raw) < 1):
@@ -1146,9 +1150,21 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
         finally:
             gate.release()
 
-    def manual_sla_report(preview_id):
-        if workspace.read()['mode'] != 'tracker':
+    def manual_sla_report(preview_id, report_date=None, mode=None):
+        settings = workspace.read()
+        if settings['mode'] == 'excel' and mode == 'excel' and preview_id is None:
+            if not settings.get('imported'):
+                raise ValueError('Import an Excel report before adding statuses or orders.')
+            if not isinstance(report_date, str) or not report_date:
+                raise ValueError('Choose an available report date.')
+            report = load_sla_report(report_date=report_date)
+            if not report['report_date']:
+                raise ValueError('Choose an available report date.')
+            return report
+        if settings['mode'] != 'tracker':
             raise ValueError('Choose Tracker report before editing preview orders.')
+        if mode == 'excel':
+            raise ValueError('The report source changed. Reopen SLA Status before editing.')
         if type(preview_id) is not int or preview_id < 1:
             raise ValueError('Choose a valid saved preview.')
         return load_sla_report(preview_id)
@@ -1158,12 +1174,16 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
         from sla_manual import find_order, editable_fields, revision
         try:
             raw = request.args.get('preview_id', '')
-            report = manual_sla_report(int(raw) if raw.isdecimal() else None)
+            report = manual_sla_report(int(raw) if raw.isdecimal() else None, request.args.get('date'), request.args.get('mode'))
+            source = request.args.get('source_workbook', '')
+            if report['report_scope'] == 'imported_date':
+                from sla_import_manual import find_order, editable_fields, revision
             number = request.args.get('order_number', '').strip()
             if not number:
                 raise ValueError('Enter an Order Number to look up.')
-            row = find_order(report, number)
+            row = find_order(report, number, source) if report['report_scope'] == 'imported_date' else find_order(report, number)
             return jsonify(exists=row is not None, row=row,
+                           source_workbook=row.get('Source workbook', '') if row else source or 'Manual SLA orders',
                            fields=editable_fields(row) if row else {},
                            revision=revision(row) if row else None)
         except ValueError as exc:
@@ -1180,7 +1200,9 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
             return jsonify(error='Wait for the current capture or Sheets update to finish, then save.'), 409
         try:
             with sync_lock(workspace.store.root):
-                report = manual_sla_report(body.get('preview_id'))
+                report = manual_sla_report(body.get('preview_id'), body.get('report_date'), body.get('mode'))
+                if report['report_scope'] == 'imported_date':
+                    from sla_import_manual import save_order, save_status, delete_status
                 if request.path == '/api/sla-statuses':
                     action = body.get('action', 'create')
                     if action == 'delete':
@@ -1191,6 +1213,9 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
                         raise ValueError('Choose create or delete for a manual status.')
                 else:
                     result = save_order(workspace, report, body)
+                if report['report_scope'] == 'imported_date':
+                    invalidate()
+                    return jsonify(**result, publication=queue_publication())
                 return jsonify(**result, publication=publish_selected_sla(load_sla_report(report['preview_id'])))
         except ValueError as exc:
             return jsonify(error=str(exc)), 409
@@ -1240,6 +1265,14 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
                                    publication=publish_selected_sla(load_sla_report(preview_id)))
                 book = None
                 if settings.get('mode') == 'excel':
+                    if 'sla_report_date' in body:
+                        from sla_import_manual import move_status
+                        if not isinstance(body['sla_report_date'], str) or not body['sla_report_date']:
+                            raise ValueError('Choose an available report date.')
+                        report = load_sla_report(report_date=body['sla_report_date'])
+                        count = move_status(workspace, report, old, new, selected, individual=edit_scope == 'orders')
+                        invalidate()
+                        return jsonify(updated=count, status=new, publication=queue_publication())
                     book, _ = get_book()
                     sync_imported_tabs(workspace, book, settings)
                     settings = workspace.read()

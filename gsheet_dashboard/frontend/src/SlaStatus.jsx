@@ -23,6 +23,7 @@ export default function SlaStatus({revision,onUpdated,mode='tracker'}){
   const previewId=mode==='tracker'?(selectedPreview||report?.preview_id):null;
   const reportUrl='/api/sla-status'+(mode==='tracker'&&selectedPreview?`?preview_id=${selectedPreview}`:'');
   const downloadUrl='/api/export/report?sheet=SLA%20Status'+(previewId?`&preview_id=${previewId}`:report?.report_date?`&date=${encodeURIComponent(report.report_date)}`:'');
+  const editContext=context=>context.report_scope==='imported_date'?{mode:'excel',report_date:context.report_date}:{preview_id:context.preview_id};
   useEffect(()=>{selectionGeneration.current+=1;dateSelecting.current=false;setSelectedPreview('');setReport(null);setEditing(null);setDetail(null);setOrderEditor(null);setNewStatus(null);setDeleting(null);setMessage('');},[mode]);
   async function selectPreview(value){
     const followLatest=Number(value)===report?.previews?.[0]?.id;
@@ -55,9 +56,9 @@ export default function SlaStatus({revision,onUpdated,mode='tracker'}){
     event.preventDefault();if(saving)return;
     setSaving(true);setEditError('');
     try{
-      const empty=!editing.rows.length&&editing.report_scope==='preview';
+      const empty=!editing.rows.length&&['preview','imported_date'].includes(editing.report_scope);
       const result=await api(empty?'/api/sla-statuses':'/api/order-status',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify(empty?{previous:editing.status,status:replacement.trim(),preview_id:editing.preview_id}:{status:editing.status,replacement:replacement.trim(),order_numbers:editing.orders,edit_scope:editScope,
+        body:JSON.stringify(empty?{previous:editing.status,status:replacement.trim(),...editContext(editing)}:{status:editing.status,replacement:replacement.trim(),order_numbers:editing.orders,edit_scope:editScope,
           ...(editing.report_scope==='preview'?{preview_id:editing.preview_id}:editing.report_scope==='imported_date'?{sla_report_date:editing.report_date}:{})}),timeoutMs:180000});
       setReport(await api(reportUrl));setEditing(null);setDetail(null);
       setMessage(`${empty?'Status renamed to':`${result.updated} orders updated to`} ${result.status}. ${report.report_scope==='preview'?(result.publication?.synced?'SLA Status updated in Google Sheets.':'Saved locally.'):'Google Sheets reports are updating.'}`);
@@ -67,23 +68,25 @@ export default function SlaStatus({revision,onUpdated,mode='tracker'}){
   async function addStatus(event){
     event.preventDefault();setSaving(true);setEditError('');
     try{
-      const result=await api('/api/sla-statuses',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({preview_id:report.preview_id,status:newStatus.trim()}),timeoutMs:180000});
+      const result=await api('/api/sla-statuses',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...editContext(report),status:newStatus.trim()}),timeoutMs:180000});
       setReport(await api(reportUrl));setNewStatus(null);setMessage(`${result.status} is ready. Click its name or + to add orders.`);
+      if(report.report_scope==='imported_date')onUpdated?.();
     }catch(error){setEditError(error.message);}finally{setSaving(false);}
   }
   async function savedOrder(result){
     setReport(await api(reportUrl));setOrderEditor(null);
     setMessage(`${result.order_number} ${result.created?'added':'updated'} under ${result.status}. ${result.publication?.synced?'SLA Status updated in Google Sheets.':'Saved locally.'}`);
+    if(report.report_scope==='imported_date')onUpdated?.();
   }
   function startStatus(){setNewStatus('');setEditError('');}
   function removeStatus(status){
     const orders=[...report.rows,...report.excluded_rows].filter(row=>row.Status===status).map(orderKey);
-    setDeleting({status,orders,preview_id:report.preview_id,preview_name:report.preview_name});setMoveTo('');setDeleteError('');
+    setDeleting({status,orders,preview_id:report.preview_id,preview_name:report.preview_name,report_scope:report.report_scope,report_date:report.report_date});setMoveTo('');setDeleteError('');
   }
   async function deleteStatus(event){
     event.preventDefault();if(saving)return;setSaving(true);setDeleteError('');
     try{
-      const result=await api('/api/sla-statuses',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'delete',preview_id:deleting.preview_id,status:deleting.status,order_numbers:deleting.orders,replacement:moveTo}),timeoutMs:180000});
+      const result=await api('/api/sla-statuses',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'delete',...editContext(deleting),status:deleting.status,order_numbers:deleting.orders,replacement:moveTo}),timeoutMs:180000});
       setReport(await api(reportUrl));setDeleting(null);setDetail(null);
       setMessage(`${result.status} deleted.${result.moved?` ${result.moved} orders moved to ${result.replacement}.`:''} ${result.publication?.synced?'SLA Status updated in Google Sheets.':'Saved locally.'}`);
     }catch(error){setDeleteError(error.message);}finally{setSaving(false);}
@@ -117,7 +120,7 @@ export default function SlaStatus({revision,onUpdated,mode='tracker'}){
   function show(status,category){
     setDetail({title:[status,category].filter(Boolean).join(' · ')||'All SLA orders',status,category});
   }
-  const manual=report?.report_scope==='preview'&&!!report.preview_id;
+  const manual=(report?.report_scope==='preview'&&!!report.preview_id)||(report?.report_scope==='imported_date'&&!!report.report_date);
   const searchRows=useMemo(()=>report?[...report.rows,...report.excluded_rows]:[],[report]);
   const detailRows=!detail||!report?[]:detail.scope==='current'?[...report.rows,...report.excluded_rows]:detail.scope==='excluded'?report.excluded_rows:report.rows.filter(row=>(!detail.status||row.Status===detail.status)&&(!detail.category||row['SLA Category']===detail.category));
   function rowActions(row){return <div className="inline"><button type="button" className="icon-button" aria-label={`Edit details ${row['Order Number']}`} title="Edit order details" onClick={()=>setOrderEditor({row,status:row.Status})}><Pencil size={15}/></button><button type="button" className="icon-button" aria-label={`Add order to ${row.Status}`} title="Add order to this status" onClick={()=>setOrderEditor({status:row.Status})}><Plus size={15}/></button><button type="button" className="icon-button" aria-label={`Copy order ${row['Order Number']}`} title="Copy into a new order" onClick={()=>setOrderEditor({row,status:row.Status,copy:true})}><Copy size={15}/></button></div>;}
@@ -141,7 +144,7 @@ export default function SlaStatus({revision,onUpdated,mode='tracker'}){
     {loading&&!report?<div className="loading"><LoaderCircle className="spin"/>Loading SLA Status…</div>:report&&<>
       <div className="metrics">{[...categories,['Grand Total','#a8c5ed']].map(([name],index)=><button type="button" className={`metric metric-action ${['green','red','gold','blue'][index]}`} key={name} onClick={()=>show(null,name==='Grand Total'?null:name)}><span>{name}</span><strong>{report.totals[name].toLocaleString()}</strong></button>)}</div>
       {message&&<p className="notice success" role="status">{message}</p>}
-      {newStatus!==null&&<form ref={statusCreator} className="status-edit-form" aria-label="Create SLA status" onSubmit={addStatus}><h3>Add status</h3><label>Status name<input aria-label="Status name" autoFocus required maxLength={1000} value={newStatus} disabled={saving} onChange={event=>setNewStatus(event.target.value)}/></label><p>The status starts with zero orders. Open it to add an existing preview order or a new order.</p>{editError&&<p className="notice warning" role="alert">{editError}</p>}<div className="inline"><button type="submit" className="primary" disabled={saving||!newStatus.trim()}>{saving?'Saving…':'Create status'}</button><button type="button" className="secondary" disabled={saving} onClick={()=>setNewStatus(null)}>Cancel</button></div></form>}
+      {newStatus!==null&&<form ref={statusCreator} className="status-edit-form" aria-label="Create SLA status" onSubmit={addStatus}><h3>Add status</h3><label>Status name<input aria-label="Status name" autoFocus required maxLength={1000} value={newStatus} disabled={saving} onChange={event=>setNewStatus(event.target.value)}/></label><p>The status starts with zero orders. Open it to add an existing order or a new order.</p>{editError&&<p className="notice warning" role="alert">{editError}</p>}<div className="inline"><button type="submit" className="primary" disabled={saving||!newStatus.trim()}>{saving?'Saving…':'Create status'}</button><button type="button" className="secondary" disabled={saving} onClick={()=>setNewStatus(null)}>Cancel</button></div></form>}
       {editing&&<form ref={editor} className="status-edit-form" aria-label="Edit order status" onSubmit={saveStatus}>
         <div className="section-heading"><h3>Edit order status</h3><button type="button" className="icon-button" aria-label="Close status editor" disabled={saving} onClick={()=>setEditing(null)}><X size={16}/></button></div>
         <p>Update {editScope==='group'?'all ':''}{editing.orders.length} orders {report.preview_name?`in ${report.preview_name} `:''}currently marked <strong>{editing.status}</strong>. Choosing an existing status combines the orders under that status.</p>
@@ -160,7 +163,7 @@ export default function SlaStatus({revision,onUpdated,mode='tracker'}){
       {report.summary.length>0?<div className="chart-section" role="region" aria-label="SLA status bar chart"><div style={{height:Math.max(220,report.summary.length*40+70)}}><ResponsiveContainer width="100%" height="100%"><BarChart data={report.summary} layout="vertical" maxBarSize={24} margin={{top:12,right:24,left:10,bottom:12}}><CartesianGrid stroke="var(--chart-grid)" horizontal={false}/><XAxis type="number" allowDecimals={false}/><YAxis type="category" dataKey="Status" width={210} tick={{fontSize:12,fill:'var(--muted)'}}/><Tooltip/><Legend/>{categories.map(([name,color])=><Bar key={name} dataKey={name} stackId="sla" fill={color} isAnimationActive={false} onClick={entry=>show(entry.Status||entry.payload?.Status,name)} className="clickable-series"/>)}</BarChart></ResponsiveContainer></div></div>:<p className="table-empty">No orders with a valid SLA expiration.</p>}
       {detail&&<SideDrawer key={detail.title} title={detail.title} rows={detailRows} columns={report.columns} showOrderStatus onClose={()=>setDetail(null)} renderActions={manual?rowActions:undefined} toolbar={manual?<button type="button" className="secondary" onClick={()=>setOrderEditor({status:detail.status})}><Plus size={16}/>Add order</button>:undefined}/>}
       {orderEditor&&<SlaOrderEditor report={report} entry={orderEditor} onClose={()=>setOrderEditor(null)} onSaved={savedOrder}/>}
-      {deleting&&<Dialog title="Delete manual SLA status" onClose={()=>{if(!saving)setDeleting(null);}} className="sla-delete-dialog"><form className="dialog-content" onSubmit={deleteStatus}><p>Remove <strong>{deleting.status}</strong> from {deleting.preview_name}.</p>{deleting.orders.length>0?<><p>Move its {deleting.orders.length} orders to another status. Every order will remain in the report and be counted once.</p><label>Move orders to<select aria-label="Move orders to" required value={moveTo} disabled={saving} onChange={event=>setMoveTo(event.target.value)}><option value="">Choose a status</option>{[...new Set([...report.summary.map(row=>row.Status),...suggestedStatuses])].filter(status=>status!==deleting.status).map(status=><option key={status} value={status}>{status}</option>)}</select></label></>:<p>This status has no orders.</p>}{deleteError&&<p role="alert" className="notice warning">{deleteError}</p>}<div className="inline"><button type="submit" className="primary" disabled={saving||(deleting.orders.length>0&&!moveTo)}><Trash2 size={16}/>{saving?'Deleting…':'Delete status'}</button><button type="button" className="secondary" disabled={saving} onClick={()=>setDeleting(null)}>Cancel</button></div></form></Dialog>}
+      {deleting&&<Dialog title="Delete manual SLA status" onClose={()=>{if(!saving)setDeleting(null);}} className="sla-delete-dialog"><form className="dialog-content" onSubmit={deleteStatus}><p>Remove <strong>{deleting.status}</strong> from {deleting.preview_name||deleting.report_date}.</p>{deleting.orders.length>0?<><p>Move its {deleting.orders.length} orders to another status. Every order will remain in the report and be counted once.</p><label>Move orders to<select aria-label="Move orders to" required value={moveTo} disabled={saving} onChange={event=>setMoveTo(event.target.value)}><option value="">Choose a status</option>{[...new Set([...report.summary.map(row=>row.Status),...suggestedStatuses])].filter(status=>status!==deleting.status).map(status=><option key={status} value={status}>{status}</option>)}</select></label></>:<p>This status has no orders.</p>}{deleteError&&<p role="alert" className="notice warning">{deleteError}</p>}<div className="inline"><button type="submit" className="primary" disabled={saving||(deleting.orders.length>0&&!moveTo)}><Trash2 size={16}/>{saving?'Deleting…':'Delete status'}</button><button type="button" className="secondary" disabled={saving} onClick={()=>setDeleting(null)}>Cancel</button></div></form></Dialog>}
     </>}
   </section>;
 }

@@ -327,7 +327,7 @@ def build_sla_status(snapshot, as_of=None):
                 'source', 'mode', 'offline', 'updated_at', 'report_scope', 'preview_id',
                 'preview_name', 'preview_row_count', 'previews', 'captured_order_count',
                 'manual_order_count', 'custom_statuses', 'editable_columns', 'report_date',
-                'report_dates', 'imported_order_count', 'date_order_count', 'undated_order_count')}}
+                'report_dates', 'imported_order_count', 'date_order_count', 'undated_order_count', 'source_workbooks', 'data_revision')}}
 
 
 def summary_values(report):
