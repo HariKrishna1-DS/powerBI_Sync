@@ -29,9 +29,117 @@ def tracker_status_rows(book):
             for index, cells in enumerate(numbers) if cells and str(cells[0]).strip()]
 
 
-def preview_snapshot(store, settings=None, preview_id=None, production=None):
+def queue_field(row, name):
+    """Portal headers may contain spaces, line breaks, or no spaces."""
+    compact = lambda value: re.sub(r'[^a-z0-9]', '', str(value).casefold())
+    return next((str(value or '').strip() for column, value in row.items()
+                 if compact(column) == compact(name)), '')
+
+
+def special_product_status(raw):
+    """Recognize full names and the portal's displayed, ellipsized product labels."""
+    product = re.sub(r'[^a-z0-9]', '', raw.casefold())
+    truncated = bool(re.search(r'(?:\.{2,}|\u2026)\s*$', raw))
+    for status, names, prefix in (
+            ('Attorney Approval', ('attorneyapproval', 'attorneyapproach'), 'attorneyapp'),
+            ('Home Builder', ('homebuilder', 'homebuilders'), 'homebuil')):
+        if product in names or (truncated and product.startswith(prefix)
+                                and any(name.startswith(product) for name in names)):
+            return status
+    return ''
+
+
+def eta_commitment_date(comments, today):
+    """Use the last date attached to EOD/sooner, never receipt or fee dates."""
+    matches = list(re.finditer(
+        r'(?<![\w/.-])(?P<date>\d{4}-\d{1,2}-\d{1,2}|\d{1,2}/\d{1,2}(?:/(?:\d{4}|\d{2}))?)'
+        r'\s*(?:[,;:-]\s*)?(?:eod|(?:or\s+)?sooner)\b', comments, re.I))
+    if not matches:
+        return '', None
+    match = matches[-1]
+    raw = match['date']
+    if raw.count('/') == 1:
+        raw = f'{raw}/{today.year}'
+    for pattern in ('%m/%d/%Y', '%m/%d/%y', '%Y-%m-%d'):
+        try:
+            return ' '.join(match.group(0).split()), datetime.strptime(raw, pattern).date()
+        except ValueError:
+            pass
+    return ' '.join(match.group(0).split()), None
+
+
+def queue_rule(row, as_of=None):
+    """Return priority, status and evidence shared by extraction and SLA reports."""
+    from monthly_production import local_datetime
+    from production_timing import completed, precise_timestamp
+    if local_datetime(queue_field(row, 'Out Time')):
+        return -1, 'Completed and Delivered', 'Valid Out Time'
+    normalized = {name: queue_field(row, name) for name in ('Status', 'Task Status', 'Completed Time')}
+    normalized['Status'] = normalized['Status'] or normalized['Task Status']
+    if completed(normalized) and precise_timestamp(normalized['Completed Time']):
+        return -1, 'Completed and Delivered', 'Completed status with a valid Completed Time'
+    compact = lambda value: re.sub(r'[^a-z0-9]', '', value.casefold())
+    product, task = compact(queue_field(row, 'Product')), compact(queue_field(row, 'Task Name'))
+    comments = queue_field(row, 'ETA Comments')
+    task_status = compact(queue_field(row, 'Task Status'))
+    if task in ('crsp2', 'searchfix'):
+        return 0, 'SearchFix', 'Task Name is CRSP2' if task == 'crsp2' else 'Task Name is SearchFix'
+    if product in ('clientreview', 'qualitycontrol', 'quailtycontrol'):
+        return 0, 'SearchFix', 'Product is ClientReview / Quality Control'
+    if re.search(r'\bon\s+hold\b', comments, re.I):
+        return 1, 'Waiting for Effective Date', 'ETA Comments contains ON HOLD'
+    special = special_product_status(queue_field(row, 'Product'))
+    if special:
+        return 2, special, f"Product is {queue_field(row, 'Product')}"
+    apology = re.search(r'\b(?:apoloize|apologize|apologise)\b', comments, re.I)
+    if apology:
+        return 3, 'Need to Assign ABS', f'ETA Comments contains {apology.group(0)}'
+    assigned = re.search(r'\bassigned\s+to\s+the\s+(?:abstractor|abst)\b', comments, re.I)
+    abstractor = re.search(r'\babstract(?:ors?)?\b', comments, re.I)
+    commitment = re.search(r'\b(?:eod|sooner)\b', comments, re.I)
+    if assigned or abstractor or commitment:
+        evidence = assigned or abstractor or commitment
+        reason = f'ETA Comments contains {" ".join(evidence.group(0).split())}'
+        if commitment:
+            today = local_time(as_of or datetime.now(IST)).date()
+            wording, due = eta_commitment_date(comments, today)
+            if due:
+                reason = f'ETA Comments contains {wording}; ETA date {due.isoformat()}'
+                if due == today:
+                    return 3, 'Need to Assign ABS', f'{reason} matches today {today.isoformat()} (India time)'
+                reason += f' does not match today {today.isoformat()} (India time)'
+            elif wording:
+                reason += f'; invalid ETA date in {wording}'
+        return 4, 'Assign to ABS', reason
+    if task == 'typingmodule' and task_status == 'inprogress':
+        return 5, 'Typing in Progress', 'Task Name is TypingModule and Task Status is In Progress'
+    from tracker_sync import suspended
+    if suspended(dict(row, **{'Task Status': queue_field(row, 'Task Status')})):
+        return 6, 'Awaiting for Clarification', 'Workflow is suspended'
+    last_user = queue_field(row, 'Last User').casefold()
+    if (last_user in ('', '(blank)', 'null', 'none', 'n/a', '-')
+            and task_status == 'available'):
+        return 7, 'Search In Progress', 'Last User is blank and Task Status is Available'
+    if task_status == 'tasksuspended':
+        return 8, 'Typing in Progress', 'Task Status is Task Suspended; no higher-priority queue rule matches'
+    return 9, '', ''
+
+
+def queue_orders(preview, as_of=None):
+    """Count each Order Number once even when the queue contains several tasks."""
+    from import_identity import number_key
+    orders = {}
+    for original in preview['rows'] if preview else []:
+        identity = number_key(original)
+        if identity and (identity not in orders or queue_rule(original, as_of)[0] < queue_rule(orders[identity], as_of)[0]):
+            orders[identity] = original
+    return orders
+
+
+def preview_snapshot(store, settings=None, preview_id=None, production=None, as_of=None):
     """One captured queue, independent of retained production and imported orders."""
     settings = settings or {}
+    as_of = as_of or datetime.now(IST)
     previews = store.list()
     if preview_id is not None:
         preview = store.get(preview_id)
@@ -49,12 +157,18 @@ def preview_snapshot(store, settings=None, preview_id=None, production=None):
         if identity and status:
             statuses.setdefault(identity, set()).add(status)
     rows = []
-    for original in preview['rows'] if preview else []:
+    for original in queue_orders(preview, as_of).values():
         row = dict(original)
+        for column in ('Product', 'Task Name', 'Task Status', 'Last User', 'ETA Comments'):
+            if queue_field(original, column):
+                row[column] = queue_field(original, column)
         for column in SOURCE:
             if not text(row.get(column)):
                 row[column] = value(original, column)
-        if not text(row.get('Status')):
+        _, automatic, reason = queue_rule(original, as_of)
+        if automatic:
+            row['Status'] = automatic
+        elif not text(row.get('Status')):
             known = statuses.get(text(row.get('Order Number')).casefold(), set())
             row['Status'] = next(iter(known)) if len(known) == 1 else mapped_status(original, new=True)
         expiry = deadline(row.get('SLA Expiration'), anchor)
@@ -62,12 +176,14 @@ def preview_snapshot(store, settings=None, preview_id=None, production=None):
             row['SLA Expiration'] = expiry.isoformat(sep=' ')
         if key(row) in overrides:
             row['Status'] = overrides[key(row)]
+            reason = 'Manual status edit for this preview'
+        row['Status Reason'] = reason or 'Saved preview or matched tracker Status'
         rows.append(row)
-    columns = list(dict.fromkeys((preview['columns'] if preview else []) + list(SOURCE) + ['Status']))
+    columns = list(dict.fromkeys((preview['columns'] if preview else []) + list(SOURCE) + ['Status', 'Status Reason']))
     return {'mode': 'tracker', 'report_scope': 'preview', 'offline': False,
             'source': 'Saved preview', 'preview_id': preview['id'] if preview else None,
             'preview_name': preview['name'] if preview else None, 'preview_row_count': len(rows),
-            'uses_queue_status': any(not text(row.get('Status')) for row in preview['rows']) if preview else False,
+            'uses_queue_status': any(not text(row.get('Status')) and not queue_rule(row, as_of)[1] for row in preview['rows']) if preview else False,
             'previews': previews, 'updated_at': preview['created'] if preview else None,
             'sheets': {'Overview': {'rows': rows, 'columns': columns}}}
 

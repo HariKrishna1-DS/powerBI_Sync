@@ -86,12 +86,8 @@ def suspended(row):
 
 
 def mapped_status(row, existing='Search In Progress'):
-    if suspended(row):
-        return 'Awaiting for Clarification'
-    if (text(row.get('Task Name')).casefold() == 'search'
-            and text(row.get('Task Status')).casefold() == 'available'):
-        return 'Search In Progress'
-    return existing
+    from tracker_sync import mapped_status as capture_status
+    return capture_status(row, existing)
 
 
 def full_title(row):
@@ -160,7 +156,11 @@ def merge_trackers(preview, previous, tracker_rows):
             row = output[group][index]
             before = dict(row)
             old_raw = prior.get(key)
-            if old_raw is None or any(text(raw.get(c)).casefold() != text(old_raw.get(c)).casefold() for c in DRIVING):
+            from sla_status import queue_rule
+            from tracker_sync import driving
+            if timestamp(row.get('Out Time')):
+                row['Status'] = 'Completed and Delivered'
+            elif queue_rule(raw)[1] or old_raw is None or driving(raw) != driving(old_raw):
                 row['Status'] = mapped_status(raw, row.get('Status', ''))
             for name in ('ETA', 'Comments', 'Assignee', 'SLA Expiration'):
                 value = field(raw, name)
