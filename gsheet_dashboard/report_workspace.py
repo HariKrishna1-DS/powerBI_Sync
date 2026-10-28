@@ -32,17 +32,17 @@ class ReportWorkspace:
         initialize_history(self)
         settings = self.read()
         imported = settings.get('imported') or {}
-        if imported.get('sources') and imported.get('order_identity') != 'workbook':
+        if imported.get('sources') and imported.get('order_identity') != 'occurrence':
             from import_identity import upgrade_workbook_orders
             from tracker_sync import sync_lock
             from workspace_backup import save_safety_backup
             with sync_lock(store.root), self.lock:
                 latest = self.read()
-                if latest.get('imported', {}).get('order_identity') != 'workbook':
+                if latest.get('imported', {}).get('order_identity') != 'occurrence':
                     updated = upgrade_workbook_orders(latest['imported'])
                     save_safety_backup(store, 'before-update')
                     self.save(imported=updated, files=updated['files'], row_count=len(updated['rows']),
-                              cloud_baseline=None, cloud_reset=True, cloud_refresh_error=None,
+                              cloud_baseline=None, cloud_reset=True, cloud_refresh_error=None, other_tab_status_baseline=None,
                               **({'publication_state': 'pending'} if latest['mode'] == 'excel' else {}))
         from production_timing import completion_from_out_time
         settings = self.read()
@@ -89,7 +89,7 @@ class ReportWorkspace:
         public['row_diagnostics_available'] = bool(value.get('files')) and all(
             'rows_seen' in file for file in value.get('files', []))
         imported = value.get('imported') or {}
-        diagnostics = (imported if imported.get('diagnostics_version') == 4 else
+        diagnostics = (imported if imported.get('diagnostics_version') == 5 else
                        combine_sources(import_sources(imported))) if imported else {}
         repeated = diagnostics.get('duplicate_orders', [])
         public['duplicate_orders'] = [row for row in repeated if row['Occurrence type'] == 'Within workbook']
@@ -221,7 +221,8 @@ def read_report_files(uploads):
                     if key(row) in saved:
                         count['duplicates'] += 1
                     row['_source_row'] = source_row
-                    saved[key(row)] = row  # Last file / worksheet wins, explicitly reported.
+                    row['_source_sheet'] = title
+                    saved[key(row)] = row  # Used only to detect an empty import.
                     file_rows.append(row)
                     count['rows'] += 1
                 counts.append(count)
@@ -308,6 +309,15 @@ def imported_snapshot(imported):
             'revision': hashlib.sha256(json.dumps(imported, sort_keys=True).encode()).hexdigest()}
 
 
+def capacity_snapshot(settings, snapshot=None):
+    """Capacity always reads the saved Excel import, independently of queue mode."""
+    if settings.get('imported') is not None:
+        return imported_snapshot(settings['imported'])
+    if snapshot is not None and snapshot.get('mode') == 'excel':
+        return snapshot
+    return imported_snapshot({'rows': [], 'columns': [], 'files': [], 'created': ''})
+
+
 def current_capacity_month():
     return datetime.now(timezone(timedelta(hours=5, minutes=30))).strftime('%Y-%m')
 
@@ -316,8 +326,8 @@ def capacity_report(reports, settings):
     from capacity_calculations import capacity_days, capacity_total, COUNTS
     daily_capacity = settings.get('capacity', 700)
     extended = settings.get('extended_capacity', 750)
-    use_report_date = settings.get('mode') == 'excel'
-    activity, missing_dates = capacity_days(reports, use_report_date=use_report_date)
+    out_time_only = settings.get('mode') == 'excel'
+    activity, missing_dates = capacity_days(reports, out_time_only=out_time_only)
     days = [dict(row, Capacity=daily_capacity, **{'Ext capacity': extended}) for row in activity]
     # A Daily Orders selection must not move the live capacity table back to an
     # earlier month. Only an explicitly requested monthly export overrides IST.
@@ -334,7 +344,7 @@ def capacity_report(reports, settings):
             'month': month, 'scope_label': datetime.strptime(month, '%Y-%m').strftime('%B %Y'),
             'capacity': daily_capacity, 'extended_capacity': extended,
             'missing_completion_date_count': missing_dates,
-            'completion_date_basis': 'report_date' if use_report_date else 'completion_time'}
+            'completion_date_basis': 'out_time' if out_time_only else 'completion_time'}
 
 
 def report_frames(snapshot, settings):
@@ -374,7 +384,7 @@ def report_frames(snapshot, settings):
         from sla_import_manual import decorate
         sla_snapshot = decorate(sla_snapshot, settings)
     frames['SLA Status'] = sheet_summary_values(build_sla_status(sla_snapshot))
-    capacity = capacity_report(reports, dict(settings, mode=settings.get('mode', snapshot.get('mode', 'tracker'))))
+    capacity = capacity_report(capacity_snapshot(settings, snapshot)['reports'], dict(settings, mode='excel'))
     monthly = capacity['monthly']
     year = capacity['month'][:4]
     from capacity_calculations import capacity_total
@@ -910,16 +920,18 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
 
     @app.get('/api/capacity-report')
     def get_capacity_report():
-        snapshot = load_snapshot()
-        return jsonify(**capacity_report(snapshot['reports'], workspace.read()),
-                       source=snapshot.get('source'), offline=snapshot.get('offline', False))
+        settings = workspace.read()
+        snapshot = capacity_snapshot(settings)
+        return jsonify(**capacity_report(snapshot['reports'], dict(settings, mode='excel')),
+                       mode='excel', source=snapshot['source'], offline=False,
+                       import_required=not bool(settings.get('imported')), updated_at=snapshot.get('updated_at'))
 
     @app.get('/api/report-order-search')
     def search_report_orders():
         query = request.args.get('search', '').strip().casefold()[:200]
         if not query:
             return jsonify(rows=[], columns=[], total=0)
-        snapshot = load_snapshot()
+        snapshot = capacity_snapshot(workspace.read()) if request.args.get('scope') == 'capacity' else load_snapshot()
         overview = snapshot['sheets']['Overview']
         rows = overview['rows']
         exact = [row for row in rows if str(row.get('Order Number', '')).strip().casefold() == query]
@@ -933,6 +945,10 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
         from order_details import recorded_changes
         date = request.args.get('date', '')
         month = request.args.get('month', '')
+        year = request.args.get('year', '')
+        aggregate = request.args.get('aggregate') == 'true'
+        if year and (not re.fullmatch(r'\d{4}', year) or not 1 <= int(year) <= 9999 or month or date):
+            return jsonify(error='Choose a valid capacity report year.'), 400
         if month:
             try:
                 if not re.fullmatch(r'\d{4}-\d{2}', month):
@@ -940,24 +956,30 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
                 datetime.strptime(month, '%Y-%m')
             except ValueError:
                 return jsonify(error='Choose a valid capacity report month.'), 400
-        if (not date and not month) or (date and not re.fullmatch(r'\d{4}-\d{2}-\d{2}', date)):
+        if (not date and not month and not year) or (date and not re.fullmatch(r'\d{4}-\d{2}-\d{2}', date)):
             return jsonify(error='Choose a capacity report date.'), 400
         if date and month and not date.startswith(month + '-'):
             return jsonify(error='Choose a date within the selected month.'), 400
-        snapshot = load_snapshot()
-        settings = workspace.read()
-        mode = settings['mode']
+        settings = dict(workspace.read(), mode='excel')
+        snapshot = capacity_snapshot(settings)
+        mode = 'excel'
         month_report = capacity_report(snapshot['reports'], dict(settings, capacity_month=month)) if month else None
-        if month_report and not date:
+        if month_report and not date and not aggregate:
             date = next((row['Date'] for row in month_report['daily']), '')
         month_fields = {'month': month, 'month_label': month_report['scope_label'],
                         'daily': month_report['daily'], 'capacity_columns': month_report['columns']} if month_report else {}
-        if not date:
+        if not date and not aggregate and not year:
             return jsonify(date='', columns=[], groups=[], raw_received=0, rollover_received=0,
                            **month_fields, mode=mode, source=snapshot.get('source'), offline=snapshot.get('offline', False))
-        changes = recorded_changes(workspace, mode, date)
+        if not date:
+            from capacity_calculations import capacity_days
+            period_dates = [day['Date'] for day in capacity_days(snapshot['reports'], out_time_only=mode == 'excel')[0]
+                            if day['Date'].startswith(month or year)]
+            changes = [change for day in period_dates for change in recorded_changes(workspace, mode, day)]
+        else:
+            changes = recorded_changes(workspace, mode, date)
         try:
-            details = capacity_details(snapshot['reports'], date, use_report_date=mode == 'excel')
+            details = capacity_details(snapshot['reports'], date, month=month, year=year, out_time_only=mode == 'excel')
         except ValueError as exc:
             if not changes:
                 return jsonify(error=str(exc)), 404
@@ -992,11 +1014,14 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
     def get_order_details():
         from order_details import editor_details
         settings = workspace.read()
+        is_capacity = request.args.get('context') == 'capacity'
+        if is_capacity:
+            settings = dict(settings, mode='excel')
         if request.args.get('mode') != settings['mode']:
             return jsonify(error='The report source changed. Reopen the date before editing.'), 409
         try:
-            return jsonify(editor_details(load_snapshot(), settings,
-                           request.args.get('order', ''), request.args.get('month', ''), request.args.get('source_workbook', '')))
+            return jsonify(editor_details(capacity_snapshot(settings) if is_capacity else load_snapshot(), settings,
+                           request.args.get('order', ''), request.args.get('month', ''), request.args.get('source_workbook', ''), request.args.get('record_key', '')))
         except ValueError as exc:
             return jsonify(error=str(exc)), 409
 
@@ -1013,14 +1038,15 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
         try:
             with sync_lock(workspace.store.root), workspace.lock:
                 settings = workspace.read()
-                if body.get('mode') != settings['mode']:
+                mode = 'excel' if body.get('context') == 'capacity' else settings['mode']
+                if body.get('mode') != mode:
                     return jsonify(error='The report source changed. Reopen the order before saving.'), 409
                 book = None
-                if settings['mode'] == 'excel':
-                    if settings.get('cloud_baseline') and not settings.get('cloud_reset'):
+                if mode == 'excel':
+                    if settings['mode'] == 'excel' and settings.get('cloud_baseline') and not settings.get('cloud_reset'):
                         book, _ = get_book()
                         sync_imported_tabs(workspace, book, settings)
-                    snapshot = imported_snapshot(workspace.read()['imported'])
+                    snapshot = capacity_snapshot(workspace.read())
                 else:
                     from status_updates import sync_tracker_status_tabs
                     book, _ = get_book()
@@ -1181,7 +1207,7 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
             number = request.args.get('order_number', '').strip()
             if not number:
                 raise ValueError('Enter an Order Number to look up.')
-            row = find_order(report, number, source) if report['report_scope'] == 'imported_date' else find_order(report, number)
+            row = find_order(report, number, source, request.args.get('record_key', '')) if report['report_scope'] == 'imported_date' else find_order(report, number)
             return jsonify(exists=row is not None, row=row,
                            source_workbook=row.get('Source workbook', '') if row else source or 'Manual SLA orders',
                            fields=editable_fields(row) if row else {},
@@ -1317,9 +1343,12 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
             return send_file(excel_report(report), as_attachment=True,
                 download_name=f'TV_Status_{report.get("preview_name") + "_" if report.get("preview_name") else ""}{report.get("report_date") or report["as_of"]}.xlsx',
                 mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-        snapshot = load_snapshot()
         settings = workspace.read()
-        if settings['mode'] == 'tracker':
+        capacity_export = request.args.get('sheet') in ('PR Excel', 'Capacity Report')
+        snapshot = capacity_snapshot(settings) if capacity_export else load_snapshot()
+        if capacity_export:
+            settings = dict(settings, mode='excel')
+        elif settings['mode'] == 'tracker':
             from sla_status import preview_snapshot
             snapshot = dict(snapshot, sla_snapshot=preview_snapshot(workspace.store, settings, production=snapshot))
         month = request.args.get('month')
@@ -1327,9 +1356,10 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
             if not re.fullmatch(r'\d{4}-(0[1-9]|1[0-2])', month):
                 raise ValueError('Choose a month in YYYY-MM format.')
             selected = next((r for r in snapshot['reports']['daily'] if r['Date'].startswith(month)), None)
-            if not selected:
+            capacity_dates = capacity_report(snapshot['reports'], dict(settings, mode='excel', capacity_month=month))['daily'] if capacity_export else []
+            if not selected and not capacity_dates:
                 raise ValueError('No orders are available for that month.')
-            settings = dict(settings, selected_date=selected['Date'], capacity_month=month)
+            settings = dict(settings, selected_date=selected['Date'] if selected else '', capacity_month=month)
         frames, capacity = report_frames(snapshot, settings)
         requested_sheet = request.args.get('sheet')
         aliases = {'Daily Orders': 'Daily Status Report', 'Capacity Report': 'PR Excel'}

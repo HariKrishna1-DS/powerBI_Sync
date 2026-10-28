@@ -176,7 +176,7 @@ class PdfReportWorkspaceTests(unittest.TestCase):
             ReportWorkspace(store).save(mode='excel',imported=imported,files=imported['files'],
                                         row_count=len(imported['rows']))
             public=ReportWorkspace(store).public()
-        self.assertEqual((public['input_row_count'],public['row_count'],public['duplicate_row_count']),(5,4,1))
+        self.assertEqual((public['input_row_count'],public['row_count'],public['duplicate_row_count']),(5,5,1))
         self.assertEqual(public['source_overlap_count'],1)
         self.assertEqual(public['repeated_source_row_count'],1)
         self.assertEqual(len(public['duplicate_orders']),1)

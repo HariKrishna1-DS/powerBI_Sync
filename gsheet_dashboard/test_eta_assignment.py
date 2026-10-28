@@ -40,20 +40,20 @@ class EtaAssignmentTests(unittest.TestCase):
         cases = [
             ('Update from Abstract.', 'Assign to ABS'),
             ('ABSTRACT is working on the order.', 'Assign to ABS'),
-            (screenshot.format('10/21'), 'Need to Assign ABS'),
+            (screenshot.format('10/21'), 'Assign to ABS'),
             (screenshot.format('10/22'), 'Assign to ABS'),
             (screenshot.format('10/23'), 'Assign to ABS'),
             (screenshot.format('10/20'), 'Assign to ABS'),
             ('Received on 10/21; fee approved 10/21; ETA 10/22 EOD or sooner.', 'Assign to ABS'),
-            ('ETA 10/21 sooner.', 'Need to Assign ABS'),
-            ('ETA 10/21 or SOONER.', 'Need to Assign ABS'),
-            ('ETA 10/21/2026\nEoD\nor sooner.', 'Need to Assign ABS'),
-            ('ETA 10/21/26 EOD.', 'Need to Assign ABS'),
-            ('ETA 2026-10-21 EOD.', 'Need to Assign ABS'),
+            ('ETA 10/21 sooner.', 'Assign to ABS'),
+            ('ETA 10/21 or SOONER.', 'Assign to ABS'),
+            ('ETA 10/21/2026\nEoD\nor sooner.', 'Assign to ABS'),
+            ('ETA 10/21/26 EOD.', 'Assign to ABS'),
+            ('ETA 2026-10-21 EOD.', 'Assign to ABS'),
             ('ETA 10/21/2025 EOD.', 'Assign to ABS'),
-            ('As per the abstractor, ETA 10/21 EOD or sooner.', 'Need to Assign ABS'),
+            ('As per the abstractor, ETA 10/21 EOD or sooner.', 'Assign to ABS'),
             ('ETA was 10/21 EOD; updated ETA 10/22 EOD.', 'Assign to ABS'),
-            ('ETA was 10/22 EOD; updated ETA 10/21 EOD.', 'Need to Assign ABS'),
+            ('ETA was 10/22 EOD; updated ETA 10/21 EOD.', 'Assign to ABS'),
             ('Received 10/21; ETA EOD or sooner.', 'Assign to ABS'),
             ('Will finish sooner.', 'Assign to ABS'),
             ('ETA EOD.', 'Assign to ABS'),
@@ -67,15 +67,15 @@ class EtaAssignmentTests(unittest.TestCase):
         for comment in ('abstractorElse', 'nonabstractors', 'abstraction', 'EODish', 'soonerish'):
             self.assertEqual(queue_rule({'ETA Comments': comment}, today)[1], '')
         self.assertEqual(queue_rule({'Comment': 'Abstract; ETA 10/21 EOD or sooner'}, today)[1], '')
-        self.assertIn('2026-10-21 matches today 2026-10-21',
+        self.assertIn('ETA Comments contains EOD',
                       queue_rule({'ETA Comments': screenshot.format('10/21')}, today)[2])
 
-    def test_eta_date_uses_india_today_and_keeps_specific_rules(self):
+    def test_eta_assignment_is_independent_of_report_day_and_keeps_specific_rules(self):
         fields = {'ETA Comments': 'ETA 10/21 EOD or sooner.'}
-        self.assertEqual(queue_rule(fields, datetime(2026, 10, 20, 20, tzinfo=timezone.utc))[1], 'Need to Assign ABS')
+        self.assertEqual(queue_rule(fields, datetime(2026, 10, 20, 20, tzinfo=timezone.utc))[1], 'Assign to ABS')
         self.assertEqual(queue_rule(fields, datetime(2026, 10, 21, 19, tzinfo=timezone.utc))[1], 'Assign to ABS')
-        self.assertEqual(queue_rule(fields, date(2026, 10, 21))[1], 'Need to Assign ABS')
-        self.assertEqual(queue_rule({'ETA Comments': 'ETA 02/29 EOD'}, date(2028, 2, 29))[1], 'Need to Assign ABS')
+        self.assertEqual(queue_rule(fields, date(2026, 10, 21))[1], 'Assign to ABS')
+        self.assertEqual(queue_rule({'ETA Comments': 'ETA 02/29 EOD'}, date(2028, 2, 29))[1], 'Assign to ABS')
         self.assertEqual(queue_rule({'ETA Comments': 'ETA 12/31 EOD'}, date(2027, 1, 1))[1], 'Assign to ABS')
         cases = [({'Out Time': '10/21/2026 09:15 AM'}, 'Completed and Delivered'),
                  ({'TaskName': 'CRSP2'}, 'SearchFix'),
@@ -83,7 +83,7 @@ class EtaAssignmentTests(unittest.TestCase):
                  ({'Product': 'Attorney Approval'}, 'Attorney Approval'),
                  ({'Product': 'Home Builders'}, 'Home Builder'),
                  ({'ETA Comments': 'ON HOLD; ETA 10/21 EOD'}, 'Waiting for Effective Date'),
-                 ({'ETA Comments': 'We apologize; ETA 10/22 EOD'}, 'Need to Assign ABS')]
+                 ({'ETA Comments': 'We apologize; ETA 10/22 EOD'}, 'Assign to ABS')]
         for changed, expected in cases:
             with self.subTest(changed=changed):
                 self.assertEqual(queue_rule(dict(fields, **changed), date(2026, 10, 21))[1], expected)
@@ -102,8 +102,8 @@ class EtaAssignmentTests(unittest.TestCase):
             snapshot = preview_snapshot(self.store, settings, as_of=today)
             report = build_sla_status(snapshot, today)
             statuses = {row['Order Number'].strip().casefold(): row['Status'] for row in report['rows']}
-            self.assertEqual(statuses, {'same': 'Need to Assign ABS', 'manual': 'QC in Progress',
-                'tomorrow': 'Need to Assign ABS' if today.day == 22 else 'Assign to ABS'})
+            self.assertEqual(statuses, {'same': 'Assign to ABS', 'manual': 'QC in Progress',
+                'tomorrow': 'Assign to ABS'})
             self.assertEqual(report['totals']['Grand Total'], 3)
         self.assertEqual(self.store.history(), before)
 
@@ -117,13 +117,13 @@ class EtaAssignmentTests(unittest.TestCase):
         before = deepcopy(self.store.history())
         with patch('sla_status.queue_rule', side_effect=lambda row, as_of=None: queue_rule(row, today)):
             report = self.client.get('/api/sla-status?preview_id=1').json
-            expected = {'today': 'Need to Assign ABS', 'future': 'Assign to ABS', 'plain': 'Assign to ABS'}
+            expected = {'today': 'Assign to ABS', 'future': 'Assign to ABS', 'plain': 'Assign to ABS'}
             self.assertEqual({row['Order Number']: row['Status'] for row in report['rows']}, expected)
             self.assertEqual({row['Status']: row['Grand Total'] for row in report['summary']},
-                             {'Assign to ABS': 2, 'Need to Assign ABS': 1})
+                             {'Assign to ABS': 3})
             book = load_workbook(BytesIO(self.client.get('/api/export/report?sheet=SLA%20Status&preview_id=1').data))
             self.assertEqual({row[0]: row[11] for row in book['Sheet1'].iter_rows(min_row=2, values_only=True)}, expected)
-            edited = self.client.post('/api/order-status', json={'preview_id': 1, 'status': 'Need to Assign ABS',
+            edited = self.client.post('/api/order-status', json={'preview_id': 1, 'status': 'Assign to ABS',
                 'replacement': 'QC in Progress', 'order_numbers': ['today'], 'edit_scope': 'orders'})
             self.assertEqual(edited.status_code, 200, edited.json)
             self.assertTrue(edited.json['publication']['synced'])

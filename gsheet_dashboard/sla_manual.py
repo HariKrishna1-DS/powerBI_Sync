@@ -56,6 +56,14 @@ def find_order(report, number):
                  if number_key(row) == identity), None)
 
 
+def checked_preview_status(value):
+    from sla_status import completion_status
+    name = checked_status(value)
+    if completion_status(name):
+        raise ValueError('Completed and Delivered is not used in extracted SLA Status. Choose the active queue status.')
+    return name
+
+
 def custom_statuses(settings, preview_id):
     """Older workspaces shared status names; edits now belong to one preview."""
     return list((settings.get('sla_preview_custom_statuses') or {}).get(
@@ -69,7 +77,7 @@ def custom_status_changes(settings, preview_id, statuses):
 
 
 def save_status(workspace, report, name, previous=None):
-    name = checked_status(name)
+    name = checked_preview_status(name)
     known = [row['Status'] for row in report['summary']]
     name = next((status for status in known if status.casefold() == name.casefold()), name)
     with workspace.lock:
@@ -104,7 +112,7 @@ def delete_status(workspace, report, body):
         raise ValueError('Orders in this status changed. Reopen the delete dialog and try again.')
     replacement = None
     if matching:
-        replacement = checked_status(body.get('replacement'))
+        replacement = checked_preview_status(body.get('replacement'))
         known = [row['Status'] for row in report['summary']] + statuses + list(STATUS_NAMES.values())
         replacement = next((status for status in known if status.casefold() == replacement.casefold()), '')
         if not replacement or replacement.casefold() == name.casefold():
@@ -123,13 +131,13 @@ def delete_status(workspace, report, body):
 
 def save_order(workspace, report, body):
     from import_identity import number_key
-    from sla_status import local_time
+    from monthly_production import local_datetime as local_time
     number = body.get('order_number')
     if not isinstance(number, str) or not number.strip() or len(number) > 1000:
         raise ValueError('Enter an Order Number (up to 1,000 characters).')
     number = number.strip()
     identity = number_key({'Order Number': number})
-    status = checked_status(body.get('status'))
+    status = checked_preview_status(body.get('status'))
     status = next((row['Status'] for row in report['summary']
                    if row['Status'].casefold() == status.casefold()), status)
     fields = body.get('fields')

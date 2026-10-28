@@ -3,7 +3,7 @@ import {Search,LoaderCircle,X} from 'lucide-react';
 import {api,str} from './workspaceUtils';
 import {DataTable} from './WorkspaceViews';
 
-export default function ReportOrderSearch({name,rows,columns=[],revision,disabled=false}) {
+export default function ReportOrderSearch({name,rows,columns=[],revision,disabled=false,scope=''}) {
   const [search,setSearch]=useState(''),[result,setResult]=useState(null),[loading,setLoading]=useState(false),[error,setError]=useState('');
   const query=search.trim().toLowerCase();
   useEffect(()=>{
@@ -11,12 +11,12 @@ export default function ReportOrderSearch({name,rows,columns=[],revision,disable
     const controller=new AbortController();
     setLoading(true);setResult(null);setError('');
     const timer=setTimeout(()=>{
-      api(`/api/report-order-search?${new URLSearchParams({search:query})}`,{signal:controller.signal})
+      api(`/api/report-order-search?${new URLSearchParams({search:query,...(scope?{scope}:{})})}`,{signal:controller.signal})
         .then(setResult).catch(error=>{if(error.name!=='AbortError')setError(error.message);})
         .finally(()=>{if(!controller.signal.aborted)setLoading(false);});
     },250);
     return()=>{clearTimeout(timer);controller.abort();};
-  },[query,rows,revision]);
+  },[query,rows,revision,scope]);
   const matches=useMemo(()=>{
     if(!rows||!query)return result?.rows||[];
     const exact=rows.filter(row=>str(row['Order Number']).trim().toLowerCase()===query);

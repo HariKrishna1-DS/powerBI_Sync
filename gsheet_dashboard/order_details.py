@@ -7,7 +7,7 @@ import json
 import re
 import secrets
 
-READ_ONLY = {'No', 'Order Number', 'Free Site', 'SLA Category', 'Workload source', 'Source workbook'}
+READ_ONLY = {'No', 'Order Number', 'Free Site', 'SLA Category', 'Workload source', 'Source workbook', 'Source row ID'}
 DATE_FIELDS = {'Date', 'Order Date', 'In-Time', 'Out Time', 'Completed Time'}
 
 
@@ -15,7 +15,7 @@ def public_row(row):
     return {column: value for column, value in row.items() if not column.startswith('_') and column != 'No'}
 
 
-def find_order(snapshot, number, month='', source_workbook=''):
+def find_order(snapshot, number, month='', source_workbook='', record_key=''):
     from tracker_sync import key
     rows = list(snapshot['sheets']['Overview']['rows'])
     # Daily capacity also includes archived rows omitted from the current Orders view.
@@ -25,6 +25,7 @@ def find_order(snapshot, number, month='', source_workbook=''):
     for row in rows:
         if (str(row.get('Order Number', '')).strip().casefold() == number.strip().casefold()
                 and (not month or row.get('_month', '') == month)
+                and (not record_key or key(row) == record_key)
                 and (not source_workbook or str(row.get('Source workbook', '')).casefold() == source_workbook.casefold())):
             matches.setdefault((key(row), row.get('_sheet', ''), row.get('_month', '')), row)
     if len(matches) != 1:
@@ -37,11 +38,13 @@ def order_version(row, mode):
     return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
 
 
-def editor_details(snapshot, settings, number, month='', source_workbook=''):
-    row = find_order(snapshot, number, month, source_workbook)
+def editor_details(snapshot, settings, number, month='', source_workbook='', record_key=''):
+    from tracker_sync import key
+    row = find_order(snapshot, number, month, source_workbook, record_key)
     columns = list(dict.fromkeys((snapshot['sheets']['Overview']['columns'] if settings['mode'] == 'excel' else []) + list(row)))
     return {'order': public_row(row), 'month': row.get('_month', ''), 'mode': settings['mode'],
             'source_workbook': row.get('Source workbook', ''),
+            'record_key': key(row),
             'version': order_version(row, settings['mode']),
             'editable_columns': [column for column in columns if column not in READ_ONLY and not column.startswith('_')]}
 
@@ -91,12 +94,13 @@ def save_order(workspace, book, snapshot, body):
     from tracker_sync import key
     from workspace_backup import save_safety_backup
     settings = workspace.read()
-    if body.get('mode') != settings['mode']:
+    mode = 'excel' if body.get('context') == 'capacity' else settings['mode']
+    if body.get('mode') != mode:
         raise ValueError('The report source changed. Reopen the order before saving.')
-    details = editor_details(snapshot, settings, body.get('order_number', ''), body.get('month', ''), body.get('source_workbook', ''))
+    details = editor_details(snapshot, dict(settings, mode=mode), body.get('order_number', ''), body.get('month', ''), body.get('source_workbook', ''), body.get('record_key', ''))
     if body.get('version') != details['version']:
         raise ValueError('This order changed since you opened it. Reopen the editor to review the latest values.')
-    before = find_order(snapshot, body['order_number'], body.get('month', ''), body.get('source_workbook', ''))
+    before = find_order(snapshot, body['order_number'], body.get('month', ''), body.get('source_workbook', ''), body.get('record_key', ''))
     changes = validated_changes(body, details['editable_columns'])
     changes = {column: value for column, value in changes.items() if not equivalent(column, before.get(column, ''), value)}
     if not changes:
@@ -120,7 +124,7 @@ def save_order(workspace, book, snapshot, body):
         raise ValueError('A valid Out Time keeps this order Completed and Delivered. Clear Out Time before reopening it.')
     after['Free Site'] = sla_result(after)[0]
     backup = save_safety_backup(workspace.store, 'before-update')
-    if settings['mode'] == 'excel':
+    if mode == 'excel':
         imported = deepcopy(settings['imported'])
         row = next(row for row in imported['rows'] if key(row) == key(before))
         row.update(changes)
@@ -136,7 +140,7 @@ def save_order(workspace, book, snapshot, body):
         baseline.setdefault(source, {})[key(before)] = after.get('Status', '')
         settings['tracker_status_baseline'] = baseline
     settings['data_revision'] = secrets.token_hex(12)
-    persist_edit(workspace, settings, edit_events(before, after, changes, settings['mode'], report_date, source))
+    persist_edit(workspace, settings, edit_events(before, after, changes, mode, report_date, source))
     return {'updated': 1, 'order_number': before['Order Number'], 'recovery_backup': backup.name}
 
 

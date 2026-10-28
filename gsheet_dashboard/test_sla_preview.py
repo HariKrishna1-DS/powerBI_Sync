@@ -44,6 +44,52 @@ class SlaPreviewTests(unittest.TestCase):
                          self.load, self.get_book, lambda: None)
         self.client = self.app.test_client()
 
+    def test_capture_rows_reconcile_to_unique_orders_with_repeat_details(self):
+        rows = [
+            {'Order Number': ' A ', 'Product': 'Document', 'Task Status': 'Available', 'SLA Expiration*': '2h'},
+            {'Order Number': 'a', 'Product': 'Full Title', 'Task Status': 'Workflow Suspended', 'SLA Expiration*': '2h'},
+            {'Order Number': 'B', 'Task Name': 'Search', 'Task Status': 'Available', 'SLA Expiration*': '1d'},
+            {'Order Number': 'b ', 'Task Name': 'SearchFix', 'Task Status': 'Available', 'SLA Expiration*': '1d'},
+            {'Order Number': ' ', 'Task Status': 'Available', 'SLA Expiration*': '1d'},
+        ]
+        self.store.restore(3, list(dict.fromkeys(column for row in rows for column in row)), rows,
+                           created='2026-10-16T04:00:00Z')
+        before = deepcopy(self.store.get(3))
+        report = self.client.get('/api/sla-status?preview_id=3').json
+        self.assertEqual(report['preview_row_count'], 5)
+        self.assertEqual(report['captured_order_count'], 2)
+        self.assertEqual(report['duplicate_row_count'], 2)
+        self.assertEqual(report['duplicate_order_count'], 2)
+        self.assertEqual(report['missing_order_number_count'], 1)
+        self.assertEqual(report['totals']['Grand Total'], 2)
+        self.assertEqual(len(report['duplicate_rows']), 4)
+        counted = [row for row in report['duplicate_rows'] if row['SLA selection'] == 'Counted once']
+        self.assertEqual([row['Capture row'] for row in counted], [2, 4])
+        groups = {group['order_number'].casefold(): group for group in report['duplicate_groups']}
+        self.assertEqual(groups['a']['status'], 'Awaiting for Clarification')
+        self.assertEqual(groups['a']['status_reason'], 'Workflow is suspended')
+        self.assertEqual(groups['a']['selected_capture_row'], 2)
+        self.assertIn('Highest-priority matching condition', groups['a']['selection_reason'])
+        self.assertEqual(groups['b']['status_reason'], 'Task Name is SearchFix')
+        self.assertTrue(all(row['Entry condition'] and row['Counted status'] for row in report['duplicate_rows']))
+        self.assertEqual({row['Status'] for row in report['rows']}, {'Awaiting for Clarification', 'SearchFix'})
+        self.assertEqual(self.store.get(3), before)
+
+    def test_repeat_conditions_explain_equal_priority_and_manual_override(self):
+        rows = [{'Order Number': 'A', 'Product': product, 'Task Status': 'Available', 'SLA Expiration*': '2h'}
+                for product in ('Document', 'Full Title')]
+        self.store.restore(3, list(rows[0]), rows, created='2026-10-16T04:00:00Z')
+        self.workspace.save(sla_preview_statuses={'3': {'a': 'QC in Progress'}})
+        report = self.client.get('/api/sla-status?preview_id=3').json
+        group = report['duplicate_groups'][0]
+        self.assertEqual(group['selected_capture_row'], 1)
+        self.assertIn('equal priority', group['selection_reason'])
+        self.assertEqual(group['status'], 'QC in Progress')
+        self.assertEqual(group['status_reason'], 'Manual status edit for this preview')
+        self.assertEqual(report['totals']['Grand Total'], 1)
+        self.assertTrue(all(row['Counted status'] == 'QC in Progress' and row['Entry status'] == 'Search In Progress'
+                            for row in report['duplicate_rows']))
+
     def test_selected_preview_does_not_add_orders_missing_since_its_predecessor(self):
         latest = self.client.get('/api/sla-status').json
         self.assertEqual(latest['preview_id'], 2)
@@ -51,12 +97,14 @@ class SlaPreviewTests(unittest.TestCase):
         self.assertEqual(latest['totals']['Grand Total'], 2)
         self.assertEqual(latest['excluded_count'], 1)
         self.assertEqual({r['Order Number'] for r in latest['rows']}, {'shared', 'new-only'})
+        self.assertEqual(next(r['Status'] for r in latest['rows'] if r['Order Number'] == 'shared'),
+                         'Search In Progress')
         earlier = self.client.get('/api/sla-status?preview_id=1').json
         self.assertEqual({r['Status'] for r in earlier['summary']}, {'Cancelled', 'Assign to ABS'})
         self.assertEqual([p['id'] for p in earlier['previews']], [2, 1])
         self.assertEqual(earlier['summary_columns'], ['Status', 'Future SLA', 'Negative SLA', 'Today SLA', 'Grand Total'])
         self.load.assert_not_called()
-        self.get_book.assert_not_called()
+        self.get_book.assert_called_once_with()
 
     def test_download_contains_only_the_requested_preview_and_reconciles(self):
         response = self.client.get('/api/export/report?sheet=SLA%20Status&preview_id=1')
@@ -116,7 +164,7 @@ class SlaPreviewTests(unittest.TestCase):
         older = self.client.get('/api/sla-status?preview_id=1').json
         latest = self.client.get('/api/sla-status?preview_id=2').json
         self.assertEqual(next(r['Status'] for r in older['rows'] if r['Order Number']=='shared'), 'Assign to ABS')
-        self.assertEqual(next(r['Status'] for r in latest['rows'] if r['Order Number']=='shared'), 'Completed and Delivered')
+        self.assertEqual(next(r['Status'] for r in latest['rows'] if r['Order Number']=='shared'), 'Search In Progress')
         self.assertEqual(self.store.history(), before)
         self.assertEqual(self.workspace.read()['imported'], self.imported)
 

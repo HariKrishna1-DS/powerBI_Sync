@@ -33,7 +33,7 @@ export default function SlaOrderEditor({report,entry,onClose,onSaved}){
     if(!value.trim())return;
     const id=++requestId.current;setBusy(true);setError('');setLookup(null);
     try{
-      const scope=imported?{mode:'excel',date:report.report_date,source_workbook:source}:{preview_id:report.preview_id};
+      const scope=imported?{mode:'excel',date:report.report_date,source_workbook:source,record_key:editing?entry.row?._record_key||'':''}:{preview_id:report.preview_id};
       const result=await api(`/api/sla-order?${new URLSearchParams({...scope,order_number:value.trim()})}`);
       if(id!==requestId.current)return;
       setLookup({...result,number:value.trim()});
@@ -46,7 +46,7 @@ export default function SlaOrderEditor({report,entry,onClose,onSaved}){
   async function save(event){
     event.preventDefault();if(saving||!checked)return;setSaving(true);setError('');
     try{
-      const scope=imported?{mode:'excel',report_date:report.report_date,source_workbook:lookup.source_workbook||source}:{preview_id:report.preview_id};
+      const scope=imported?{mode:'excel',report_date:report.report_date,source_workbook:lookup.source_workbook||source,record_key:lookup.row?._record_key||''}:{preview_id:report.preview_id};
       const result=await api('/api/sla-order',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({...scope,order_number:number.trim(),status,fields,expected_revision:lookup.revision}),timeoutMs:180000});
       await onSaved(result);
     }catch(error){setError(error.message);}finally{setSaving(false);}
@@ -62,9 +62,9 @@ export default function SlaOrderEditor({report,entry,onClose,onSaved}){
       <div className="sla-order-lookup"><label>Order Number<input aria-label="SLA Order Number" value={number} readOnly={editing} disabled={saving} required maxLength={1000} onChange={event=>{requestId.current++;setBusy(false);setNumber(event.target.value);setLookup(null);setError('');}} onKeyDown={event=>{if(event.key==='Enter'){event.preventDefault();if(!busy&&!saving)check();}}} autoFocus={!editing}/></label><button type="button" className="secondary" onClick={()=>check()} disabled={!number.trim()||busy||saving}><Search size={16}/>{busy?'Looking up…':'Look up order'}</button></div>
       {checked&&<p className="notice success" role="status">{lookup.exists?`Order found${lookup.row?.['Queue Presence']==='Manual addition'?' in manual additions':` in ${imported?lookup.row?.['Source workbook']||contextLabel:report.preview_name}`}. Its details are loaded.${lookup.row?.Status&&lookup.row.Status!==status?` Saving moves it from ${lookup.row.Status} to ${status}.`:''}`:'New order. Enter its details and SLA expiration to add it.'}</p>}
       <label className="sla-target-status">Status<input aria-label="SLA order status" value={status} list="sla-order-statuses" required maxLength={1000} disabled={saving} onChange={event=>setStatus(event.target.value)}/></label>
-      <datalist id="sla-order-statuses">{[...new Set([...report.summary.map(row=>row.Status),'Typing in Progress','Completed and Delivered'])].map(name=><option key={name} value={name}/>)}</datalist>
+      <datalist id="sla-order-statuses">{[...new Set([...report.summary.map(row=>row.Status),'Typing in Progress',...(imported?['Completed and Delivered']:[])])].filter(name=>imported||name!=='Completed and Delivered').map(name=><option key={name} value={name}/>)}</datalist>
       {checked&&lookup.exists&&lookup.row?.['Status Reason']&&<div className="sla-rule-result" role="region" aria-label="Current SLA result"><strong>Current status: {lookup.row.Status}</strong><p>{lookup.row['Status Reason']}</p></div>}
-      <fieldset disabled={!checked||saving||busy} className="sla-order-fields"><legend>Order details</legend><div className="form-grid">{editableNames.map(name=><label key={name} className={name==='Comment'||name==='ETA Comments'?'sla-comment-field':undefined}>{name}{name==='SLA Expiration'?<><input aria-label={name} type="datetime-local" required value={(fields[name]||'').replace(' ','T').slice(0,16)} onChange={event=>setFields({...fields,[name]:event.target.value})}/><small>India time · determines Future, Negative, or Today SLA.</small></>:name==='Comment'||name==='ETA Comments'?<FullComment name={name} value={fields[name]} onChange={event=>setFields({...fields,[name]:event.target.value})}/>:<input aria-label={name} value={fields[name]} maxLength={10000} onChange={event=>setFields({...fields,[name]:event.target.value})}/>}</label>)}</div></fieldset>
+      <fieldset disabled={!checked||saving||busy} className="sla-order-fields"><legend>Order details</legend><div className="form-grid">{editableNames.map(name=><label key={name} className={name==='Comment'||name==='ETA Comments'?'sla-comment-field':undefined}>{name}{name==='SLA Expiration'?<><input aria-label={name} type="datetime-local" required value={(fields[name]||'').replace(' ','T').slice(0,16)} onChange={event=>setFields({...fields,[name]:event.target.value})}/><small>Source time · compared with the report’s Arrival Time date.</small></>:name==='Comment'||name==='ETA Comments'?<FullComment name={name} value={fields[name]} onChange={event=>setFields({...fields,[name]:event.target.value})}/>:<input aria-label={name} value={fields[name]} maxLength={10000} onChange={event=>setFields({...fields,[name]:event.target.value})}/>}</label>)}</div></fieldset>
       {error&&<p className="notice warning" role="alert">{error}</p>}
       <div className="sla-order-footer inline"><button type="submit" className="primary" disabled={!checked||busy||saving||!status.trim()}>{saving?'Saving…':lookup?.exists?'Save order':'Add order'}</button><button type="button" className="secondary" disabled={saving} onClick={copyDetails}><Copy size={16}/>{copied?'Copied':'Copy details'}</button><button type="button" className="secondary" disabled={saving} onClick={onClose}>Cancel</button></div>
     </form>

@@ -5,6 +5,7 @@ const colors = ['#147d72', '#d79a32', '#596cc0', '#bb6179', '#4b9db4', '#849157'
 const str = value => value == null ? '' : String(value);
 const label = value => str(value) || '(Blank)';
 const normalized = value => str(value).trim().toLowerCase();
+export const orderStatus = row => normalized(row?.Status || row?.['Task Status']).replace(/\s+/g, ' ');
 export const orderKey = row => row?._record_key || str(row?.['Order Number']).trim();
 const badgeClass = value => normalized(value).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 import STATUS_COLORS from '../../status_colors.json';

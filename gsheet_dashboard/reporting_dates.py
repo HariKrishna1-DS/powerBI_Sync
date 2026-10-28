@@ -2,6 +2,20 @@
 from datetime import datetime
 
 
+def latest_arrival(rows):
+    """The portal's latest arrival is the queue report's calendar reference."""
+    from monthly_production import local_datetime
+    from sla_status import queue_field
+    arrivals = []
+    for row in rows:
+        for column in ('Arrival Time', 'RequestArrivalTime', 'In-Time', 'Arrival Date', 'Date'):
+            parsed = local_datetime(queue_field(row, column))
+            if parsed:
+                arrivals.append(parsed)
+                break
+    return max(arrivals) if arrivals else None
+
+
 def arrival_details(row):
     """Keep source arrival wall-clock values; never substitute capture time."""
     from monthly_production import local_datetime

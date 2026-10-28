@@ -1,10 +1,12 @@
 """Imported orders belong to a workbook; matching numbers in other files stay separate."""
+from collections import Counter, defaultdict
 from copy import deepcopy
 from datetime import datetime, timezone
 import json
 import re
 
 SOURCE_COLUMN = 'Source workbook'
+ROW_COLUMN = 'Source row ID'
 
 
 def number_key(row):
@@ -15,7 +17,12 @@ def number_key(row):
 def order_key(row):
     number = number_key(row)
     source = str(row.get(SOURCE_COLUMN) or '').strip().casefold()
-    return json.dumps([source, number], separators=(',', ':')) if source and number else number
+    if source and number:
+        parts = [source, number]
+        if row.get(ROW_COLUMN):
+            parts.append(str(row[ROW_COLUMN]).strip())
+        return json.dumps(parts, separators=(',', ':'))
+    return number
 
 
 def sourced_row(row, source):
@@ -37,8 +44,11 @@ def source_group(name, worksheet=''):
 
 def combine_sources(sources):
     saved, columns, files, reviews, repeats, overlaps = {}, [], [], [], [], []
-    first_owner = {}
-    for source in sources:
+    first_owner, normalized_sources = {}, []
+    for original_source in sources:
+        source = deepcopy(original_source)
+        frequencies = Counter(number_key(row) for row in source['rows'])
+        normalized_sources.append(source)
         columns = list(dict.fromkeys(columns + source['columns'] + [SOURCE_COLUMN]))
         reviews.extend(source.get('reviews', []))
         owners = {}
@@ -48,7 +58,12 @@ def combine_sources(sources):
         offset = 0
         for item in metadata:
             numbers = []
-            for original in source['rows'][offset:offset+item['rows']]:
+            for position, original in enumerate(source['rows'][offset:offset+item['rows']], offset+2):
+                if frequencies[number_key(original)] > 1:
+                    sheet = original.get('_source_sheet') or item.get('sheet') or 'Sheet'
+                    original[ROW_COLUMN] = f"{sheet}!{original.get('_source_row') or position}"
+                    columns = list(dict.fromkeys(columns + [ROW_COLUMN]))
+                    source['columns'] = list(dict.fromkeys(source['columns'] + [ROW_COLUMN]))
                 row = sourced_row(original, source['name'])
                 number = number_key(row)
                 if not number:
@@ -62,6 +77,7 @@ def combine_sources(sources):
                         'Earlier product': earlier.get('Product', ''),
                         'Earlier date': earlier.get('In-Time') or earlier.get('Date', ''),
                         'Earlier status': earlier.get('Status', ''),
+                        'Earlier Out Time': earlier.get('Out Time', ''),
                         'Replacement file': source['name'], 'Replacement worksheet': item.get('sheet', ''),
                         'Replacement row': row.get('_source_row', '')})
                 saved[order_key(row)] = row
@@ -69,8 +85,7 @@ def combine_sources(sources):
             files.append(dict(item, duplicates=len(numbers), within_file_duplicates=len(numbers),
                               shared_rows=0, duplicate_order_numbers=numbers))
             offset += item['rows']
-        # Compare retained workbook records so repeats within a file never inflate
-        # the informational across-workbook list or change the duplicate count.
+        # Keep across-workbook diagnostics informational; every source row remains.
         for number, (row, sheet) in owners.items():
             if number in first_owner:
                 earlier, earlier_sheet = first_owner[number]
@@ -80,6 +95,7 @@ def combine_sources(sources):
                     'Earlier product': earlier.get('Product', ''),
                     'Earlier date': earlier.get('Date') or earlier.get('In-Time', ''),
                     'Earlier status': earlier.get('Status', ''),
+                    'Earlier Out Time': earlier.get('Out Time', ''),
                     'Replacement file': source['name'], 'Replacement worksheet': sheet,
                     'Replacement row': row.get('_source_row', '')})
             else:
@@ -87,29 +103,50 @@ def combine_sources(sources):
     if len(saved) > 100000:
         raise ValueError('The combined report exceeds 100,000 order records.')
     return {'rows': list(saved.values()), 'columns': columns, 'files': files, 'reviews': reviews,
-            'sources': sources, 'duplicate_orders': repeats, 'source_overlap_orders': overlaps, 'diagnostics_version': 4,
-            'order_identity': 'workbook', 'created': datetime.now(timezone.utc).isoformat()}
+            'sources': normalized_sources, 'duplicate_orders': repeats, 'source_overlap_orders': overlaps, 'diagnostics_version': 5,
+            'order_identity': 'occurrence', 'created': datetime.now(timezone.utc).isoformat()}
 
 
 def upgrade_workbook_orders(imported):
-    """Recover each workbook copy and apply saved edits only to its previous owner."""
-    if imported.get('order_identity') == 'workbook' or not imported.get('sources'):
+    """Recover each source occurrence; apply saved edits only to its old winning row."""
+    if imported.get('order_identity') == 'occurrence' or not imported.get('sources'):
         return imported
     rebuilt = combine_sources(imported['sources'])
     owners = {number_key(row): source['name'] for source in imported['sources'] for row in source['rows']}
     retained = {order_key(row): row for row in rebuilt['rows']}
-    effective_numbers = {number_key(row) for row in imported['rows']}
-    for number in owners.keys() - effective_numbers:
-        retained.pop(order_key({'Order Number': number, SOURCE_COLUMN: owners[number]}), None)
+    def base_key(row):
+        return order_key({SOURCE_COLUMN: row.get(SOURCE_COLUMN), 'Order Number': row.get('Order Number')})
+    effective = {base_key(dict(row, **{SOURCE_COLUMN: row.get(SOURCE_COLUMN) or owners.get(number_key(row), '')}))
+                 for row in imported['rows']}
+    if imported.get('order_identity') == 'workbook':
+        retained = {identity: row for identity, row in retained.items() if base_key(row) in effective}
+    else:
+        effective_numbers = {number_key(row) for row in imported['rows']}
+        retained = {identity: row for identity, row in retained.items()
+                    if number_key(row) in effective_numbers or row[SOURCE_COLUMN] != owners.get(number_key(row))}
+    matches_by_number = defaultdict(list)
+    for row in retained.values():
+        matches_by_number[base_key(row)].append(row)
+    renamed = {}
     for old in imported['rows']:
         source = old.get(SOURCE_COLUMN) or owners.get(number_key(old), 'Saved imported orders')
         updated = sourced_row(old, source)
+        matches = matches_by_number[base_key(updated)]
+        chosen = next((row for row in matches if updated.get(ROW_COLUMN) and row.get(ROW_COLUMN) == updated[ROW_COLUMN]), None)
+        if chosen is None:
+            chosen = next((row for row in reversed(matches) if updated.get('_source_row')
+                           and row.get('_source_row') == updated['_source_row']
+                           and (not updated.get('_source_sheet') or row.get('_source_sheet') == updated['_source_sheet'])), None)
+        chosen = chosen or next(iter(reversed(matches)), None)
+        if chosen and chosen.get(ROW_COLUMN):
+            updated[ROW_COLUMN] = chosen[ROW_COLUMN]
+        renamed[order_key(old)] = order_key(updated)
         retained[order_key(updated)] = deepcopy(updated)
     result = dict(imported, **{field: rebuilt[field] for field in
                   ('sources', 'files', 'columns', 'duplicate_orders', 'source_overlap_orders', 'diagnostics_version', 'order_identity')})
     result['rows'] = list(retained.values())
     result['columns'] = list(dict.fromkeys(imported['columns'] + result['columns']))
-    # Old membership keys referenced the global winning copy. Recompute the
-    # source views from the now-independent rows, retaining all business edits.
-    result.pop('view_members', None)
+    if 'view_members' in imported:
+        result['view_members'] = {label: [renamed.get(identity, identity) for identity in group]
+                                  for label, group in imported['view_members'].items()}
     return result

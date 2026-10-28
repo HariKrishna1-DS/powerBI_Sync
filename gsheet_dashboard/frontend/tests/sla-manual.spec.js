@@ -29,6 +29,7 @@ async function setup(page,{rejectDelete=false,fullComments=false}={}){
       if(name==='/api/sla-status')body=report();
       if(name==='/api/sla-statuses'){
         const request=route.request().postDataJSON();
+        if(request.action!=='delete'&&request.status==='Completed and Delivered')return route.fulfill({status:409,json:{error:'Completed and Delivered is not used in extracted SLA Status. Choose the active queue status.'}});
         if(request.action==='delete'){
           if(rejectDelete)return route.fulfill({status:409,json:{error:'Orders in this status changed. Reopen the delete dialog and try again.'}});
           const assigned=rows.filter(row=>row.Status===request.status);
@@ -60,6 +61,21 @@ async function setup(page,{rejectDelete=false,fullComments=false}={}){
   await expect(page.getByRole('button',{name:'Grand Total 2',exact:true})).toBeVisible();
   return {errors,saves,rows};
 }
+
+test('extracted SLA does not offer or accept a completed status',async({page})=>{
+  const {errors}=await setup(page);
+  await page.getByRole('button',{name:'Add status',exact:true}).click();
+  const form=page.getByRole('form',{name:'Create SLA status'});
+  await form.getByLabel('Status name').fill('Completed and Delivered');
+  await form.getByRole('button',{name:'Create status',exact:true}).click();
+  await expect(form.getByRole('alert')).toContainText('not used in extracted SLA Status');
+  await form.getByRole('button',{name:'Cancel',exact:true}).click();
+  await page.getByRole('button',{name:'Add order to status Typing in Progress',exact:true}).click();
+  const dialog=page.getByRole('dialog',{name:'Add SLA order'});
+  await expect(dialog.locator('#sla-order-statuses option[value="Completed and Delivered"]')).toHaveCount(0);
+  await expect(page.getByRole('button',{name:'Grand Total 2',exact:true})).toBeVisible();
+  expect(errors).toEqual([]);
+});
 
 test('empty custom status opens a table, looks up a preview order and moves it without increasing totals',async({page})=>{
   const {errors,saves}=await setup(page);

@@ -20,18 +20,21 @@ def decorate(snapshot, settings):
                 manual_order_count=sum(bool(row.get('_sla_manual')) for row in rows))
 
 
-def find_order(report, number, source=''):
+def find_order(report, number, source='', record_key=''):
     matches = [row for row in report['rows'] + report['excluded_rows']
                if number_key(row) == number.strip().casefold() and
-               (not source or str(row.get('Source workbook', '')).casefold() == source.casefold())]
+               (not source or str(row.get('Source workbook', '')).casefold() == source.casefold()) and
+               (not record_key or order_key(row) == record_key)]
     if len(matches) > 1:
-        raise ValueError('This Order Number occurs in multiple workbooks. Choose its workbook before looking it up.')
+        if len({row.get('Source workbook', '') for row in matches}) > 1:
+            raise ValueError('This Order Number occurs in multiple workbooks. Choose its workbook before looking it up.')
+        raise ValueError('This Order Number occurs more than once in this workbook. Edit the specific row from the report table.')
     return next(iter(matches), None)
 
 
 def editable_fields(row):
     from sla_manual import editable_fields as preview_fields
-    from sla_status import local_time
+    from monthly_production import local_datetime as local_time
     result = dict(preview_fields(row), **{'Out Time': str(row.get('Out Time') or '')})
     due = local_time(result['SLA Expiration'])
     if due:
@@ -157,7 +160,7 @@ def delete_status(workspace, report, body):
 
 
 def save_order(workspace, report, body):
-    from sla_status import local_time
+    from monthly_production import local_datetime as local_time
     from order_details import edit_events
     from report_workspace import import_sources, combine_sources
     number = body.get('order_number')
@@ -172,7 +175,7 @@ def save_order(workspace, report, body):
     fields = body.get('fields')
     if not isinstance(fields, dict) or any(name not in FIELDS or not isinstance(value, str) or len(value) > 10000 for name, value in fields.items()):
         raise ValueError('Enter valid order details.')
-    existing = find_order(report, number, source)
+    existing = find_order(report, number, source, body.get('record_key', ''))
     if existing and body.get('expected_revision') != revision(existing):
         raise ValueError('This order already exists or changed. Look up the Order Number again before saving.')
     if not existing and body.get('expected_revision'):
@@ -190,7 +193,7 @@ def save_order(workspace, report, body):
         settings = workspace.read()
         check_scope(settings, report)
         imported = deepcopy(settings['imported'])
-        identity = order_key({'Order Number': number, 'Source workbook': source})
+        identity = order_key(existing) if existing else order_key({'Order Number': number, 'Source workbook': source})
         actual = next((row for row in imported['rows'] if order_key(row) == identity), None)
         if actual and not existing:
             raise ValueError('This order belongs to another report date. Select its date before editing it.')

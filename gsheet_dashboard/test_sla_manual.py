@@ -21,7 +21,7 @@ class SlaManualTests(unittest.TestCase):
     def lookup(self, number='001', preview=1):
         return self.client.get('/api/sla-order', query_string={'preview_id': preview, 'order_number': number}).json
 
-    def save(self, number='001', status='Completed and Delivered', fields=None, lookup=None, preview=1):
+    def save(self, number='001', status='Ready to Send', fields=None, lookup=None, preview=1):
         return self.client.post('/api/sla-order', json={'preview_id': preview, 'order_number': number,
             'status': status, 'fields': fields or {}, 'expected_revision': (lookup or {}).get('revision')})
 
@@ -63,7 +63,7 @@ class SlaManualTests(unittest.TestCase):
         self.assertEqual(report['totals']['Grand Total'], 2)
         self.assertEqual(report['manual_order_count'], 0)
         row = next(row for row in report['rows'] if row['Order Number'] == '001')
-        self.assertEqual((row['Status'], row['Borrower'], row['State']), ('Completed and Delivered', 'Corrected', 'NY'))
+        self.assertEqual((row['Status'], row['Borrower'], row['State']), ('Ready to Send', 'Corrected', 'NY'))
         self.assertEqual(row['SLA Expiration*'], row['SLA Expiration'])
         self.assertEqual(self.store.history(), before)
         self.capture(2, self.store.get(1)['rows'])
