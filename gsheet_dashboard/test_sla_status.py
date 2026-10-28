@@ -34,7 +34,7 @@ class SlaStatusTests(unittest.TestCase):
         for value, expected in cases:
             with self.subTest(value=value):
                 self.assertEqual(category(value, self.today), expected)
-        self.assertEqual(category('2026-10-13T20:00:00Z', self.today), 'Today SLA')
+        self.assertEqual(category('2026-10-13T20:00:00Z', self.today), 'Negative SLA')
         self.assertEqual(category('2h', self.today, datetime(2026, 10, 13, 16, 15)), 'Negative SLA')
 
     def test_summary_download_and_exclusions_reconcile(self):

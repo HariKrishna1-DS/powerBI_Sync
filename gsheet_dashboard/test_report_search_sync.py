@@ -96,12 +96,12 @@ class ReportSearchSyncTests(unittest.TestCase):
         self.assertEqual(client.get('/api/report-order-search?search=missing').json['total'], 0)
         self.assertEqual(client.get('/api/report-order-search').json['rows'], [])
 
-    def test_google_sheet_status_is_visible_in_sla_despite_the_saved_queue_rule(self):
+    def test_google_sheet_completion_cannot_override_active_queue_sla(self):
         store = self.workspace.store
         captured = {'Order Number': '001', 'Task Status': 'Available', 'Last User': '', 'Product': 'Full Title'}
         store.restore(1, list(captured), [captured], created='2026-10-20T09:00:00Z')
         snapshot = preview_snapshot(store, {'sheet_status_overrides': {'001': 'Completed and Delivered'}})
-        self.assertEqual(snapshot['sheets']['Overview']['rows'][0]['Status'], 'Completed and Delivered')
+        self.assertEqual(snapshot['sheets']['Overview']['rows'][0]['Status'], 'Search In Progress')
         self.assertEqual(store.get(1)['rows'][0], captured)
 
     def test_consistent_capture_updates_do_not_become_manual_sla_overrides(self):
@@ -127,7 +127,7 @@ class ReportSearchSyncTests(unittest.TestCase):
         sync_tracker_status_tabs(self.workspace, book)
         settings = self.workspace.read()
         self.assertEqual(settings['sheet_status_override_previews']['001'], 1)
-        self.assertEqual(preview_snapshot(store, settings)['sheets']['Overview']['rows'][0]['Status'], 'Completed and Delivered')
+        self.assertEqual(preview_snapshot(store, settings)['sheets']['Overview']['rows'][0]['Status'], 'Assign to ABS')
         store.restore(2, list(raw), [raw], created='2026-10-20T10:00:00Z')
         fresh = preview_snapshot(store, settings)['sheets']['Overview']['rows'][0]
         self.assertEqual(fresh['Status'], 'Assign to ABS')

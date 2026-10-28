@@ -27,30 +27,30 @@ class ImportedWorkbookIdentityTests(unittest.TestCase):
             ('other.xlsx',excel([row('A','Completed and Delivered',**{'Out Time':'10/03/2026','SLA Expiration':'10/20/2026'}),
                                 row('C','Completed and Delivered',**{'Out Time':'10/05/2026','SLA Expiration':'10/20/2026'}),
                                 row('A','Completed and Delivered',**{'Out Time':'10/04/2026','SLA Expiration':'10/20/2026'})]))])
-        self.workspace.save(mode='excel',cloud_reset=True,imported=self.imported,files=self.imported['files'],row_count=4)
+        self.workspace.save(mode='excel',cloud_reset=True,imported=self.imported,files=self.imported['files'],row_count=5)
 
     def snapshot(self, **kwargs):
         return imported_snapshot(self.workspace.read()['imported'])
 
     def test_same_number_is_normal_in_both_files_in_every_report(self):
-        self.assertEqual(len(self.imported['rows']),4)
-        self.assertEqual(len({key(record) for record in self.imported['rows']}),4)
+        self.assertEqual(len(self.imported['rows']),5)
+        self.assertEqual(len({key(record) for record in self.imported['rows']}),5)
         self.assertEqual(len(self.imported['duplicate_orders']),1)
         self.assertEqual(self.imported['duplicate_orders'][0]['Earlier file'],'other.xlsx')
         snapshot=self.snapshot()
         frames,capacity=report_frames(snapshot, {'mode':'excel','capacity_month':'2026-10'})
-        self.assertEqual(len(frames['All Products'])-1,4)
-        self.assertEqual([cells[0] for cells in frames['All Products'][1:]],[1,2,3,4])
-        self.assertEqual(sum(period['Received'] for period in snapshot['reports']['daily']),4)
-        self.assertEqual(sum(period['Received'] for period in snapshot['reports']['monthly']),4)
-        self.assertEqual(sum(period['Raw Received'] for period in capacity['daily']),4)
-        self.assertEqual(sum(period['Completed'] for period in capacity['daily']),3)
-        self.assertEqual(build_sla_status(snapshot)['totals']['Grand Total'],4)
+        self.assertEqual(len(frames['All Products'])-1,5)
+        self.assertEqual([cells[0] for cells in frames['All Products'][1:]],[1,2,3,4,5])
+        self.assertEqual(sum(period['Received'] for period in snapshot['reports']['daily']),5)
+        self.assertEqual(sum(period['Received'] for period in snapshot['reports']['monthly']),5)
+        self.assertEqual(sum(period['Raw Received'] for period in capacity['daily']),5)
+        self.assertEqual(sum(period['Completed'] for period in capacity['daily']),4)
+        self.assertEqual(build_sla_status(snapshot)['totals']['Grand Total'],5)
         public=self.workspace.public()
         self.assertEqual((public['duplicate_row_count'],public['source_overlap_count']),(1,1))
         self.assertEqual(public['source_overlap_orders'][0]['Order Number'],'A')
         self.assertEqual(public['source_overlap_orders'][0]['Replacement row'],4)
-        self.assertEqual([(file['rows'],file['orders']) for file in public['imports']],[(2,2),(3,2)])
+        self.assertEqual([(file['rows'],file['orders']) for file in public['imports']],[(2,2),(3,3)])
 
     def test_source_file_routes_every_product_and_saved_membership_cannot_move_it(self):
         imported=read_report_files([
@@ -85,17 +85,17 @@ class ImportedWorkbookIdentityTests(unittest.TestCase):
         self.assertEqual(imported,original)
         filtered=all_products_date_filter(1,frames['All Products'],'2026-10-13')['setBasicFilter']['filter']
         self.assertEqual(list(filtered['criteria']),[str(frames['All Products'][0].index('Date'))])
-        # Capacity uses report Date even when the completion timestamp is later.
+        # Capacity keeps receipts on report Date and completions on Out Time.
         imported['rows'][0].update(Status='Completed and Delivered',**{'Out Time':'10/14/2026'})
         capacity=report_frames(imported_snapshot(imported),{'mode':'excel','capacity_month':'2026-10'})[1]
         last=capacity['daily'][-1]
-        self.assertEqual((last['Date'],last['Raw Received'],last['Completed']),('2026-10-13',2,1))
+        self.assertEqual((last['Date'],last['Raw Received'],last['Completed']),('2026-10-14',0,1))
 
     def test_google_sheet_round_trip_and_manual_edit_keep_both_copies(self):
         baseline=editable_frames(self.snapshot(),{'mode':'excel'})
         unchanged,events=reconcile(self.imported,baseline,deepcopy(baseline))
         self.assertFalse(events)
-        self.assertEqual(len(unchanged['rows']),4)
+        self.assertEqual(len(unchanged['rows']),5)
         remote=deepcopy(baseline)
         values=remote['All Products'];headers=values[0]
         for cells in values[1:]:
@@ -105,7 +105,7 @@ class ImportedWorkbookIdentityTests(unittest.TestCase):
         updated,events=reconcile(self.imported,baseline,remote)
         copies={record['Source workbook']:record['Status'] for record in updated['rows'] if record['Order Number']=='A'}
         self.assertEqual(copies,{'full.xlsx':'Completed and Delivered','other.xlsx':'Cancelled'})
-        self.assertEqual(len(events),2)
+        self.assertEqual(len(events),4)
         for kind in ('missing','blank'):
             bad=deepcopy(baseline);values=bad['All Products'];index=values[0].index('Source workbook')
             if kind=='missing':
@@ -136,11 +136,11 @@ class ImportedWorkbookIdentityTests(unittest.TestCase):
         self.workspace.save(imported=imported)
         snapshot=self.snapshot()
         selected=[key(record) for record in snapshot['sheets']['Overview']['rows'] if record['Status']=='Completed and Delivered']
-        self.assertEqual(len(selected),3)
+        self.assertEqual(len(selected),4)
         with self.assertRaisesRegex(ValueError,'changed since'):
             rename_status(self.workspace,None,snapshot,'Completed and Delivered','Cancelled',['A','C'])
-        self.assertEqual(rename_status(self.workspace,None,snapshot,'Completed and Delivered','Cancelled',selected),3)
-        self.assertEqual(sum(record['Status']=='Cancelled' for record in self.workspace.read()['imported']['rows']),3)
+        self.assertEqual(rename_status(self.workspace,None,snapshot,'Completed and Delivered','Cancelled',selected),4)
+        self.assertEqual(sum(record['Status']=='Cancelled' for record in self.workspace.read()['imported']['rows']),4)
 
     def test_old_global_dataset_restores_other_copy_and_preserves_owner_edits(self):
         original=deepcopy(self.imported)
@@ -151,13 +151,13 @@ class ImportedWorkbookIdentityTests(unittest.TestCase):
         next(record for record in legacy['rows'] if record['Order Number']=='A')['Client']='Saved client'
         updated=upgrade_workbook_orders(legacy)
         copies={record['Source workbook']:record for record in updated['rows'] if record['Order Number']=='A'}
-        self.assertEqual(len(updated['rows']),4)
+        self.assertEqual(len(updated['rows']),5)
         self.assertEqual(copies['other.xlsx']['Client'],'Saved client')
         self.assertNotEqual(copies['full.xlsx'].get('Client'),'Saved client')
         self.assertEqual(self.imported,original)
         self.workspace.save(imported=legacy,row_count=3)
         reopened=ReportWorkspace(self.workspace.store)
-        self.assertEqual(reopened.public()['row_count'],4)
+        self.assertEqual(reopened.public()['row_count'],5)
         self.assertTrue(list((Path(self.folder.name)/'backups').glob('before-update-*.zip')))
         self.assertTrue(reopened.read()['cloud_reset'])
 
@@ -187,10 +187,10 @@ class ImportedWorkbookIdentityTests(unittest.TestCase):
             records=[cells[column] for cells in values[1:] if len(cells)>column and cells[column]]
             counts[title]=len(records)
             self.assertFalse(any(str(number).startswith('OLD-') for number in records))
-        self.assertEqual(counts['All Products'],4)
-        self.assertEqual(counts['Full_Search_OCT_2026']+counts['Remaining_Search_OCT_2026'],4)
+        self.assertEqual(counts['All Products'],5)
+        self.assertEqual(counts['Full_Search_OCT_2026']+counts['Remaining_Search_OCT_2026'],5)
         ranges=book.values_batch_clear.call_args.kwargs['body']['ranges']
-        self.assertTrue(any(value.startswith("'All Products'!A6:") and value.endswith('12436') for value in ranges))
+        self.assertTrue(any(value.startswith("'All Products'!A7:") and value.endswith('12436') for value in ranges))
 
 
 if __name__=='__main__':unittest.main()

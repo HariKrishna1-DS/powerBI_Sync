@@ -3,7 +3,7 @@ import {readFile} from 'node:fs/promises';
 import path from 'node:path';
 import {workspaceFixture} from './workspace-fixture.js';
 
-async function setup(page,{empty=false,comparison=false}={}){
+async function setup(page,{empty=false,comparison=false,duplicates=false}={}){
   const fixture=workspaceFixture(35);
   const previews=empty?[]:[3,2,1].map((id,index)=>({id,name:`preview${id}`,row_count:[3,4,2][index],created:`2026-10-${16-index}T04:00:00Z`}));
   let selected=3,mode='tracker';
@@ -13,7 +13,7 @@ async function setup(page,{empty=false,comparison=false}={}){
     const preview=previews.find(p=>p.id===id);
     const count=mode==='excel'?1:preview?.row_count||0;
     const rows=Array.from({length:count},(_,i)=>({'Order Number':`${mode==='excel'?'import':`preview${id}`}-${i}`,
-      Status:['Assign to ABS','Cancelled','Completed and Delivered','QC in Progress'][i%4],Product:'Full Search',
+      Status:duplicates&&i<2?'Awaiting for Clarification':['Assign to ABS','Cancelled','Ready to Send','QC in Progress'][i%4],Product:'Full Search',
       ...(comparison?{'Queue Presence':i===count-1?'Missing from selected preview':'In selected preview','Status Reason':i===count-1?'Order missing from preview3 compared with preview2':'Saved preview Status'}:{}),
       'SLA Expiration':'2026-10-16 05:00 PM','SLA Category':['Future SLA','Negative SLA','Today SLA'][i%3]}));
     const categories=['Future SLA','Negative SLA','Today SLA'];
@@ -23,7 +23,14 @@ async function setup(page,{empty=false,comparison=false}={}){
     return {as_of:'2026-10-16',mode,source:mode==='excel'?'Imported Excel':'Saved preview',columns,rows,summary,
       report_scope:mode==='tracker'?'preview':null,preview_id:mode==='tracker'&&preview?id:null,
       ...(comparison?{previous_preview_name:'preview2',captured_order_count:count-1,missing_order_count:1}:{}),
-      preview_name:mode==='tracker'&&preview?preview.name:null,preview_row_count:count,previews,
+      preview_name:mode==='tracker'&&preview?preview.name:null,preview_row_count:count+(duplicates?2:0),
+      ...(duplicates?{captured_order_count:count,duplicate_row_count:2,duplicate_order_count:2,missing_order_number_count:0,
+        duplicate_groups:rows.slice(0,2).map((row,index)=>({order_number:row['Order Number'],row_count:2,
+          selected_capture_row:index+1,status:row.Status,sla_category:row['SLA Category'],status_reason:'Workflow is suspended',
+          selection_reason:'Highest-priority matching condition: Workflow is suspended.'})),
+        duplicate_rows:[...rows.slice(0,2).map((row,index)=>({...row,'Capture row':index+1,'SLA selection':'Counted once','Entry condition':'Workflow is suspended','Counted status':row.Status,'Counted SLA':row['SLA Category']})),
+          ...rows.slice(0,2).map((row,index)=>({...row,'Capture row':index+4,'SLA selection':'Repeated row','Entry condition':'Last User is blank and Task Status is Available','Counted status':row.Status,'Counted SLA':row['SLA Category']}))]}:{}),
+      previews:previews.map(p=>({...p,row_count:p.row_count+(duplicates?2:0)})),
       summary_columns:['Status',...categories,'Grand Total'],excluded_count:0,excluded_rows:[],
       totals:{Status:'Grand Total',...Object.fromEntries(categories.map(category=>[category,rows.filter(r=>r['SLA Category']===category).length])),'Grand Total':count}};
   }
@@ -54,13 +61,46 @@ async function setup(page,{empty=false,comparison=false}={}){
   return {errors,publications,refreshes};
 }
 
+test('captured rows and unique orders reconcile and repeated rows are inspectable',async({page})=>{
+  const {errors}=await setup(page,{duplicates:true});
+  await expect(page.locator('.sla-status-workspace .section-heading').first()).toContainText('3 unique orders · 5 captured rows');
+  await expect(page.getByRole('combobox',{name:'SLA preview'}).locator('option:checked')).toContainText('5 captured rows · 3 unique orders');
+  await expect(page.locator('.sla-status-workspace').getByRole('status')).toContainText('5 captured rows − 2 repeated rows = 3 unique captured orders');
+  await expect(page.getByRole('button',{name:'Grand Total 3',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'View 2 repeated Order Numbers',exact:true}).click();
+  const dialog=page.getByRole('dialog',{name:'Repeated Order Numbers'});
+  await expect(dialog.locator('tbody tr')).toHaveCount(4);
+  await expect(dialog.getByRole('cell',{name:'Counted once',exact:true})).toHaveCount(2);
+  await expect(dialog.getByRole('cell',{name:'Repeated row',exact:true})).toHaveCount(2);
+  await expect(dialog.getByRole('button',{name:/Edit details|Copy order|Add order/})).toHaveCount(0);
+  await dialog.getByLabel('Search detail records').fill('preview3-0');
+  await expect(dialog.locator('tbody tr')).toHaveCount(2);
+  await page.keyboard.press('Escape');
+  const repeated=page.getByRole('complementary',{name:'Repeated orders and applied conditions'});
+  await expect(repeated).toContainText('Applied condition: Workflow is suspended');
+  const entry=repeated.getByRole('button',{name:'Show repeated entries for preview3-0',exact:true});
+  const panelBounds=await repeated.boundingBox(),searchBounds=await page.getByLabel('Search SLA Status orders').boundingBox();
+  expect(panelBounds.x+panelBounds.width).toBeLessThanOrEqual(searchBounds.x);
+  await entry.click();
+  const conditions=page.getByRole('dialog',{name:'Repeated entries · preview3-0'});
+  await expect(conditions.locator('tbody tr')).toHaveCount(2);
+  await expect(conditions.getByRole('cell',{name:'Workflow is suspended',exact:true})).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.screenshot({path:'test-results/sla-repeated-conditions.png',fullPage:true});
+  await page.setViewportSize({width:390,height:844});
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await expect(repeated).toBeVisible();
+  await page.screenshot({path:'test-results/sla-repeated-conditions-mobile.png',fullPage:true});
+  expect(errors).toEqual([]);
+});
+
 test('preview selection updates SLA cards, statuses, detail rows, chart and download without changing Overview',async({page})=>{
   const {errors,publications,refreshes}=await setup(page);
   const select=page.getByRole('combobox',{name:'SLA preview'});
   await expect(select).toHaveValue('3');
   await expect(page.getByRole('button',{name:'Grand Total 3',exact:true})).toBeVisible();
   const table=page.getByRole('table',{name:'SLA status summary'});
-  await expect(table.getByRole('button',{name:'Completed and Delivered, Grand Total: 1 orders',exact:true})).toBeVisible();
+  await expect(table.getByRole('button',{name:'Ready to Send, Grand Total: 1 orders',exact:true})).toBeVisible();
   await select.selectOption('2');
   await expect(select).toBeEnabled();
   await expect(select).toHaveValue('2');

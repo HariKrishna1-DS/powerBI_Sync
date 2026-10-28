@@ -51,25 +51,6 @@ def special_product_status(raw):
     return ''
 
 
-def eta_commitment_date(comments, today):
-    """Use the last date attached to EOD/sooner, never receipt or fee dates."""
-    matches = list(re.finditer(
-        r'(?<![\w/.-])(?P<date>\d{4}-\d{1,2}-\d{1,2}|\d{1,2}/\d{1,2}(?:/(?:\d{4}|\d{2}))?)'
-        r'\s*(?:[,;:-]\s*)?(?:eod|(?:or\s+)?sooner)\b', comments, re.I))
-    if not matches:
-        return '', None
-    match = matches[-1]
-    raw = match['date']
-    if raw.count('/') == 1:
-        raw = f'{raw}/{today.year}'
-    for pattern in ('%m/%d/%Y', '%m/%d/%y', '%Y-%m-%d'):
-        try:
-            return ' '.join(match.group(0).split()), datetime.strptime(raw, pattern).date()
-        except ValueError:
-            pass
-    return ' '.join(match.group(0).split()), None
-
-
 def queue_rule(row, as_of=None):
     """Return priority, status and evidence shared by extraction and SLA reports."""
     from monthly_production import local_datetime
@@ -95,23 +76,13 @@ def queue_rule(row, as_of=None):
         return 2, special, f"Product is {queue_field(row, 'Product')}"
     apology = re.search(r'\b(?:apoloize|apologize|apologise)\b', comments, re.I)
     if apology:
-        return 3, 'Need to Assign ABS', f'ETA Comments contains {apology.group(0)}'
+        return 3, 'Assign to ABS', f'ETA Comments contains {apology.group(0)}'
     assigned = re.search(r'\bassigned\s+to\s+the\s+(?:abstractor|abst)\b', comments, re.I)
     abstractor = re.search(r'\babstract(?:ors?)?\b', comments, re.I)
     commitment = re.search(r'\b(?:eod|sooner)\b', comments, re.I)
     if assigned or abstractor or commitment:
         evidence = assigned or abstractor or commitment
         reason = f'ETA Comments contains {" ".join(evidence.group(0).split())}'
-        if commitment:
-            today = local_time(as_of or datetime.now(IST)).date()
-            wording, due = eta_commitment_date(comments, today)
-            if due:
-                reason = f'ETA Comments contains {wording}; ETA date {due.isoformat()}'
-                if due == today:
-                    return 3, 'Need to Assign ABS', f'{reason} matches today {today.isoformat()} (India time)'
-                reason += f' does not match today {today.isoformat()} (India time)'
-            elif wording:
-                reason += f'; invalid ETA date in {wording}'
         return 4, 'Assign to ABS', reason
     if task == 'typingmodule' and task_status == 'inprogress':
         return 5, 'Typing in Progress', 'Task Name is TypingModule and Task Status is In Progress'
@@ -127,13 +98,37 @@ def queue_rule(row, as_of=None):
     return 9, '', ''
 
 
-def queue_orders(preview, as_of=None):
+def completion_status(value):
+    return re.sub(r'[^a-z]', '', str(value or '').casefold()) in (
+        'complete', 'completed', 'completeanddelivered', 'completedanddelivered')
+
+
+def sla_queue_rule(row, as_of=None):
+    """The active SLA queue never inherits production completion evidence."""
+    compact = lambda value: re.sub(r'[^a-z0-9]', '', str(value).casefold())
+    active = {column: value for column, value in row.items()
+              if compact(column) not in ('outtime', 'completedtime')}
+    for column in active:
+        if compact(column) in ('status', 'taskstatus') and completion_status(active[column]):
+            active[column] = ''
+    return queue_rule(active, as_of)
+
+
+def queue_status_reason(row):
+    task, state = queue_field(row, 'Task Name'), queue_field(row, 'Task Status')
+    evidence = '; '.join(f'{column} is {value}' for column, value in
+                         (('Task Name', task), ('Task Status', state)) if value and not completion_status(value))
+    return evidence or 'Default active search queue status'
+
+
+def queue_orders(preview, as_of=None, *, rule=None):
     """Count each Order Number once even when the queue contains several tasks."""
     from import_identity import number_key
+    rule = rule or queue_rule
     orders = {}
     for original in preview['rows'] if preview else []:
         identity = number_key(original)
-        if identity and (identity not in orders or queue_rule(original, as_of)[0] < queue_rule(orders[identity], as_of)[0]):
+        if identity and (identity not in orders or rule(original, as_of)[0] < rule(orders[identity], as_of)[0]):
             orders[identity] = original
     return orders
 
@@ -149,12 +144,47 @@ def preview_snapshot(store, settings=None, preview_id=None, production=None, as_
         saved = settings.get('sla_preview_id')
         selected = next((p for p in previews if p['id'] == saved), None) or next(iter(previews), None)
         preview = store.get(selected['id']) if selected else None
+    from reporting_dates import latest_arrival
+    from status_updates import status_name
+    reference = latest_arrival(preview['rows']) if preview else None
     overrides = (settings.get('sla_preview_statuses') or {}).get(str(preview['id']), {}) if preview else {}
-    from tracker_sync import SOURCE, value, text, mapped_status, deadline
+    from tracker_sync import SOURCE, value, text, deadline
     from import_identity import number_key
     from sla_manual import FIELDS, apply_fields, revision, custom_statuses
-    current_orders = queue_orders(preview, as_of)
+    current_orders = queue_orders(preview, as_of, rule=sla_queue_rule)
     captured_order_count = len(current_orders)
+    raw_rows = preview['rows'] if preview else []
+    occurrences = Counter(number_key(row) for row in raw_rows)
+    repeated = {identity for identity, count in occurrences.items() if identity and count > 1}
+    duplicate_rows = [dict(row, **{'Capture row': index, 'SLA selection':
+                      'Counted once' if row is current_orders[number_key(row)] else 'Repeated row'})
+                      for index, row in enumerate(raw_rows, 1) if number_key(row) in repeated]
+    repeated_sources, repeated_details = {}, {}
+    for row in raw_rows:
+        if number_key(row) in repeated:
+            repeated_sources.setdefault(number_key(row), []).append(row)
+    for row in duplicate_rows:
+        repeated_details.setdefault(number_key(row), []).append(row)
+    capture_positions = {id(row): index for index, row in enumerate(raw_rows, 1)}
+    duplicate_groups = []
+    for identity in occurrences:
+        if identity not in repeated:
+            continue
+        selected = current_orders[identity]
+        priority, _, condition = sla_queue_rule(selected, as_of)
+        same_priority = sum(sla_queue_rule(row, as_of)[0] == priority for row in repeated_sources[identity])
+        selection = f'Highest-priority matching condition: {condition}.' if condition else 'No automatic queue condition distinguishes these entries.'
+        if same_priority > 1:
+            selection += ' When conditions have equal priority, the first matching captured row is retained.'
+        position = capture_positions[id(selected)]
+        duplicate_groups.append({'order_number': str(selected['Order Number']).strip(),
+                                 'row_count': occurrences[identity], 'selected_capture_row': position,
+                                 'selection_reason': selection})
+        for candidate in repeated_details[identity]:
+            _, entry_status, entry_condition = sla_queue_rule(candidate, as_of)
+            candidate.update({'Entry status': entry_status or 'Search In Progress',
+                              'Entry condition': entry_condition or queue_status_reason(candidate),
+                              'Counted capture row': position, 'Selection reason': selection})
     preview_key = str(preview['id']) if preview else ''
     manual_orders = (settings.get('sla_preview_manual_orders') or {}).get(preview_key, {})
     detail_edits = (settings.get('sla_preview_order_edits') or {}).get(preview_key, {})
@@ -179,24 +209,27 @@ def preview_snapshot(store, settings=None, preview_id=None, production=None, as_
         for column in SOURCE:
             if not text(row.get(column)):
                 row[column] = value(original, column)
-        _, automatic, reason = queue_rule(original, as_of)
-        known = statuses.get(identity, set())
+        _, automatic, reason = sla_queue_rule(original, as_of)
+        known = {status for status in statuses.get(identity, set()) if not completion_status(status)}
+        saved_status = text(row.get('Status'))
         if automatic:
             row['Status'] = automatic
-        elif text(row.get('Status')):
+        elif saved_status and not completion_status(saved_status):
             reason = 'Saved preview Status'
         elif len(known) == 1:
             row['Status'], reason = next(iter(known)), 'Matched All Products Status by Order Number'
         else:
-            row['Status'], reason = mapped_status(original, new=True), 'Default queue status'
+            row['Status'], reason = 'Search In Progress', queue_status_reason(original)
         expiry = deadline(row.get('SLA Expiration'), anchor)
         if expiry:
             row['SLA Expiration'] = expiry.isoformat(sep=' ')
-        if identity in overrides:
+        if identity in overrides and not completion_status(overrides[identity]):
             row['Status'], reason = overrides[identity], 'Manual status edit for this preview'
         elif (identity in (settings.get('sheet_status_overrides') or {})
+              and not completion_status(settings['sheet_status_overrides'][identity])
               and str((settings.get('sheet_status_override_previews') or {}).get(identity, preview['id'])) == str(preview['id'])):
             row['Status'], reason = settings['sheet_status_overrides'][identity], 'Status edited in Google Sheets'
+        row['Status'] = status_name(row['Status'])
         row.update({'Status Reason': reason, 'Source Preview': captured['name'],
                     'Queue Presence': 'Manual addition' if identity in added else 'In selected preview',
                     '_record_key': number_key(row)})
@@ -209,10 +242,16 @@ def preview_snapshot(store, settings=None, preview_id=None, production=None, as_
             'preview_name': preview['name'] if preview else None,
             'preview_row_count': len(preview['rows']) if preview else 0,
             'captured_order_count': captured_order_count, 'manual_order_count': len(added),
-            'custom_statuses': custom_statuses(settings, preview['id']) if preview else [], 'editable_columns': FIELDS,
-            'uses_queue_status': any(identity not in overrides and not text(row.get('Status')) and not queue_rule(row, as_of)[1]
+            'duplicate_order_count': len(repeated), 'duplicate_row_count': sum(occurrences[key]-1 for key in repeated),
+            'missing_order_number_count': occurrences.get('', 0), 'duplicate_rows': duplicate_rows,
+            'duplicate_groups': duplicate_groups,
+            'custom_statuses': [status for status in custom_statuses(settings, preview['id']) if not completion_status(status)] if preview else [], 'editable_columns': FIELDS,
+            'uses_queue_status': any((identity not in overrides or completion_status(overrides[identity]))
+                                     and (not text(row.get('Status')) or completion_status(row.get('Status')))
+                                     and not sla_queue_rule(row, as_of)[1]
                                      for identity, row in current_orders.items()),
             'previews': previews, 'updated_at': preview['created'] if preview else None,
+            'sla_reference_at': reference.isoformat() if reference else None,
             'sheets': {'Overview': {'rows': rows, 'columns': columns}}}
 
 
@@ -220,6 +259,8 @@ def rename_preview_status(workspace, snapshot, old, new, selected, individual=Fa
     from copy import deepcopy
     from tracker_sync import key
     from status_updates import status_name
+    from sla_manual import checked_preview_status
+    new = checked_preview_status(new)
     matching = {key(row) for row in snapshot['sheets']['Overview']['rows']
                 if (status_name(row.get('Status') or row.get('Task Status')) or '(Blank)') == old}
     chosen = set(selected)
@@ -254,6 +295,7 @@ def local_time(value):
 
 
 def category(value, as_of, anchor=None):
+    from monthly_production import local_datetime
     raw = str(value if value is not None else '').strip()
     if not raw:
         return ''
@@ -265,7 +307,7 @@ def category(value, as_of, anchor=None):
         days, hours, minutes = (int(part or 0) for part in relative.groups()[1:])
         due = (anchor or as_of) + timedelta(days=days, hours=hours, minutes=minutes)
     else:
-        due = local_time(value)
+        due = local_datetime(value)
     if due is None:
         return ''
     return 'Today SLA' if due.date() == as_of.date() else 'Negative SLA' if due.date() < as_of.date() else 'Future SLA'
@@ -291,13 +333,17 @@ def imported_date_snapshot(snapshot, selected=None, strict=True):
 
 
 def build_sla_status(snapshot, as_of=None):
+    from monthly_production import local_datetime
+    from status_updates import status_name
     from reporting_dates import arrival_details
     selected_day = snapshot.get('report_date')
-    as_of = as_of or (datetime.fromisoformat(selected_day) if selected_day and selected_day != 'Undated' else datetime.now(IST))
+    reference = local_datetime(snapshot.get('sla_reference_at'))
+    as_of = as_of or (datetime.fromisoformat(selected_day) if selected_day and selected_day != 'Undated'
+                      else reference or local_time(snapshot.get('updated_at')) or datetime.now(IST))
     if isinstance(as_of, date) and not isinstance(as_of, datetime):
         as_of = datetime.combine(as_of, datetime.min.time())
     if as_of.tzinfo:
-        as_of = as_of.astimezone(IST).replace(tzinfo=None)
+        as_of = as_of.replace(tzinfo=None)
     sheets = snapshot.get('sheets', {})
     source = sheets.get('Overview') or sheets.get('All Products') or {'rows': [], 'columns': []}
     anchor = as_of if snapshot.get('report_scope') == 'imported_date' else local_time(snapshot.get('updated_at'))
@@ -308,26 +354,41 @@ def build_sla_status(snapshot, as_of=None):
         expiry = original.get('SLA Expiration', original.get('SLA Expiration*'))
         result = category(expiry, as_of, anchor)
         row = dict(original, **arrival_details(original), **{'SLA Category': result})
-        row['Status'] = str(original.get('Status') or original.get('Task Status') or '(Blank)').strip()
+        row['Status'] = status_name(original.get('Status') or original.get('Task Status') or '(Blank)')
         if not result:
             row['SLA issue'] = 'Missing SLA expiration' if not str(original.get('SLA Expiration') or '').strip() else 'Invalid SLA expiration'
             excluded.append(row)
             continue
         counts[row['Status'], result] += 1
         rows.append(row)
-    statuses = sorted({status for status, _ in counts} | set(snapshot.get('custom_statuses') or []), key=str.casefold)
+    custom = list(dict.fromkeys(status_name(status) for status in snapshot.get('custom_statuses') or []))
+    statuses = sorted({status for status, _ in counts} | set(custom), key=str.casefold)
     summary = [dict(Status=status, **{key: counts[status, key] for key in CATEGORIES},
                     **{'Grand Total': sum(counts[status, key] for key in CATEGORIES)}) for status in statuses]
     totals = dict(Status='Grand Total', **{key: sum(row[key] for row in summary) for key in CATEGORIES},
                   **{'Grand Total': len(rows)})
-    return {'as_of': as_of.date().isoformat(), 'rows': rows, 'excluded_rows': excluded,
+    from import_identity import number_key
+    counted = {number_key(row): row for row in rows + excluded}
+    duplicate_groups = []
+    for group in snapshot.get('duplicate_groups') or []:
+        order = counted[number_key({'Order Number': group['order_number']})]
+        duplicate_groups.append(dict(group, status=order['Status'], status_reason=order.get('Status Reason', ''),
+                                     sla_category=order['SLA Category']))
+    duplicate_rows = [dict(row, **{'Counted status': counted[number_key(row)]['Status'],
+                                  'Counted SLA': counted[number_key(row)]['SLA Category'],
+                                  'Applied status condition': counted[number_key(row)].get('Status Reason', '')})
+                      for row in snapshot.get('duplicate_rows') or []]
+    return {'as_of': as_of.date().isoformat(), 'date_basis': 'arrival_time' if reference or selected_day and selected_day != 'Undated' else 'capture_time',
+            'sla_reference_at': reference.isoformat() if reference else None, 'rows': rows, 'excluded_rows': excluded,
             'excluded_count': len(excluded), 'summary': summary, 'totals': totals,
             'columns': list(dict.fromkeys(source.get('columns', []) + ['Arrival Date', 'Arrival Time', 'SLA Category'])),
             'summary_columns': SUMMARY_COLUMNS, **{key: snapshot.get(key) for key in (
                 'source', 'mode', 'offline', 'updated_at', 'report_scope', 'preview_id',
                 'preview_name', 'preview_row_count', 'previews', 'captured_order_count',
+                'duplicate_order_count', 'duplicate_row_count', 'missing_order_number_count', 'duplicate_rows',
                 'manual_order_count', 'custom_statuses', 'editable_columns', 'report_date',
-                'report_dates', 'imported_order_count', 'date_order_count', 'undated_order_count', 'source_workbooks', 'data_revision')}}
+                'report_dates', 'imported_order_count', 'date_order_count', 'undated_order_count', 'source_workbooks', 'data_revision')},
+            'custom_statuses': custom, 'duplicate_groups': duplicate_groups, 'duplicate_rows': duplicate_rows}
 
 
 def summary_values(report):

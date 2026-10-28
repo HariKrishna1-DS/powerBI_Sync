@@ -33,6 +33,13 @@ IST = timezone(timedelta(hours=5, minutes=30), 'IST')
 SETTINGS_SHEET = '__DataTrace_Config'
 
 
+def sync_retry_delay(error, attempt):
+    """A per-minute Sheets quota cannot recover after a one-second retry."""
+    code = getattr(error, 'code', None) or getattr(getattr(error, 'response', None), 'status_code', None)
+    message = str(error).casefold()
+    return 60 if code == 429 or 'http 429' in message or 'quota exceeded' in message else 2 ** attempt
+
+
 def compact_job(job):
     """Keep polling small; the full immutable report remains available from sync-reports."""
     result = job.get('result')
@@ -517,7 +524,11 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
                              run_id=state['run_id'] + 1)
             try:
                 operation_id = journal.begin('sync')
-                frame, selected_preview, completed_orders, prior_id = prepare_sync(preview_id, previous_id, keys, ignore, remaining_products)
+                mapping = (reconcile_pending_previews(allow_empty=True).get('mapping', {})
+                           if trigger == 'manual' and syncer is sync_workbook else {})
+                target_id = mapping.get(preview_id, preview_id)
+                target_previous = mapping.get(previous_id, previous_id)
+                frame, selected_preview, completed_orders, prior_id = prepare_sync(target_id, target_previous, keys, ignore, remaining_products)
                 with state_lock:
                     state['stage'] = f"Syncing {selected_preview['name']} to Google Sheets"
                 drain_earlier_previews(frame.attrs['preview_id'], retry_failed=trigger == 'manual')
@@ -569,7 +580,11 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
                 threading.Thread(target=drain_queue, daemon=True).start()
         return True
 
-    def upload_sync(frame):
+    def upload_sync(frame, publish=True):
+        # The report publisher rebuilds all views from the committed trackers.
+        # Keep the capture transaction small and publish those views once.
+        if syncer is sync_workbook and (not publish or report_workspace.read().get('enabled')):
+            frame.attrs['defer_report_views'] = True
         def progress(stage):
             with state_lock:
                 state['stage'] = stage
@@ -582,7 +597,10 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
                 store.mark_synced(number, frame.attrs.get('pass_report', {}))
                 invalidate_snapshot()
                 production_cache.invalidate()
-                if syncer is sync_workbook and report_workspace.read().get('enabled'):
+                settings = report_workspace.read()
+                # Captures update tracker storage only while Excel is selected.
+                # Publishing here would also read shared tabs back into the import.
+                if publish and syncer is sync_workbook and settings.get('enabled') and settings['mode'] != 'excel':
                     app.extensions['publish_active_reports']()
                 return worksheets
             except Exception as exc:
@@ -590,8 +608,9 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
                 if isinstance(exc, (ValueError, KeyError)) or attempt == 2 or scheduler_stop.is_set():
                     store.mark_failed(number, str(exc))
                     raise
-                progress(f'Sync failed; retrying ({attempt + 2}/3). Preview is saved.')
-                scheduler_stop.wait(2 ** attempt)
+                delay = sync_retry_delay(exc, attempt)
+                progress(f'Sync failed; retrying ({attempt + 2}/3) in {delay}s. Preview is saved.')
+                scheduler_stop.wait(delay)
 
     def drain_earlier_previews(preview_id, retry_failed=False):
         failures = {row['preview_id'] for row in store.failed_syncs()}
@@ -601,7 +620,8 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
             if number in failures and not retry_failed:
                 raise ValueError(f'preview{number} needs retry before newer captures can sync. Use its Retry sync button.')
             frame, _, _, _ = prepare_sync(number)
-            upload_sync(frame)
+            frame.attrs['defer_report_views'] = True
+            upload_sync(frame, publish=False)
 
     def begin_scheduled_capture():
         if not gate.acquire(blocking=False):
@@ -773,7 +793,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
             workspace_status = report_workspace.read()
             return jsonify(rows=snapshot['reports']['daily'],
                            **{key: workspace_status.get(key) for key in ('selected_date', 'highlighted_date', 'publication_state', 'sync_error')},
-                           **{key: snapshot.get(key) for key in ('source', 'mode', 'statuses', 'offline', 'updated_at')})
+                           **{key: snapshot.get(key) for key in ('source', 'mode', 'statuses', 'offline', 'updated_at', 'pending_sync', 'latest_capture_at', 'latest_synced_capture_at')})
         except Exception as exc:
             return jsonify(error=f'Could not read Google Sheets daily orders: {exc}'), 502
 
@@ -795,7 +815,7 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
         try:
             snapshot = production_snapshot()
             return jsonify(rows=snapshot['reports']['monthly'], sla_error=None,
-                           **{key: snapshot.get(key) for key in ('source', 'mode', 'statuses', 'offline', 'updated_at')})
+                           **{key: snapshot.get(key) for key in ('source', 'mode', 'statuses', 'offline', 'updated_at', 'pending_sync', 'latest_capture_at', 'latest_synced_capture_at')})
         except Exception as exc:
             return jsonify(error=f'Could not read Google Sheets monthly orders: {exc}'), 502
 
@@ -913,6 +933,14 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
         finally:
             gate.release()
 
+    def tracker_report_state():
+        previews = reporting_snapshot()[0]
+        pending = set(store.unsynced_ids())
+        synced = next((item for item in previews if item['id'] not in pending), None)
+        return {'pending_sync': len(pending),
+                'latest_capture_at': previews[0]['created'] if previews else None,
+                'latest_synced_capture_at': synced['created'] if synced else None}
+
     def production_snapshot(force=False, known_revision=None, tracker_only=False):
         from report_workspace import imported_snapshot
         can_reconcile = not desktop_mode or bool(SPREADSHEET_ID and os.environ.get('GOOGLE_SERVICE_ACCOUNT_JSON'))
@@ -951,14 +979,34 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
             sheets['Overview'] = sheets['All Products'] = {'columns': columns, 'rows': combined}
             audit = read_pass_report(book, store)
             reports = sheet_reports(trackers, audit)
-            return dict(preview_name=audit.get('preview_name'), sheets=sheets, reports=reports, source='Google Sheets', offline=False)
+            return dict(preview_name=audit.get('preview_name'), sheets=sheets, reports=reports,
+                        report_schema=2, source='Google Sheets', offline=False)
         result = production_cache.get(load, force=force, known_revision=known_revision) if desktop_mode else load()
-        if result.get('unchanged'):
-            return result
-        # Older desktop caches did not include reports. Derive them from their saved tracker rows.
-        if 'reports' not in result:
-            trackers = {title: result['sheets'][label]['rows'] for title, label in zip(TRACKERS, ('Full Title', 'Remaining Products'))}
+        # Recalculate reports saved by earlier versions even while offline.
+        # Raw tracker copies, including archive tabs, remain the authority.
+        if result.get('report_schema') != 2:
+            if result.get('unchanged'):
+                result = production_cache.get(load)
+            from monthly_production import tab_identity
+            from production_timing import completion_from_out_time
+            for sheet in result['sheets'].values():
+                sheet['rows'] = [completion_from_out_time(row) for row in sheet['rows']]
+            trackers = {title: sheet['rows'] for title, sheet in result['sheets'].items()
+                        if title in TRACKERS or tab_identity(title)}
+            if not trackers:
+                from status_updates import full_product
+                combined = result['sheets'].get('All Products', result['sheets'].get('Overview', {})).get('rows', [])
+                trackers = {}
+                for title, label in zip(TRACKERS, ('Full Title', 'Remaining Products')):
+                    group = result['sheets'].get(label)
+                    trackers[title] = group['rows'] if group else [
+                        row for row in combined if full_product(row) == (title == FULL)]
             result['reports'] = sheet_reports(trackers, store.latest_sync_report())
+            result['report_schema'] = 2
+            result['revision'] = ProductionCache._revision(result)
+        result.update(tracker_report_state())
+        if result.get('unchanged'):
+            return dict(result, mode='tracker', data_revision=settings.get('data_revision'))
         result['mode'] = 'tracker'
         result['data_revision'] = settings.get('data_revision')
         return result
@@ -1161,49 +1209,55 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
     def preview(number):
         return jsonify(store.get(number))
 
+    def reconcile_pending_previews(allow_empty=False):
+        if not store.unsynced_ids():
+            return {'mapping': {}}
+        from tracker_sync import archive_value_matches, records, sync_lock, text
+        from workspace_backup import save_safety_backup
+
+        with sync_lock(store.root):
+            book, _ = target_worksheet()
+            sheets = {sheet.title: sheet for sheet in book.worksheets()}
+            archive = sheets.get('Sheet1')
+            if archive is None:
+                if allow_empty:
+                    return {'mapping': {}}
+                raise ValueError('Google Sheets has no raw preview history to reconcile.')
+            cloud = {}
+            for row in records(archive.get_all_values(value_render_option='UNFORMATTED_VALUE')):
+                match = re.fullmatch(r'preview([1-9]\d*)', text(row.get('Preview')))
+                if match:
+                    cloud.setdefault(int(match[1]), []).append(row)
+            highest_cloud = max(cloud, default=0)
+            first_conflict = None
+            for number in store.unsynced_ids():
+                if number > highest_cloud:
+                    break
+                local = store.get(number)
+                remote = cloud.get(number)
+                if remote and not local['rows'] and len(remote) == 1 and not any(
+                        text(remote[0].get(column)) for column in local['columns']):
+                    remote = []  # A single blank archive row marks an empty capture.
+                if (remote is None or len(local['rows']) != len(remote) or any(
+                        not archive_value_matches(row.get(column, ''), saved.get(column, ''))
+                        for row, saved in zip(local['rows'], remote)
+                        for column in local['columns'])):
+                    first_conflict = number
+                    break
+            if first_conflict is None:
+                return {'mapping': {}, 'message': 'Pending captures already have unique cloud numbers.'}
+            backup = save_safety_backup(store, 'before-update')
+            mapping = store.rebase_unsynced(first_conflict, highest_cloud)
+        invalidate_snapshot()
+        return {'mapping': mapping, 'recovery_backup': backup.name,
+                    'message': 'Pending captures were given new numbers after the existing Google Sheets history.'}
+
     @app.post('/api/previews/reconcile')
     def reconcile_preview_numbers():
-        """Move pending local captures past conflicting cloud preview numbers."""
         if not gate.acquire(blocking=False):
             return jsonify(error='Wait for the current capture or sync to finish.'), 409
         try:
-            from tracker_sync import archive_value_matches, records, sync_lock, text
-            from workspace_backup import save_safety_backup
-
-            with sync_lock(store.root):
-                book, _ = target_worksheet()
-                sheets = {sheet.title: sheet for sheet in book.worksheets()}
-                archive = sheets.get('Sheet1')
-                if archive is None:
-                    raise ValueError('Google Sheets has no raw preview history to reconcile.')
-                cloud = {}
-                for row in records(archive.get_all_values(value_render_option='UNFORMATTED_VALUE')):
-                    match = re.fullmatch(r'preview([1-9]\d*)', text(row.get('Preview')))
-                    if match:
-                        cloud.setdefault(int(match[1]), []).append(row)
-                highest_cloud = max(cloud, default=0)
-                first_conflict = None
-                for number in store.unsynced_ids():
-                    if number > highest_cloud:
-                        break
-                    local = store.get(number)
-                    remote = cloud.get(number)
-                    if remote and not local['rows'] and len(remote) == 1 and not any(
-                            text(remote[0].get(column)) for column in local['columns']):
-                        remote = []  # A single blank archive row marks an empty capture.
-                    if (remote is None or len(local['rows']) != len(remote) or any(
-                            not archive_value_matches(row.get(column, ''), saved.get(column, ''))
-                            for row, saved in zip(local['rows'], remote)
-                            for column in local['columns'])):
-                        first_conflict = number
-                        break
-                if first_conflict is None:
-                    return jsonify(mapping={}, message='Pending captures already have unique cloud numbers.')
-                backup = save_safety_backup(store, 'before-update')
-                mapping = store.rebase_unsynced(first_conflict, highest_cloud)
-            invalidate_snapshot()
-            return jsonify(mapping=mapping, recovery_backup=backup.name,
-                           message='Pending captures were given new numbers after the existing Google Sheets history.')
+            return jsonify(**reconcile_pending_previews())
         finally:
             gate.release()
 

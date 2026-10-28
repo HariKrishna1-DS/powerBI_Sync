@@ -3,18 +3,21 @@ import {readFile} from 'node:fs/promises';
 import path from 'node:path';
 import {workspaceFixture} from './workspace-fixture.js';
 
-async function setup(page,{rejectSave=false,legacyDetailsOnce=false,sameNumberAcrossFiles=false}={}){
+async function setup(page,{rejectSave=false,legacyDetailsOnce=false,sameNumberAcrossFiles=false,repeatedWithinFile=false}={}){
   const fixture=workspaceFixture(80),writes=[],errors=[],changes=[];
   const legacyPaths=new Set();
   fixture.rows[0]._month='2026-09';
   const columns=fixture.columns.concat('Out Time'),day='2026-10-01';
-  if(sameNumberAcrossFiles){
+  if(sameNumberAcrossFiles||repeatedWithinFile){
     columns.push('Source workbook');
     fixture.rows[1]['Order Number']=fixture.rows[0]['Order Number'];
     for(const [index,source] of [[0,'full.xlsx'],[1,'other.xlsx']]){
-      fixture.rows[index]['Source workbook']=source;
-      fixture.rows[index]._record_key=JSON.stringify([source,fixture.rows[index]['Order Number'].toLowerCase()]);
+      const workbook=repeatedWithinFile?'full.xlsx':source;
+      fixture.rows[index]['Source workbook']=workbook;
+      if(repeatedWithinFile)fixture.rows[index]['Source row ID']=`TV Orders!${index+2}`;
+      fixture.rows[index]._record_key=JSON.stringify([workbook,fixture.rows[index]['Order Number'].toLowerCase(),...(repeatedWithinFile?[fixture.rows[index]['Source row ID']]:[])]);
     }
+    if(repeatedWithinFile)columns.push('Source row ID');
   }
   const capacityColumns=['Date','Received','Completed','Clarification','Cancelled','Vendor Pending','In-House Pending','Capacity','Ext capacity'];
   const settings={mode:'excel',row_count:80,data_revision:'date-details',files:[]};
@@ -29,9 +32,9 @@ async function setup(page,{rejectSave=false,legacyDetailsOnce=false,sameNumberAc
       if(name==='/api/state')body={...body,report_workspace:settings};
       if(name==='/api/report-workspace')body=settings;
       if(name==='/api/live-sheets')body={...body,mode:'excel'};
-      if(name==='/api/capacity-report')body={completion_date_basis:'report_date',columns:capacityColumns,monthly:[{Date:'2026-08',Received:1},{Date:'2026-09',Received:6},{Date:'2026-10',Received:80,Completed:3,Clarification:16,Cancelled:5,'Vendor Pending':9,'In-House Pending':47}],
+      if(name==='/api/capacity-report')body={completion_date_basis:'out_time',columns:capacityColumns,monthly:[{Date:'2026-08',Received:1},{Date:'2026-09',Received:6},{Date:'2026-10',Received:80,Completed:3,Clarification:16,Cancelled:5,'Vendor Pending':9,'In-House Pending':47}],
         daily:[{Date:day,Received:65,Completed:2,Clarification:12,Cancelled:3,'Vendor Pending':6,'In-House Pending':42},{Date:'2026-10-02',Received:15,Completed:1,Clarification:4,Cancelled:2,'Vendor Pending':3,'In-House Pending':5}],month:'2026-10',capacity:700,extended_capacity:750,source:'Imported Excel'};
-      if(name==='/api/capacity-report/details')body={date:day,previous_date:'2026-09-30',next_date:'2026-10-02',raw_received:65,rollover_received:0,
+      if(name==='/api/capacity-report/details')body={completion_date_basis:'out_time',date:day,previous_date:'2026-09-30',next_date:'2026-10-02',raw_received:65,rollover_received:0,
         mode:'excel',source:'Imported Excel',columns,groups:[
           {key:'received',label:'Received',rows:fixture.rows.slice(0,65)},
           {key:'completed',label:'Completed',rows:fixture.rows.slice(4,6)},
@@ -56,12 +59,12 @@ async function setup(page,{rejectSave=false,legacyDetailsOnce=false,sameNumberAc
       if(name==='/api/order-details'){
         if(route.request().method()==='GET'){
           expect(url.searchParams.get('month')).toBe('');
-          const row=fixture.rows.find(row=>row['Order Number']===url.searchParams.get('order')&&(!sameNumberAcrossFiles||row['Source workbook']===url.searchParams.get('source_workbook')));
-          body={order:row,source_workbook:row['Source workbook']||'',editable_columns:['Status','Out Time','Client'],mode:'excel',month:'',version:'test-version'};
+          const row=fixture.rows.find(row=>row['Order Number']===url.searchParams.get('order')&&(!sameNumberAcrossFiles||row['Source workbook']===url.searchParams.get('source_workbook'))&&(!repeatedWithinFile||row._record_key===url.searchParams.get('record_key')));
+          body={order:row,record_key:row._record_key,source_workbook:row['Source workbook']||'',editable_columns:['Status','Out Time','Client'],mode:'excel',month:'',version:'test-version'};
         }else{
           const saved=route.request().postDataJSON();writes.push(saved);
           if(rejectSave)return route.fulfill({status:409,json:{error:'This order changed since you opened it. Reopen the editor to review the latest values.'}});
-          const row=fixture.rows.find(row=>row['Order Number']===saved.order_number&&(!sameNumberAcrossFiles||row['Source workbook']===saved.source_workbook));
+          const row=fixture.rows.find(row=>row['Order Number']===saved.order_number&&(!sameNumberAcrossFiles||row['Source workbook']===saved.source_workbook)&&(!repeatedWithinFile||row._record_key===saved.record_key));
           for(const [column,value] of Object.entries(saved.changes)){
             changes.push({...row,Column:column,'Previous Value':row[column]||'','New Value':value,'Changed At':'2026-10-15T09:00:00Z'});
             row[column]=value;
@@ -82,6 +85,7 @@ async function setup(page,{rejectSave=false,legacyDetailsOnce=false,sameNumberAc
 test('capacity totals sum direct counts and dates open exact received, completed and status groups',async({page})=>{
   const {fixture,writes,errors}=await setup(page);
   await page.getByRole('button',{name:'Capacity Report',exact:true}).click();
+  await expect(page.getByText('Capacity Report uses imported Excel orders. Saturday and Sunday receipts and completions are included on the preceding Friday.',{exact:true})).toBeVisible();
   const dailyTotal=page.locator('.capacity-daily-total');
   await expect(dailyTotal.locator('td')).toHaveText(['Total','80','3','16','5','9','47','0','0']);
   await expect(page.locator('.capacity-total').first().locator('td')).toHaveText(['2026 YTD Total','87','3','16','5','9','47','0','0']);
@@ -116,6 +120,40 @@ test('capacity totals sum direct counts and dates open exact received, completed
   expect(writes).toEqual([]);expect(errors).toEqual([]);
 });
 
+test('capacity numbers open their matching categories, including zero counts and targets',async({page})=>{
+  const {errors}=await setup(page);
+  await page.getByRole('button',{name:'Capacity Report',exact:true}).click();
+  for(const [column,count,group,rows] of [['Received',65,'Received',65],['Completed',2,'Completed',2],['Clarification',12,'Clarification',12],['Cancelled',3,'Cancelled',3],['Vendor Pending',6,'Vendor Pending',6],['In-House Pending',42,'In-House Pending',42],['Capacity',0,'Received',65],['Ext capacity',0,'Received',65]]){
+    await page.getByRole('button',{name:`01-10-26, ${column}: ${count}`,exact:true}).click();
+    const dialog=page.getByRole('dialog');
+    await expect(dialog.getByRole('button',{name:`${group} ${rows}`,exact:true})).toHaveAttribute('aria-pressed','true');
+    await expect(dialog.locator('tbody tr')).toHaveCount(Math.min(rows,50));
+    if(column.includes('capacity')||column==='Capacity')await expect(dialog).toContainText('The table shows received orders against this target.');
+    await page.keyboard.press('Escape');
+  }
+  expect(errors).toEqual([]);
+});
+
+test('monthly, daily total and YTD numbers request aggregate records',async({page})=>{
+  const {fixture,errors}=await setup(page),requests=[];
+  await page.route('**/api/capacity-report/details?*',route=>{
+    requests.push(new URL(route.request().url()).searchParams);
+    return route.fulfill({json:{date:'',columns:fixture.columns,raw_received:80,mode:'excel',source:'Imported Excel',groups:[
+      {key:'received',label:'Received',rows:fixture.rows}, {key:'completed',label:'Completed',rows:fixture.rows.slice(0,3)}]}});
+  });
+  await page.getByRole('button',{name:'Capacity Report',exact:true}).click();
+  for(const label of ['Oct-26, Completed: 3','Total, Completed: 3','2026 YTD Total, Completed: 3']){
+    await page.getByRole('button',{name:label,exact:true}).click();
+    const dialog=page.getByRole('dialog');
+    await expect(dialog.getByRole('button',{name:'Completed 3',exact:true})).toHaveAttribute('aria-pressed','true');
+    await expect(dialog.locator('.table-section tbody tr')).toHaveCount(3);
+    await page.keyboard.press('Escape');
+  }
+  expect(requests.map(query=>query.get('aggregate'))).toEqual(['true','true','true']);
+  expect(requests.map(query=>query.get('month')||query.get('year'))).toEqual(['2026-10','2026-10','2026']);
+  expect(errors).toEqual([]);
+});
+
 test('monthly capacity opens daily dates and editable orders inside the same popup',async({page})=>{
   const {fixture,writes,errors}=await setup(page);
   await page.getByRole('button',{name:'Capacity Report',exact:true}).click();
@@ -126,7 +164,7 @@ test('monthly capacity opens daily dates and editable orders inside the same pop
   await page.keyboard.press('Escape');
   await page.getByRole('button',{name:'Sep-26',exact:true}).click();
   dialog=page.getByRole('dialog',{name:'Capacity orders · September 2026'});
-  await expect(dialog).toContainText('Saturday and Sunday activity is included on the preceding Friday.');
+  await expect(dialog).toContainText('Saturday and Sunday receipts and completions are included on the preceding Friday.');
   await expect(dialog.locator('.capacity-month-days tbody tr')).toHaveCount(2);
   await expect(dialog.locator('.table-section tbody tr')).toHaveCount(5);
   await dialog.getByRole('button',{name:'30-09-26',exact:true}).click();
@@ -163,6 +201,26 @@ test('same order number from different workbooks stays separate and edits the se
   expect(writes[0].source_workbook).toBe('other.xlsx');
   expect(fixture.rows[0].Client).toBe(firstClient);
   expect(fixture.rows[1].Client).toBe('Selected workbook client');
+  expect(errors).toEqual([]);
+});
+
+test('repeated order numbers in one workbook remain visible and edit only the selected occurrence',async({page})=>{
+  const {fixture,writes,errors}=await setup(page,{repeatedWithinFile:true});
+  const original={...fixture.rows[0]};
+  await page.getByRole('button',{name:'Capacity Report',exact:true}).click();
+  await page.getByRole('button',{name:'01-10-26',exact:true}).click();
+  const dialog=page.getByRole('dialog');
+  await dialog.getByLabel('Search detail records').fill(fixture.rows[0]['Order Number']);
+  await expect(dialog.locator('tbody tr')).toHaveCount(2);
+  await dialog.locator('tbody tr').filter({hasText:'TV Orders!3'}).getByRole('button',{name:/^Edit order/}).click();
+  await expect(dialog.getByLabel('Edit Source row ID',{exact:true})).toHaveCount(0);
+  await dialog.getByLabel('Edit Client',{exact:true}).fill('Selected occurrence client');
+  await dialog.getByRole('button',{name:'Save order changes',exact:true}).click();
+  await expect(dialog.getByRole('status')).toContainText('saved');
+  expect(writes[0].record_key).toBe(fixture.rows[1]._record_key);
+  expect(fixture.rows[0]).toEqual(original);
+  expect(fixture.rows[1].Client).toBe('Selected occurrence client');
+  await expect(dialog.locator('tbody tr')).toHaveCount(2);
   expect(errors).toEqual([]);
 });
 

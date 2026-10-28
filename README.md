@@ -1,8 +1,8 @@
-# Tv Tracker 1.0.10 — Windows desktop
+# Tv Tracker 1.0.11 — Windows desktop
 
 Tv Tracker is a local desktop workspace for TitleVision extraction, Google Sheets production tracking, saved captures, comparisons, and Power BI exports. Its Python and Node runtimes are bundled. No Render hosting or PostgreSQL service is required.
 
-The current source version is **1.0.10** on `tv-tracker-app`. Desktop and React package manifests and lockfiles use this version. See [the 1.0.10 release notes](docs/TV_TRACKER_1_0_10_RELEASE.md) for the included changes. Tracker SLA Status uses one selected saved preview; its dropdown updates the summary, cards, chart, Excel download and SLA tab in Google Sheets while preserving that tab's formatting.
+The current source version is **1.0.11** on `tv-tracker-app`. Desktop and React package manifests and lockfiles use this version. See [changes since 1.0.10](docs/TV_TRACKER_1_0_11_RELEASE.md) and the [1.0.10 release notes](docs/TV_TRACKER_1_0_10_RELEASE.md). Tracker SLA Status uses one selected saved preview; its dropdown updates the summary, cards, chart, Excel download and SLA tab in Google Sheets while preserving that tab's formatting.
 
 Version 1.0.10 includes the complete working local application: manual SLA statuses and orders, order search, column filters, full ETA comments and arrival dates, imported-report date selection, completion normalization, and the current capacity calculations. Version 1.0.9 omitted these local changes.
 
@@ -31,7 +31,8 @@ The rename preserves the previous DataTrace Studio profile and installer identit
 - **Data sheets:** combined production trackers, individual trackers, and Status Report. Live production values come from Google Sheets.
 - **Saved captures:** immutable imported/extracted queues, available locally with raw Excel and filtered CSV downloads.
 - **Daily Orders / Monthly Orders:** retained production orders with period navigation, status tables, and labeled charts. Daily metric cards jump to their order tables. Chart filters, status breakdown, and the custom chart start open.
-- **Import Excel report:** a separate local report source built from uploaded XLSX/CSV files. The latest occurrence of a repeated Order Number wins. Daily received dates follow In-Time. A **Completed and Delivered** order moves to its Out Time month when completion is later than arrival; with no Out Time it remains in its arrival month's completed list.
+- **Import Excel report:** every workbook row remains a separate occurrence, including repeated Order Numbers. Each occurrence retains its own product, status, received date and Out Time. Received dates use Date first, then In-Time. Older saved imports recover retained source occurrences with a safety backup.
+- **Capacity Report:** always uses the saved Excel import, including when Tracker mode is selected elsewhere. Saturday and Sunday receipts and completions count on the preceding Friday. Completed and Delivered rows require a valid Out Time; missing dates are reported separately. Counts, searches, editable details and PR Excel downloads use the same imported records. A completion date can appear with zero received orders.
 - **Selected daily date in Sheets:** clicking a Daily Orders date highlights it in **Daily Status Report** and applies a basic filter to **All Products**, showing that day's received orders. Selecting another date replaces the shared All Products filter for everyone viewing that spreadsheet.
 - **Sync activity:** local sync receipt, missing-order and ambiguity review. Cloud audit tabs are not required.
 - **Changes:** compare saved captures by trimmed, case-insensitive Order Number and export the comparison for Power BI.

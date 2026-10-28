@@ -41,7 +41,7 @@ def records(values, title):
         if not identity:
             raise ValueError(f'{title}, row {number}: enter an Order Number or remove the empty order row.')
         if identity in result:
-            raise ValueError(f'{title}: Order Number {row["Order Number"]} appears more than once in the same workbook. Resolve it before refreshing.')
+            raise ValueError(f'{title}: keep a different Source row ID for each occurrence of Order Number {row["Order Number"]}. No rows were changed.')
         status = row.get('Status') or row.get('Task Status', '')
         row['Status'] = STATUS_NAMES.get(status.casefold(),
             {'completed': 'Completed and Delivered', 'canceled': 'Cancelled'}.get(status.casefold(), status))
@@ -124,6 +124,8 @@ def reconcile(imported, baseline, remote):
         from tracker_sync import canonical_headers
         if 'Source workbook' in before_headers and 'Source workbook' not in canonical_headers(values[0] if values else []):
             raise ValueError(f'{title}: keep the Source workbook column. No orders were changed.')
+        if 'Source row ID' in before_headers and 'Source row ID' not in canonical_headers(values[0] if values else []):
+            raise ValueError(f'{title}: keep the Source row ID column so repeated orders remain separate. No rows were changed.')
         headers, after = records(values, title)
         columns = list(dict.fromkeys(columns + headers))
         for identity in before.keys() - after.keys():
@@ -213,7 +215,7 @@ def reconcile(imported, baseline, remote):
     if not events:
         return imported, []
     if len(current) > 100000:
-        raise ValueError('The Google Sheets report exceeds 100,000 unique orders.')
+        raise ValueError('The Google Sheets report exceeds 100,000 order rows.')
     return dict(imported, rows=list(current.values()), columns=columns, created=now,
                 view_members={label: sorted(group) for label, group in members.items()}), events
 
@@ -297,10 +299,10 @@ def sync_imported_tabs(workspace, book, settings):
             row, identity = decoded[0], key(decoded[0])
             other_copies[identity].append((sheet, headers, index, row))
             other_states[sheet.title][identity] = row.get('Status', '')
-            minimal = {column: row.get(column, '') for column in ('Order Number', 'Source workbook', 'Status')}
+            minimal = {column: row.get(column, '') for column in ('Order Number', 'Source workbook', 'Source row ID', 'Status')}
             new_rows.append(minimal)
             old_rows.append(dict(minimal, Status=previous.get(sheet.title, {}).get(identity, current[identity].get('Status', ''))))
-        columns = ['Order Number', 'Source workbook', 'Status']
+        columns = ['Order Number', 'Source workbook', 'Source row ID', 'Status']
         merge_baseline[sheet.title], merge_remote[sheet.title] = matrix(old_rows, columns), matrix(new_rows, columns)
     imported, events = reconcile(settings['imported'], merge_baseline, merge_remote)
     with workspace.lock:

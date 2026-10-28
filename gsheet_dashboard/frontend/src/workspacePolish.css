@@ -116,6 +116,26 @@ td,.orders-table td { font-size:12.5px; line-height:1.5; padding:13px 16px; colo
 .report-order-search .search-input input { width:100%; min-width:0; }
 .report-order-search .search-input .icon-button { flex-shrink:0; }
 .report-order-search .table-section { margin-top:12px; }
+.sla-report-tools.has-repeated-orders { display:grid; grid-template-columns:minmax(0,1fr) minmax(280px,420px); grid-template-rows:18px auto; gap:8px 24px; margin:20px 0; align-items:start; }
+.sla-report-tools.has-repeated-orders>.report-order-search { display:contents; }
+.sla-report-tools.has-repeated-orders .report-order-search-label { grid-column:2; margin:0; width:100%; }
+.sla-report-tools.has-repeated-orders .report-order-search>.search-input { grid-column:2; margin:0; width:100%; }
+.sla-report-tools.has-repeated-orders .report-order-search>[aria-live] { grid-column:1/-1; min-width:0; }
+.sla-repeated-orders { grid-column:1; grid-row:1/span 2; min-width:0; padding:14px; border:1px solid var(--line); border-radius:12px; background:var(--surface); }
+.sla-repeated-orders h3 { margin:0 0 8px; font-size:14px; }
+.sla-repeated-orders p { margin:6px 0; font-size:12px; line-height:1.5; }
+.sla-repeated-orders ul { display:grid; gap:8px; list-style:none; margin:10px 0; padding:0; max-height:300px; overflow:auto; }
+.sla-repeated-order { display:flex; flex-direction:column; gap:5px; width:100%; padding:10px; text-align:left; color:var(--text); background:var(--accent-soft); border:1px solid var(--line); border-radius:8px; cursor:pointer; }
+.sla-repeated-order:hover { border-color:var(--accent); }
+.sla-repeated-order:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.sla-repeated-order strong { color:var(--accent); overflow-wrap:anywhere; }
+.sla-repeated-order span,.sla-repeated-order small { line-height:1.5; font-size:12px; overflow-wrap:anywhere; }
+.sla-repeated-order small { color:var(--muted); }
+@media(max-width:800px) {
+  .sla-report-tools.has-repeated-orders { grid-template-columns:minmax(0,1fr); grid-template-rows:auto; gap:14px; }
+  .sla-repeated-orders { grid-column:1; grid-row:auto; }
+  .sla-report-tools.has-repeated-orders .report-order-search-label,.sla-report-tools.has-repeated-orders .report-order-search>.search-input { grid-column:1; max-width:none; }
+}
 .orders-table tbody tr.selected>td,.daily-orders .table-scroll tbody tr.daily-date-selected>td { background:var(--accent-soft); color:var(--ink); }
 .daily-orders tr.daily-date-selected>td:first-child { box-shadow:inset 3px 0 var(--accent); }
 .daily-orders tr.daily-date-selected .text-button { color:var(--accent); font-weight:750; }

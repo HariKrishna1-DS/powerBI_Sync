@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import threading
 import unittest
-from unittest.mock import patch
+from unittest.mock import patch, Mock
 
 from flask import Flask
 from openpyxl import load_workbook
@@ -41,6 +41,65 @@ class CapacityCalculationTests(unittest.TestCase):
         self.assertEqual([row['Completed'] for row in result['daily']], [275,297,22])
         self.assertEqual(reports,saved)
         self.assertEqual(capacity_report(reports, {'mode':'excel'}),result)
+
+    def test_capacity_routes_export_search_and_edits_stay_on_excel_in_tracker_mode(self):
+        from report_workspace import read_report_files
+        from test_pdf_report_workspace import excel
+        rows=[dict(order('REPEATED','Completed and Delivered',received='10/22/2026',completed='10/23/2026'),Date='10/22/2026'),
+              dict(order('REPEATED',received='10/22/2026'),Date='10/22/2026')]
+        imported=read_report_files([('full.xlsx',excel(rows))])
+        with tempfile.TemporaryDirectory() as folder:
+            workspace=ReportWorkspace(PreviewStore(Path(folder)/'previews'))
+            workspace.save(mode='tracker',imported=imported,cloud_reset=False,cloud_baseline={'tracker tab':[]})
+            tracker=Mock(side_effect=AssertionError('Capacity must not load queues or Google Sheets'))
+            app=Flask(__name__)
+            register_report_routes(app,workspace,threading.Lock(),tracker,tracker,lambda:None)
+            client=app.test_client()
+            result=client.get('/api/capacity-report').json
+            self.assertEqual(result['mode'],'excel')
+            self.assertEqual([(r['Date'],r['Received'],r['Completed']) for r in result['daily']],
+                             [('2026-10-22',2,0),('2026-10-23',0,1)])
+            search=client.get('/api/report-order-search?scope=capacity&search=REPEATED').json
+            self.assertEqual(search['total'],2)
+            details=client.get('/api/capacity-report/details?date=2026-10-23').json
+            self.assertEqual(details['mode'],'excel')
+            self.assertEqual(details['counts']['Received'],0)
+            self.assertEqual(details['counts']['Completed'],1)
+            export=client.get('/api/export/report?sheet=PR%20Excel')
+            self.assertEqual(export.status_code,200)
+            values=list(load_workbook(BytesIO(export.data),data_only=True)['PR Excel'].values)
+            self.assertEqual(values[-1][1:3],(2,1))
+            selected=search['rows'][1]
+            editor=client.get('/api/order-details',query_string={'context':'capacity','mode':'excel',
+                'order':'REPEATED','source_workbook':'full.xlsx','record_key':selected['_record_key']}).json
+            with patch('threading.Thread.start'):
+                saved=client.post('/api/order-details',json={'context':'capacity','mode':'excel',
+                    'order_number':'REPEATED','source_workbook':'full.xlsx','record_key':selected['_record_key'],
+                    'report_date':'2026-10-22','version':editor['version'],'changes':{'Out Time':'10/24/2026'}})
+            self.assertEqual(saved.status_code,200,saved.json)
+            self.assertEqual(workspace.read()['mode'],'tracker')
+            after=client.get('/api/capacity-report').json
+            self.assertEqual([(r['Date'],r['Received'],r['Completed']) for r in after['daily']],
+                             [('2026-10-22',2,0),('2026-10-23',0,2)])
+            tracker.assert_not_called()
+            queue=imported_snapshot({'rows':[order('QUEUE',received='10/25/2026')],
+                                    'columns':list(rows[0]),'files':[],'created':'2026-10-25'})
+            queue['mode']='tracker'
+            frames,report=report_frames(queue,workspace.read())
+            self.assertEqual(frames['PR Excel'][-1][1:3],[2,2])
+            self.assertNotIn('2026-10-25',[row['Date'] for row in report['daily']])
+
+    def test_empty_import_never_falls_back_to_queue_for_capacity(self):
+        with tempfile.TemporaryDirectory() as folder:
+            workspace=ReportWorkspace(PreviewStore(Path(folder)/'previews'))
+            forbidden=Mock(side_effect=AssertionError('Do not load queue rows'))
+            app=Flask(__name__)
+            register_report_routes(app,workspace,threading.Lock(),forbidden,forbidden,lambda:None)
+            result=app.test_client().get('/api/capacity-report').json
+            self.assertTrue(result['import_required'])
+            self.assertEqual(result['daily'],[])
+            self.assertEqual(result['monthly'],[])
+            forbidden.assert_not_called()
 
     def test_previous_month_pending_orders_do_not_increase_current_receipts(self):
         reports=sheet_reports({FULL:[order('A','Awaiting for Clarification',received='09/30/2026 09:00 AM'),
@@ -80,15 +139,15 @@ class CapacityCalculationTests(unittest.TestCase):
         self.assertEqual([(r['Date'],r['Completed']) for r in result['daily']], [('2026-10-01',2),('2026-10-02',1)])
         self.assertEqual(result['missing_completion_date_count'],2)
 
-    def test_imported_completion_in_next_year_stays_on_report_date_in_pr_excel(self):
+    def test_imported_completion_in_next_year_uses_actual_completion_date_in_pr_excel(self):
         rows=[order('A','Completed and Delivered',received='12/31/2026 09:00 AM',completed='01/02/2027 01:00 PM')]
         snapshot=imported_snapshot({'rows':rows,'columns':list(rows[0]),'files':[], 'created':'2026-12-31'})
         frames,report=report_frames(snapshot, {'mode':'excel','capacity_month':'2027-01'})
         self.assertEqual([(r['Date'],r['Received'],r['Completed']) for r in report['monthly']],
-                         [('2026-12',1,1)])
+                         [('2026-12',1,0),('2027-01',0,1)])
         self.assertEqual(report['month'],'2027-01')
-        self.assertEqual(frames['PR Excel'][2][:3],['2027 YTD Total',0,0])
-        self.assertEqual(report['daily'],[])
+        self.assertEqual(frames['PR Excel'][3][:3],['2027 YTD Total',0,1])
+        self.assertEqual([(r['Date'],r['Received'],r['Completed']) for r in report['daily']], [('2027-01-01',0,1)])
         self.assertEqual(report['missing_completion_date_count'],0)
 
     def test_live_daily_table_uses_current_month_and_keeps_previous_month_totals(self):
@@ -121,7 +180,7 @@ class CapacityCalculationTests(unittest.TestCase):
         snapshot=imported_snapshot({'rows':rows,'columns':list(rows[0]),'files':[],'created':'2026-10-15'})
         with tempfile.TemporaryDirectory() as folder:
             workspace=ReportWorkspace(PreviewStore(Path(folder)/'previews'))
-            workspace.save(mode='excel',selected_date='2026-09-30')
+            workspace.save(mode='excel',selected_date='2026-09-30',imported={'rows':rows,'columns':list(rows[0]),'files':[],'created':'2026-10-15'})
             app=Flask(__name__)
             register_report_routes(app,workspace,threading.Lock(),lambda **kwargs:snapshot,lambda:None,lambda:None)
             client=app.test_client()
@@ -166,7 +225,7 @@ class CapacityCalculationTests(unittest.TestCase):
         self.assertEqual(reports,original)
         self.assertIn('2026-10-03',[day['Date'] for day in reports['daily']])
 
-    def test_weekend_month_start_stays_in_previous_friday_month_in_summary_detail_and_export(self):
+    def test_imported_weekend_completion_moves_to_preceding_friday_across_months(self):
         rows=[order('Friday',received='10/30/2026'),
               order('Saturday','Completed and Delivered',received='10/31/2026',completed='11/01/2026'),
               order('Sunday',received='11/01/2026')]
@@ -176,9 +235,14 @@ class CapacityCalculationTests(unittest.TestCase):
                          [('2026-10',3,1,700)])
         self.assertEqual([day['Date'] for day in report['daily']], ['2026-10-30'])
         self.assertEqual(frames['PR Excel'][4][:3],['2026-10-30',3,1])
-        groups={g['key']:g['rows'] for g in capacity_details(snapshot['reports'],'2026-10-30',use_report_date=True)['groups']}
+        groups={g['key']:g['rows'] for g in capacity_details(snapshot['reports'],'2026-10-30',out_time_only=True)['groups']}
         self.assertEqual({row['In-Time'] for row in groups['received']},{'10/30/2026','10/31/2026','11/01/2026'})
-        self.assertEqual(capacity_report(snapshot['reports'],{'mode':'excel','capacity_month':'2026-11'})['daily'],[])
+        november=capacity_report(snapshot['reports'],{'mode':'excel','capacity_month':'2026-11'})['daily']
+        self.assertEqual(november,[])
+        self.assertEqual(len(groups['completed']),1)
+        self.assertEqual(groups['completed'][0]['Source completion date'],'2026-11-01')
+        self.assertEqual(groups['completed'][0]['Capacity date'],'2026-10-30')
+        self.assertEqual(groups['completed'][0]['Out Time'],'11/01/2026')
 
     def test_weekend_mapping_handles_month_and_year_boundaries(self):
         for original,friday in [('2026-10-03','2026-10-02'),('2026-10-04','2026-10-02'),
@@ -194,22 +258,22 @@ class CapacityCalculationTests(unittest.TestCase):
         snapshot=imported_snapshot({'rows':rows,'columns':list(rows[0]),'files':[], 'created':'2026-10-02'})
         with tempfile.TemporaryDirectory() as folder:
             workspace=ReportWorkspace(PreviewStore(Path(folder)/'previews'))
-            workspace.save(mode='excel')
+            workspace.save(mode='excel',imported={'rows':rows,'columns':list(rows[0]),'files':[],'created':'2026-10-02'})
             app=Flask(__name__)
             register_report_routes(app,workspace,threading.Lock(),lambda **kwargs:snapshot,lambda:None,lambda:None)
             client=app.test_client()
             data=client.get('/api/capacity-report').json
-            self.assertEqual([(r['Received'],r['Completed']) for r in data['daily']],[(3,1),(1,0)])
-            details=client.get('/api/capacity-report/details?date=2026-10-01').json
+            self.assertEqual([(r['Received'],r['Completed']) for r in data['daily']],[(3,0),(1,1)])
+            details=client.get('/api/capacity-report/details?date=2026-10-02').json
             completed=next(group for group in details['groups'] if group['key']=='completed')
             self.assertEqual([row['Order Number'] for row in completed['rows']],['C'])
-            self.assertIn('grouped by report Date',completed['description'])
+            self.assertIn('preceding Friday',completed['description'])
             month=client.get('/api/capacity-report/details?month=2026-10').json
-            self.assertEqual([(r['Received'],r['Completed']) for r in month['daily']],[(3,1),(1,0)])
+            self.assertEqual([(r['Received'],r['Completed']) for r in month['daily']],[(3,0),(1,1)])
             book=load_workbook(BytesIO(client.get('/api/export/report?sheet=PR%20Excel').data),data_only=True)
             values=list(book['PR Excel'].values)
-            self.assertEqual(values[4][1:3],(3,1))
-            self.assertEqual(values[5][1:3],(1,0))
+            self.assertEqual(values[4][1:3],(3,0))
+            self.assertEqual(values[5][1:3],(1,1))
             self.assertEqual(values[6][1:3],(4,1))
 
     def test_previous_pending_and_later_completions_never_create_new_receipts(self):
@@ -247,13 +311,13 @@ class CapacityCalculationTests(unittest.TestCase):
                                    ('co_update.xlsx',excel([order('shared','Awaiting for Clarification'),order('next',received='10/05/2026')]))])
         snapshot=imported_snapshot(imported);saved=deepcopy(imported)
         report=capacity_report(snapshot['reports'],{'mode':'excel'})
-        self.assertEqual([(r['Received'],r['Completed']) for r in report['daily']],[(2,1),(1,0)])
+        self.assertEqual([(r['Received'],r['Completed']) for r in report['daily']],[(2,0),(0,1),(1,0)])
         groups={g['key']:g['rows'] for g in capacity_details(snapshot['reports'],'2026-10-01',use_report_date=True)['groups']}
         self.assertEqual([r['Source workbook'] for r in groups['clarification']],['co_update.xlsx'])
-        self.assertEqual([r['Source workbook'] for r in groups['completed']],['full.xlsx'])
+        self.assertEqual([r['Source workbook'] for r in next(g['rows'] for g in capacity_details(snapshot['reports'],'2026-10-02')['groups'] if g['key']=='completed')],['full.xlsx'])
         self.assertEqual(imported,saved)
 
-    def test_excel_import_counts_completed_status_by_report_date_despite_out_time(self):
+    def test_excel_import_counts_completed_status_on_out_time(self):
         from report_workspace import read_report_files
         from test_pdf_report_workspace import excel
         rows=[dict(order('later','  COMPLETED  AND DELIVERED ',received='10/02/2026',completed='11/02/2026'),Date='10/01/2026'),
@@ -269,16 +333,61 @@ class CapacityCalculationTests(unittest.TestCase):
         snapshot=imported_snapshot(imported)
         frames,report=report_frames(snapshot,{'mode':'excel','capacity_month':'2026-10'})
         self.assertEqual([(r['Date'],r['Received'],r['Completed']) for r in report['daily']],
-                         [('2026-10-01',6,5),('2026-10-02',1,1),('2026-10-05',2,2)])
-        self.assertEqual((report['monthly'][0]['Received'],report['monthly'][0]['Completed']),(9,8))
-        self.assertEqual(report['completion_date_basis'],'report_date')
-        self.assertEqual(report['missing_completion_date_count'],0)
-        self.assertEqual(frames['PR Excel'][-1][1:3],[9,8])
+                         [('2026-10-01',6,2),('2026-10-02',1,0),('2026-10-05',2,0),('2026-10-06',0,1),('2026-10-07',0,1),('2026-10-08',0,1)])
+        self.assertEqual((report['monthly'][0]['Received'],report['monthly'][0]['Completed']),(9,5))
+        self.assertEqual(report['completion_date_basis'],'out_time')
+        self.assertEqual(report['missing_completion_date_count'],2)
+        self.assertEqual(frames['PR Excel'][-1][1:3],[9,5])
         for day in report['daily']:
-            details=capacity_details(snapshot['reports'],day['Date'],use_report_date=True)
+            details=capacity_details(snapshot['reports'],day['Date'],out_time_only=True)
             completed=next(g['rows'] for g in details['groups'] if g['key']=='completed')
             self.assertEqual(len(completed),day['Completed'])
         self.assertEqual(imported,saved)
+
+    def test_uploaded_completion_requires_out_time_and_api_export_details_group_weekends(self):
+        from report_workspace import read_report_files
+        from test_pdf_report_workspace import excel
+        rows=[order('prior-month','Completed and Delivered',received='09/30/2026',completed='10/03/2026'),
+              dict(order('completed-time-only','Completed and Delivered'),**{'Completed Time':'10/05/2026 10:00 AM'}),
+              dict(order('invalid-out','Completed and Delivered',completed='invalid'),**{'Completed Time':'10/06/2026'}),
+              order('no-received-date','Completed and Delivered',received='',completed='10/04/2026'),
+              order('completed-alias','Completed'),
+              dict(order('pending'),**{'Completed Time':'10/05/2026 10:00 AM'}),
+              order('source-time','Completed and Delivered',completed='2026-10-03T23:50:00-07:00')]
+        imported=read_report_files([('full.xlsx',excel(rows))])
+        snapshot=imported_snapshot(imported);before=deepcopy(imported)
+        with tempfile.TemporaryDirectory() as folder:
+            workspace=ReportWorkspace(PreviewStore(Path(folder)/'previews'))
+            workspace.save(mode='excel',imported=imported)
+            app=Flask(__name__)
+            register_report_routes(app,workspace,threading.Lock(),lambda **kwargs:snapshot,lambda:None,lambda:None)
+            client=app.test_client()
+            report=client.get('/api/capacity-report').json
+            self.assertEqual(report['completion_date_basis'],'out_time')
+            self.assertEqual(report['missing_completion_date_count'],3)
+            self.assertEqual([(day['Date'],day['Received'],day['Completed']) for day in report['daily']],
+                             [('2026-10-01',5,0),('2026-10-02',0,3)])
+            self.assertEqual([(day['Date'],day['Completed']) for day in report['monthly']],
+                             [('2026-09',0),('2026-10',3)])
+            for query,expected in [('date=2026-10-02',{'prior-month','source-time','no-received-date'}),
+                                   ('month=2026-10&aggregate=true',{'prior-month','source-time','no-received-date'}),
+                                   ('year=2026',{'prior-month','source-time','no-received-date'})]:
+                response=client.get('/api/capacity-report/details?'+query)
+                self.assertEqual(response.status_code,200,response.json)
+                detail=response.json
+                completed=next(group['rows'] for group in detail['groups'] if group['key']=='completed')
+                self.assertEqual({row['Order Number'] for row in completed},expected)
+                self.assertEqual(detail['counts']['Completed'],len(expected))
+                self.assertEqual(detail['completion_date_basis'],'out_time')
+                self.assertIn('Out Time',detail['columns'])
+            export=client.get('/api/export/report?sheet=PR%20Excel')
+            self.assertEqual(export.status_code,200)
+            book=load_workbook(BytesIO(export.data),data_only=True)
+            daily=[(cells[0].value.date().isoformat(),cells[1].value,cells[2].value)
+                   for cells in book['PR Excel'].iter_rows()
+                   if isinstance(cells[0].value,datetime) and cells[0].number_format=='dd-mm-yy']
+            self.assertEqual(daily,[('2026-10-01',5,0),('2026-10-02',0,3)])
+        self.assertEqual(imported,before)
 
     def test_reference_report_totals_sum_daily_values_in_all_six_columns(self):
         reference=[

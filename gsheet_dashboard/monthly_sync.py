@@ -14,11 +14,13 @@ def sync_monthly(book, frame, store, on_progress=None, _tab_retry=0):
     from tracker_formatting import ensure_tracker_formatting
     from monthly_views import refresh_monthly_views, capacity_report_values
     from report_workspace import ReportWorkspace
-    publish_tracker_reports = ReportWorkspace(store).read()['mode'] != 'excel'
+    publish_tracker_reports = ((frame is None or not frame.attrs.get('defer_report_views'))
+                               and ReportWorkspace(store).read()['mode'] != 'excel')
     if frame is None:
         if publish_tracker_reports:
             refresh_monthly_views(book)
-        ensure_tracker_formatting(book)
+        if frame is None or not frame.attrs.get('defer_report_views'):
+            ensure_tracker_formatting(book)
         return [s.title for s in book.worksheets() if tab_identity(s.title)]
     original = frame.attrs.get('original_capture')
     incoming = original['rows'] if original else frame.fillna('').to_dict('records')
@@ -42,7 +44,8 @@ def sync_monthly(book, frame, store, on_progress=None, _tab_retry=0):
         frame.attrs['pass_report'] = {k: v for k, v in (saved or {}).get('report', {}).items() if not k.startswith('_')}
         if publish_tracker_reports:
             refresh_monthly_views(book)
-        ensure_tracker_formatting(book)
+        if frame is None or not frame.attrs.get('defer_report_views'):
+            ensure_tracker_formatting(book)
         return list(sheets)
     history_ids = [int(r['Preview'][7:]) for r in history if str(r.get('Preview', '')).startswith('preview') and str(r['Preview'][7:]).isdigit()]
     if number and history_ids and number < max(history_ids):
@@ -142,7 +145,8 @@ def sync_monthly(book, frame, store, on_progress=None, _tab_retry=0):
             # The rejected batch changed nothing; rebuild once from fresh data.
             return sync_monthly(book, frame, store, on_progress, _tab_retry=1)
         raise
-    ensure_tracker_formatting(book)
+    if frame is None or not frame.attrs.get('defer_report_views'):
+        ensure_tracker_formatting(book)
     store.commit_sync_report(number, digest)
     frame.attrs['pass_report'] = report
     return list(plan['writes'])

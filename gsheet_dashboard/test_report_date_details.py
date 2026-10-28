@@ -55,7 +55,7 @@ class ReportDateDetailsTests(unittest.TestCase):
     def test_capacity_groups_reconcile_with_direct_counts_without_carryover(self):
         reports = self.snapshot()['reports']
         original = deepcopy(reports)
-        details = capacity_details(reports, '2026-10-02')
+        details = capacity_details(reports, '2026-10-02', out_time_only=True)
         groups = {group['key']: group['rows'] for group in details['groups']}
         self.assertEqual(details['previous_date'], '2026-09-30')
         self.assertEqual(details['next_date'], '2026-10-05')
@@ -65,8 +65,12 @@ class ReportDateDetailsTests(unittest.TestCase):
         self.assertEqual(groups['vendor'], [])
         self.assertEqual([row['Order Number'] for row in groups['in_house']], ['D'])
         self.assertEqual([row['Order Number'] for row in groups['completed']], ['C'])
+        self.assertEqual(groups['completed'][0]['Source completion date'], '2026-10-04')
+        self.assertEqual(groups['completed'][0]['Capacity date'], '2026-10-02')
+        with self.assertRaises(ValueError):
+            capacity_details(reports, '2026-10-04', out_time_only=True)
         self.assertEqual(set(groups), {'received','completed','clarification','cancelled','vendor','in_house'})
-        final = capacity_details(reports, '2026-10-05')
+        final = capacity_details(reports, '2026-10-05', out_time_only=True)
         self.assertIsNone(final['next_date'])
         self.assertEqual(len(next(group['rows'] for group in final['groups'] if group['key'] == 'completed')), 1)
         self.assertEqual(reports, original)
@@ -116,6 +120,7 @@ class ReportDateDetailsTests(unittest.TestCase):
         self.assertTrue((Path(self.folder.name) / 'backups' / result.json['recovery_backup']).exists())
         report = capacity_report(self.snapshot()['reports'], self.workspace.read())
         self.assertEqual(next(day['Completed'] for day in report['daily'] if day['Date'] == '2026-10-02'), 2)
+        self.assertNotIn('2026-10-04', [day['Date'] for day in report['daily']])
         history = recorded_changes(self.workspace, 'excel', '2026-10-02')
         self.assertEqual({row['Column'] for row in history}, {'Status', 'Out Time'})
         status = next(row for row in history if row['Column'] == 'Status')
@@ -183,6 +188,17 @@ class ReportDateDetailsTests(unittest.TestCase):
         values=self.book.worksheet(FULL).values
         self.assertEqual(values[1][values[0].index('Status')],'Completed and Delivered')
         self.assertEqual(values[1][values[0].index('Out Time')],'10/04/2026 03:00 PM')
+
+    def test_capacity_month_and_year_counts_open_matching_aggregate_groups(self):
+        for query in ('month=2026-10&aggregate=true', 'year=2026&aggregate=true'):
+            response = self.client.get('/api/capacity-report/details?' + query)
+            self.assertEqual(response.status_code, 200, response.json)
+            self.assertEqual(response.json['date'], '')
+            for group in response.json['groups']:
+                if group['key'] != 'changes':
+                    self.assertEqual(len(group['rows']), response.json['counts'][group['label']])
+            self.assertEqual(response.json['counts']['Completed'], 2)
+        self.assertEqual(self.client.get('/api/capacity-report/details?year=invalid').status_code, 400)
 
     def test_failed_backup_cannot_change_the_imported_order(self):
         before = deepcopy(self.workspace.read()['imported'])

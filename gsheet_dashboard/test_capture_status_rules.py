@@ -19,7 +19,7 @@ class CaptureStatusRulesTests(unittest.TestCase):
             ({'TaskStatus': 'Completed and Delivered', 'Completed Time': '10/20/2026 09:15 AM',
               'ETAComments': '10/21 EOD or sooner'}, 'Completed and Delivered'),
             ({'ETA Comments': 'ON HOLD. Waiting for the abstractor'}, 'Waiting for Effective Date'),
-            ({'ETA Comments': 'We apologize for the abstractor delay'}, 'Need to Assign ABS'),
+            ({'ETA Comments': 'We apologize for the abstractor delay'}, 'Assign to ABS'),
             ({'Product': 'Attorney Appro..', 'ETA Comments': 'abstractor'}, 'Attorney Approval'),
             ({'Product': 'Home Builders', 'ETA Comments': 'abstractor'}, 'Home Builder'),
             ({'TaskName': 'CRSP2', 'ETA Comments': 'abstractor'}, 'SearchFix'),
@@ -80,7 +80,7 @@ class CaptureStatusRulesTests(unittest.TestCase):
         current = {FULL: [tracker], REMAINING: []}
         legacy = [[tracker], []]
         original = deepcopy((raw, tracker))
-        for day, expected in ((20, 'Assign to ABS'), (21, 'Need to Assign ABS'), (22, 'Assign to ABS')):
+        for day, expected in ((20, 'Assign to ABS'), (21, 'Assign to ABS'), (22, 'Assign to ABS')):
             today = datetime(2026, 10, day, 10)
             with patch('sla_status.queue_rule', side_effect=lambda row, as_of=None: queue_rule(row, today)):
                 current, _ = merge_trackers(current, [raw], [raw], today)

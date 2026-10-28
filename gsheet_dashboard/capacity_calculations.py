@@ -1,4 +1,4 @@
-"""Capacity workload by report date for Excel imports and completion day for trackers."""
+"""Capacity receipts and completions on their recorded source dates."""
 from collections import defaultdict
 from datetime import datetime, timedelta
 import re
@@ -7,7 +7,7 @@ COUNTS = ['Received', 'Completed', 'Clarification', 'Cancelled', 'Vendor Pending
 PENDING = ('Clarification', 'Vendor Pending', 'In-House Pending')
 
 
-def completion_rows(periods, *, use_report_date=False):
+def completion_rows(periods, *, use_report_date=False, out_time_only=False):
     """Use the same retained order and source date for counts and drilldowns."""
     from monthly_production import local_datetime
     from tracker_sync import key
@@ -18,7 +18,9 @@ def completion_rows(periods, *, use_report_date=False):
             if not identity:
                 continue
             received = local_datetime(row.get('_received_at')) or local_datetime(row.get('In-Time')) or local_datetime(row.get('Date'))
-            completed = local_datetime(row.get('Out Time')) or local_datetime(row.get('Completed Time'))
+            completed = local_datetime(row.get('Out Time'))
+            if not out_time_only:
+                completed = completed or local_datetime(row.get('Completed Time'))
             month = str(row.get('_month') or '')
             rank = (month if re.fullmatch(r'\d{4}-\d{2}', month) else (received.strftime('%Y-%m') if received else ''),
                     received or datetime.min, completed or datetime.min)
@@ -26,14 +28,15 @@ def completion_rows(periods, *, use_report_date=False):
                 orders[identity] = (rank, row, period['Date'], completed)
     result, missing_dates = defaultdict(list), 0
     for _, row, arrival_day, completed in orders.values():
-        if order_status(row) not in ('completed and delivered', 'completed'):
+        statuses = ('completed and delivered',) if out_time_only else ('completed and delivered', 'completed')
+        if order_status(row) not in statuses:
             continue
-        if use_report_date:
-            date = arrival_day
-        elif completed:
+        if completed:
             date = completed.date().isoformat()
         else:
             missing_dates += 1
+            if out_time_only:
+                continue
             date = arrival_day
         if re.fullmatch(r'\d{4}-\d{2}-\d{2}', str(date)):
             result[date].append(row)
@@ -67,13 +70,13 @@ def capacity_periods(periods):
     return days
 
 
-def capacity_completions(periods, *, use_report_date=False):
-    completed, missing = completion_rows(periods, use_report_date=use_report_date)
+def capacity_completions(periods, *, use_report_date=False, out_time_only=False):
+    completed, missing = completion_rows(periods, use_report_date=use_report_date, out_time_only=out_time_only)
     result = defaultdict(list)
     for source_date, rows in completed.items():
         date = capacity_date(source_date)
         if date:
-            result[date].extend(dict(row, **{'Capacity date': date}) for row in rows)
+            result[date].extend(dict(row, **{'Source completion date': source_date, 'Capacity date': date}) for row in rows)
     return result, missing
 
 
@@ -83,15 +86,16 @@ def pending_bucket(row):
             'Vendor Pending' if status == 'assign to abs' else 'In-House Pending')
 
 
-def capacity_ledger(reports, include_rows=False, *, use_report_date=False):
-    """Count source statuses by report date for imports, completion time for trackers."""
+def capacity_ledger(reports, include_rows=False, *, use_report_date=False, out_time_only=False):
+    """Count receipts by source date and completions by their completion time."""
     periods = reports.get('daily', [])
     days = capacity_periods(periods)
     has_rows = all(isinstance(period.get('rows'), list) for period in periods)
     missing_dates = 0
     completed = {}
     if has_rows:
-        completed, missing_dates = capacity_completions(periods, use_report_date=use_report_date)
+        completed, missing_dates = capacity_completions(periods,
+            use_report_date=use_report_date, out_time_only=out_time_only)
         for date in completed:
             days.setdefault(date, dict(Date=date, rows=[], **{column: 0 for column in COUNTS}))
     result = []
@@ -117,8 +121,8 @@ def capacity_ledger(reports, include_rows=False, *, use_report_date=False):
     return result, missing_dates
 
 
-def capacity_days(reports, *, use_report_date=False):
-    return capacity_ledger(reports, use_report_date=use_report_date)
+def capacity_days(reports, *, use_report_date=False, out_time_only=False):
+    return capacity_ledger(reports, use_report_date=use_report_date, out_time_only=out_time_only)
 
 
 def capacity_total(rows, label, columns=COUNTS):
@@ -127,25 +131,31 @@ def capacity_total(rows, label, columns=COUNTS):
                               for column in columns})
 
 
-def capacity_details(reports, date, *, use_report_date=False):
-    """Return the exact receipts, completions and status rows behind a date."""
-    days, _ = capacity_ledger(reports, include_rows=True, use_report_date=use_report_date)
-    index = next((i for i, day in enumerate(days) if day['Date'] == date), None)
-    if index is None:
+def capacity_details(reports, date='', *, month='', year='', use_report_date=False, out_time_only=False):
+    """Return the exact rows behind a daily, monthly or YTD count."""
+    days, _ = capacity_ledger(reports, include_rows=True, use_report_date=use_report_date, out_time_only=out_time_only)
+    selected = [day for day in days if day['Date'] == date] if date else [
+        day for day in days if day['Date'].startswith(month or year)]
+    if date and not selected:
         raise ValueError('That date is no longer in the capacity report. Refresh the report and try again.')
     periods = reports.get('daily', [])
     if not all(isinstance(period.get('rows'), list) for period in periods):
         raise ValueError('Order details are unavailable for this report. Refresh the report and try again.')
-    day = days[index]
-    received, pending = day['_received_rows'], day['_pending_rows']
+    day = capacity_total(selected, date or month or year)
+    received = [row for item in selected for row in item['_received_rows']]
+    pending = [row for item in selected for row in item['_pending_rows']]
+    completed = [row for item in selected for row in item['_completed_rows']]
+    completion_description = (
+        'Orders with status Completed and Delivered count by Out Time, including orders received in previous months. '
+        'Saturday and Sunday completions are included on the preceding Friday. '
+        'Orders without a valid Out Time are excluded from completed counts.' if out_time_only else
+        'Completed orders use Out Time or Completed Time, including orders received in previous months; missing completion dates use the received date. '
+        'Saturday and Sunday activity is included on the preceding Friday.')
     groups = [
         {'key': 'received', 'label': 'Received', 'rows': received,
-         'description': 'Orders received on this reporting date. Saturday and Sunday receipts are included on the preceding Friday.'},
-        {'key': 'completed', 'label': 'Completed', 'rows': day['_completed_rows'],
-         'description': ('Orders whose Status is Completed and Delivered, grouped by report Date; In-Time is used when the report Date is missing or invalid. '
-                         if use_report_date else
-                         'Completed orders use Out Time or Completed Time; missing completion dates use the received date. ')
-                        + 'Saturday and Sunday activity is included on the preceding Friday.'},
+         'description': 'Orders received in this reporting period. Saturday and Sunday receipts are included on the preceding Friday.'},
+        {'key': 'completed', 'label': 'Completed', 'rows': completed,
+         'description': completion_description},
         {'key': 'clarification', 'label': 'Clarification',
          'rows': [row for row in pending if pending_bucket(row) == 'Clarification']},
         {'key': 'cancelled', 'label': 'Cancelled',
@@ -155,10 +165,13 @@ def capacity_details(reports, date, *, use_report_date=False):
         {'key': 'in_house', 'label': 'In-House Pending',
          'rows': [row for row in pending if pending_bucket(row) == 'In-House Pending']},
     ]
-    columns = list(dict.fromkeys(['Source received date', 'Capacity date'] + [
+    columns = list(dict.fromkeys(['Source received date', 'Source completion date', 'Capacity date'] + [
         column for period in periods for column in period.get('columns', []) if not column.startswith('_')]))
-    return {'date': date, 'previous_date': days[index-1]['Date'] if index else None,
-            'next_date': days[index+1]['Date'] if index+1 < len(days) else None,
+    index = days.index(selected[0]) if date else None
+    return {'date': date, 'period': date or month or year,
+            'completion_date_basis': 'out_time' if out_time_only else 'completion_time',
+            'previous_date': days[index-1]['Date'] if index else None,
+            'next_date': days[index+1]['Date'] if index is not None and index+1 < len(days) else None,
             'raw_received': day['Received'], 'rollover_received': 0,
             'counts': {column: day.get(column, 0) for column in COUNTS},
             'columns': columns, 'groups': groups}

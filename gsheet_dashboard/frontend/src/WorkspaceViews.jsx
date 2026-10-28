@@ -8,7 +8,7 @@ import {MonthlyDownload, MonthlyMaintenance} from './MonthlyMaintenance';
 import remainingProducts from '../../remaining_products.json';
 const DateOrdersDialog=React.lazy(()=>import('./DateOrdersDialog'));
 
-import {EMPTY, DEFAULT_IGNORE, colors, str, label, normalized, orderKey, badgeClass, STATUS_COLORS, statusColor, textColorForBg, api, saveBlob, csvDownload, matches, IconButton} from './workspaceUtils';
+import {EMPTY, DEFAULT_IGNORE, colors, str, label, normalized, orderKey, orderStatus, badgeClass, STATUS_COLORS, statusColor, textColorForBg, api, saveBlob, csvDownload, matches, IconButton} from './workspaceUtils';
 function SideDrawer({title,rows,columns,onClose,renderActions,toolbar,showOrderStatus=false}) {
   const [search,setSearch]=useState('');
   const query=useDeferredValue(search).trim().toLowerCase();
@@ -22,12 +22,12 @@ function MaximizedModal({title,subtitle,children,onClose}) {
 }
 export function DuplicateOrdersDialog({rows,overlaps=[],onClose}) {
   const [search,setSearch]=useState(''),[across,setAcross]=useState(false);
-  const columns=['Order Number','Earlier row','Replacement row','Earlier product','Product','Earlier file','Earlier worksheet','Replacement file','Replacement worksheet','Earlier date','Date','Earlier status','Status'].map(column=>across?column.replace('Replacement','Other'):column);
-  const selected=across?overlaps.map(row=>({...row,'Other row':row['Replacement row'],'Other file':row['Replacement file'],'Other worksheet':row['Replacement worksheet']})):rows;
-  const sourceNames=[...new Set(selected.flatMap(row=>[row['Earlier file'],row['Other file']||row['Replacement file']]).filter(Boolean))];
+  const columns=['Order Number','Earlier row','Replacement row','Earlier product','Product','Earlier file','Earlier worksheet','Replacement file','Replacement worksheet','Earlier date','Date','Earlier status','Status','Earlier Out Time','Out Time'].map(column=>column.replace('Replacement',across?'Other':'Later'));
+  const selected=(across?overlaps:rows).map(row=>Object.fromEntries(Object.entries(row).map(([column,value])=>[column.replace('Replacement',across?'Other':'Later'),value])));
+  const sourceNames=[...new Set(selected.flatMap(row=>[row['Earlier file'],row['Other file']||row['Later file']]).filter(Boolean))];
   const visible=selected.filter(row=>!search||columns.some(column=>str(row[column]).toLowerCase().includes(search.toLowerCase())));
   return <Dialog title={`Duplicate orders · ${rows.length}`} onClose={onClose} className="detail-dialog">
-    <div className="dialog-content"><p className="muted">The duplicate count includes repeats within a workbook; the later occurrence is retained. Matching numbers in different workbooks are normal orders, counted separately in their source file tabs and in All Products. Across workbooks lists these numbers for reference.</p>
+    <div className="dialog-content"><p className="muted">Every occurrence is counted separately, including repeated Order Numbers within a workbook. Each source row keeps its own product, status and Out Time. These comparisons are for reference; both earlier and later rows are included in reports.</p>
       <div className="report-mode duplicate-source-tabs" aria-label="Order number comparison"><button type="button" className={!across?'active':''} aria-pressed={!across} onClick={()=>{setAcross(false);setSearch('');}}>Within workbook <strong>{rows.length.toLocaleString()}</strong></button><button type="button" className={across?'active':''} aria-pressed={across} onClick={()=>{setAcross(true);setSearch('');}}>Across workbooks <strong>{overlaps.length.toLocaleString()}</strong></button></div>
       <div className="search-input"><Search size={16}/><input aria-label="Search repeated orders" placeholder="Search order number, file or product" value={search} onChange={event=>setSearch(event.target.value)}/></div>
       {!!sourceNames.length&&<p className="report-context">Source workbooks: {sourceNames.join(' · ')}</p>}
@@ -566,11 +566,11 @@ function DailyOrders({preview, running, revision}) {
   const missingSlaOrders=new Set((selectedDay?.sla_rows||[]).filter(row=>row['Free Site']==='Missing').map(orderKey));
   const groups=[
     ['Received',rows],
-    ['Completed',rows.filter(row=>normalized(row.Status ?? row['Task Status'])==='completed and delivered')],
-    ['Clarification',rows.filter(row=>normalized(row.Status ?? row['Task Status'])==='awaiting for clarification')],
-    ['Cancelled',rows.filter(row=>normalized(row.Status ?? row['Task Status'])==='cancelled')],
-    ['Vendor Pending',rows.filter(row=>normalized(row.Status ?? row['Task Status'])==='assign to abs')],
-    ['In-House Pending',rows.filter(row=>!['completed and delivered','awaiting for clarification','cancelled','assign to abs'].includes(normalized(row.Status ?? row['Task Status'])))],
+    ['Completed',rows.filter(row=>orderStatus(row)==='completed and delivered')],
+    ['Clarification',rows.filter(row=>orderStatus(row)==='awaiting for clarification')],
+    ['Cancelled',rows.filter(row=>orderStatus(row)==='cancelled'||orderStatus(row)==='canceled')],
+    ['Vendor Pending',rows.filter(row=>orderStatus(row)==='assign to abs')],
+    ['In-House Pending',rows.filter(row=>!['completed and delivered','awaiting for clarification','cancelled','canceled','assign to abs'].includes(orderStatus(row)))],
     ['SLA OnTime',rows.filter(row=>onTimeOrders.has(orderKey(row)))],
     ['Missing',rows.filter(row=>missingSlaOrders.has(orderKey(row)))],
   ];
@@ -590,6 +590,7 @@ function DailyOrders({preview, running, revision}) {
     {error&&<div className="notice error" role="alert">{error}</div>}{publishMessage&&<p role="status">{publishMessage}</p>}{publishing&&<p role="status">Updating Google Sheets for the selected date…</p>}
     {loading?<div className="loading"><LoaderCircle className="spin"/>Loading daily orders...</div>:<>
       <div className="section-heading"><h2>Daily production orders</h2><div className="monthly-actions"><a className="secondary" href="/api/export/report?sheet=Daily%20Orders" download>Download Daily Orders</a><button type="button" className="secondary" disabled={publishing||!history.length} onClick={()=>chooseDate('')}>Reset date</button><label>Date<select aria-label="Daily orders date" value={selectedDay?.Date||''} disabled={publishing} onChange={e=>chooseDate(e.target.value)}>{history.map(day=><option key={day.Date} value={day.Date}>{dailyDateLabel(day.Date)}</option>)}</select></label></div></div>
+      {snapshot?.mode!=='excel'&&<p className="report-context">Received uses each order's In-Time or received Date. Completed and pending counts show the current statuses of those received orders. A saved capture can also contain orders received on earlier dates.</p>}
       <div className="metrics">{names.map((name,index)=><button type="button" className={`metric ${DAILY_TONES[index]}`} key={name} aria-pressed={activeGroup===index} aria-controls={`daily-orders-group-${index}`} disabled={!selectedDay} onClick={()=>showGroup(index)}><span>{name}</span><strong>{selectedDay?.[name]??0}</strong></button>)}</div>
       <ImportedStatusSummary report={selectedDay}/><p className="report-context">Click a date to open its order table, highlight it in Daily Status Report and filter the Google Sheets All Products tab to that day. Select an Order Number in the dialog to edit its details.</p><DailyOrdersChart history={history} selectedDate={selectedDay?.Date} onSelect={chooseDate} series={snapshot?.mode==='excel'?importedSeries(snapshot):DAILY_SERIES}/>
       <div className="table-scroll"><FilterableTable><thead><tr>{['Date',...historyNames].map(name=><th key={name}>{name}</th>)}</tr></thead><tbody>{history.map(day=><tr key={day.Date} className={day.Date===selectedDay?.Date?'daily-date-selected':undefined}><td><button className="text-button" aria-pressed={day.Date===selectedDay?.Date} disabled={publishing} onClick={()=>chooseDate(day.Date)}>{dailyDateLabel(day.Date)}</button></td>{historyNames.map(name=><td key={name}>{day[name]??0}</td>)}</tr>)}</tbody></FilterableTable></div>
@@ -707,7 +708,7 @@ function MonthlyOrders({preview,running,reportMode='tracker'}) {
     refresh();
     const timer=setInterval(refresh,30000);
     return()=>{active=false;clearInterval(timer);};
-  },[preview?.id,refreshId]);
+  },[preview?.id,refreshId,running]);
 
   const saveSla=async(row,status)=>{
     savePending.current=true;setSaving(true);reportVersion.current++;
@@ -725,11 +726,11 @@ function MonthlyOrders({preview,running,reportMode='tracker'}) {
   const selectedMonth=history.find(m=>m.Month===month)||history.find(m=>m.Month===currentMonth)||history[0];
   const columns=selectedMonth?.columns||[];
   const groups=useMemo(()=>{
-    const query=deferredSearch.toLowerCase(),completed=new Set(selectedMonth?.completed_ids||[]);
+    const query=deferredSearch.toLowerCase(),completed=new Set((selectedMonth?.completed_keys||selectedMonth?.completed_ids||[]).map(value=>normalized(value)));
     const rows=(selectedMonth?.rows||[]).filter(row=>!query||columns.some(column=>str(row[column]).toLowerCase().includes(query)));
     if(reportMode==='excel')return [['Month Orders',rows],...(snapshot?.statuses||[]).map(name=>[name,rows.filter(row=>(str(row.Status||row['Task Status']).trim()||'(Blank)')===name)])];
-    return [['Month Orders',rows],['Completed Orders',rows.filter(row=>completed.has(str(row['Order Number']).trim()))],
-      ['Awaiting for Clarification',rows.filter(row=>normalized(row['Task Status'] ?? row.Status)==='awaiting for clarification')]];
+    return [['Month Orders',rows],['Completed Orders',rows.filter(row=>completed.has(normalized(orderKey(row))))],
+      ['Awaiting for Clarification',rows.filter(row=>orderStatus(row)==='awaiting for clarification')]];
   },[selectedMonth,deferredSearch,reportMode,snapshot?.statuses]);
   const names=MONTHLY_SERIES.map(series=>series.name);
   const historyNames=[...names,...(reportMode==='excel'?(snapshot?.statuses||[]).map(name=>'Status: '+name):[])];
@@ -740,7 +741,7 @@ function MonthlyOrders({preview,running,reportMode='tracker'}) {
     let matching=rows;
     if(name==='Completed Orders')matching=rows.filter(row=>completed.has(normalized(orderKey(row))));
     if(name==='Unchanged')matching=rows.filter(row=>unchanged.has(normalized(orderKey(row))));
-    if(name==='Awaiting for Clarification')matching=rows.filter(row=>normalized(row.Status)==='awaiting for clarification');
+    if(name==='Awaiting for Clarification')matching=rows.filter(row=>orderStatus(row)==='awaiting for clarification');
     if(name.startsWith('SLA ')){
       const result=name==='SLA On Time'?'On Time':'Missing';
       matching=(selectedMonth?.sla_rows||[]).filter(row=>row['Free Site']===result).map(row=>({...rows.find(item=>orderKey(item)===orderKey(row)),...row}));

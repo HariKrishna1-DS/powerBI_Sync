@@ -41,7 +41,8 @@ UPDATABLE = ('Status', 'ETA', 'Out Time', 'SLA Expiration')
 STATUS_NAMES = {s.casefold(): s for s in ('Awaiting for Clarification', 'Available',
     'Search In Progress', 'In Progress', 'Typing in Progress', 'Task Suspended', 'Completed and Delivered',
     'Cancelled', 'QC in Progress', 'Ready to Send', 'Assign to ABS', 'Waiting for Effective Date',
-    'SearchFix', 'Attorney Approval', 'Home Builder', 'Need to Assign ABS')}
+    'SearchFix', 'Attorney Approval', 'Home Builder')}
+STATUS_NAMES['need to assign abs'] = 'Assign to ABS'
 
 
 def text(value):
@@ -436,19 +437,27 @@ def sheet_reports(trackers, audit=None):
     """All totals originate in tracker rows returned by Google Sheets."""
     from sla_comments import sla_entry, sla_status
     from monthly_production import arrival_sort, tab_identity, local_datetime
-    from production_timing import sla_eligible, completion_from_out_time
+    from production_timing import sla_eligible, completion_from_out_time, status as order_status, completed as is_completed
     rows = [dict(completion_from_out_time(row), _sheet=row.get('_sheet', title), _tracker=(tab_identity(title) or (title, ''))[0],
                  _month=row.get('_month') or (tab_identity(title) or ('', ''))[1])
             for title, items in trackers.items() for row in items if key(row)]
     if len({(r['_month'], key(r)) for r in rows}) != len(rows):
         raise ValueError('Duplicate Order Number in Google Sheets trackers. Resolve duplicates before reporting.')
+    # A carried/current record can also exist in the historical archive. Keep
+    # both monthly ownership records, but count its receipt only once per day.
+    daily_owners = {}
+    for row in rows:
+        identity = key(row)
+        if identity not in daily_owners or row['_month'] > daily_owners[identity]['_month']:
+            daily_owners[identity] = row
     groups = {'daily': {}, 'monthly': {}}
     completed_months = {}
     for row in rows:
         date = local_datetime(row.get('_received_at')) or local_datetime(row.get('In-Time')) or timestamp(row.get('Date'))
         day = date.strftime('%Y-%m-%d') if date else 'Undated'
-        for kind, bucket in (('daily', day), ('monthly', row['_month'] or (day[:7] if date else 'Undated'))):
-            groups[kind].setdefault(bucket, []).append(row)
+        if daily_owners[key(row)] is row:
+            groups['daily'].setdefault(day, []).append(row)
+        groups['monthly'].setdefault(row['_month'] or (day[:7] if date else 'Undated'), []).append(row)
         completed_at = timestamp(row.get('Out Time'))
         if completed_at and sla_eligible(row) and sla_status(row.get('Free Site')):
             month = row['_month'] or completed_at.strftime('%Y-%m')
@@ -462,8 +471,8 @@ def sheet_reports(trackers, audit=None):
         reports[kind] = []
         for period, items in sorted(buckets.items(), reverse=True):
             items = arrival_sort(items)
-            status = [text(r.get('Status') or r.get('Task Status')).casefold() for r in items]
-            completed = [r['Order Number'] for r in items if text(r.get('Status')).casefold() == 'completed and delivered']
+            status = [order_status(r) for r in items]
+            completed = [r['Order Number'] for r in items if is_completed(r)]
             absent = [r['Order Number'] for r in items if key(r) in missing]
             new_ids = [r['Order Number'] for r in items if key(r) in added]
             unchanged = [r['Order Number'] for r in items if key(r) not in added | updated | missing]
@@ -475,19 +484,19 @@ def sheet_reports(trackers, audit=None):
                 'Today Orders': len(items), 'Month Orders': len(items), 'Completed Orders': len(completed),
                 'Received': len(items), 'Completed': len(completed),
                 'Clarification': sum(s == 'awaiting for clarification' for s in status),
-                'Cancelled': sum(s == 'cancelled' for s in status),
+                'Cancelled': sum(s in ('cancelled', 'canceled') for s in status),
                 'Vendor Pending': sum(s == 'assign to abs' for s in status),
-                'In-House Pending': sum(s not in ('completed and delivered', 'cancelled',
+                'In-House Pending': sum(s not in ('completed and delivered', 'cancelled', 'canceled',
                     'awaiting for clarification', 'assign to abs') for s in status),
                 'Not in latest preview': len(absent), 'Newly Orders': len(new_ids), 'Unchanged': len(unchanged),
-                'Awaiting for Clarification': sum(text(r.get('Status')).casefold() == 'awaiting for clarification' for r in items),
+                'Awaiting for Clarification': sum(s == 'awaiting for clarification' for s in status),
                 'SLA On Time': sum(r['Free Site'] == 'On Time' for r in sla),
                 'SLA Missed': sum(r['Free Site'] == 'Missing' for r in sla), 'sla_rows': sla,
                 'SLA OnTime': sum(r['Free Site'] == 'On Time' for r in sla),
                 'Missing': sum(r['Free Site'] == 'Missing' for r in sla),
                 'rows': items, 'columns': list(dict.fromkeys(HEADERS + [c for r in items for c in r if not c.startswith('_')])), 'missing_ids': absent, 'completed_ids': completed,
                 'new_ids': new_ids, 'unchanged_ids': unchanged,
-                'completed_keys': [key(r) for r in items if text(r.get('Status')).casefold() == 'completed and delivered'],
+                'completed_keys': [key(r) for r in items if is_completed(r)],
                 'unchanged_keys': [key(r) for r in items if key(r) not in added | updated | missing]})
     return reports
 
@@ -511,7 +520,8 @@ def sync_trackers(frame=None, on_progress=None, book=None):
     with sync_lock(store_root):
         store = PreviewStore(store_root or BASE / 'previews')
         from report_workspace import ReportWorkspace
-        publish_tracker_reports = ReportWorkspace(store).read()['mode'] != 'excel'
+        publish_tracker_reports = ((frame is None or not frame.attrs.get('defer_report_views'))
+                                   and ReportWorkspace(store).read()['mode'] != 'excel')
         if book is None:
             book, _ = target_worksheet()
         from monthly_production import tab_identity
@@ -564,7 +574,8 @@ def sync_trackers(frame=None, on_progress=None, book=None):
         if frame is None and receipt and receipt['committed']:
             if publish_tracker_reports:
                 refresh_monthly_views(book)
-            ensure_tracker_formatting(book)
+            if frame is None or not frame.attrs.get('defer_report_views'):
+                ensure_tracker_formatting(book)
             import_default_details(book)
             return list(TRACKERS)
         if frame is not None and preview in committed:
@@ -583,7 +594,8 @@ def sync_trackers(frame=None, on_progress=None, book=None):
                 store.commit_sync_report(preview_id, digest)
             if publish_tracker_reports:
                 refresh_monthly_views(book)
-            ensure_tracker_formatting(book)
+            if frame is None or not frame.attrs.get('defer_report_views'):
+                ensure_tracker_formatting(book)
             frame.attrs['pass_report'] = {k: v for k, v in receipt['report'].items() if not k.startswith('_')} if receipt else {}
             return list(TRACKERS) + ['All Products', 'Sheet1']
         if frame is not None and frame.attrs.get('preview_id'):
@@ -753,7 +765,8 @@ def sync_trackers(frame=None, on_progress=None, book=None):
         if on_progress:
             on_progress(f'Updating trackers and saving {preview} history')
         write_sheet_batch(book, history_sheet, requests, on_progress)
-        ensure_tracker_formatting(book)
+        if frame is None or not frame.attrs.get('defer_report_views'):
+            ensure_tracker_formatting(book)
         actual = read_trackers(book)
         expected_ids = {key(r) for r in all_rows}
         actual_ids = {key(r) for rs in actual.values() for r in rs if key(r)}
