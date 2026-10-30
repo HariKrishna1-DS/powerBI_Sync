@@ -41,7 +41,8 @@ UPDATABLE = ('Status', 'ETA', 'Out Time', 'SLA Expiration')
 STATUS_NAMES = {s.casefold(): s for s in ('Awaiting for Clarification', 'Available',
     'Search In Progress', 'In Progress', 'Typing in Progress', 'Task Suspended', 'Completed and Delivered',
     'Cancelled', 'QC in Progress', 'Ready to Send', 'Assign to ABS', 'Waiting for Effective Date',
-    'SearchFix', 'Attorney Approval', 'Home Builder')}
+    'SearchFix', 'Attorney Approval', 'Home Builders')}
+STATUS_NAMES['home builder'] = 'Home Builders'
 STATUS_NAMES['need to assign abs'] = 'Assign to ABS'
 
 

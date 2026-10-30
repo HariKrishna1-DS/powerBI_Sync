@@ -81,7 +81,7 @@ class EtaAssignmentTests(unittest.TestCase):
                  ({'TaskName': 'CRSP2'}, 'SearchFix'),
                  ({'Product': 'Quality Control'}, 'SearchFix'),
                  ({'Product': 'Attorney Approval'}, 'Attorney Approval'),
-                 ({'Product': 'Home Builders'}, 'Home Builder'),
+                 ({'Product': 'Home Builders'}, 'Home Builders'),
                  ({'ETA Comments': 'ON HOLD; ETA 10/21 EOD'}, 'Waiting for Effective Date'),
                  ({'ETA Comments': 'We apologize; ETA 10/22 EOD'}, 'Assign to ABS')]
         for changed, expected in cases:

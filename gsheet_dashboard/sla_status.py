@@ -41,11 +41,14 @@ def queue_field(row, name):
 
 def special_product_status(raw):
     """Recognize full names and the portal's displayed, ellipsized product labels."""
+    # The portal also exports product variants such as Home Builder L...
+    if re.match(r'^home\s*builders?\b', raw.strip(), re.I):
+        return 'Home Builders'
     product = re.sub(r'[^a-z0-9]', '', raw.casefold())
     truncated = bool(re.search(r'(?:\.{2,}|\u2026)\s*$', raw))
     for status, names, prefix in (
             ('Attorney Approval', ('attorneyapproval', 'attorneyapproach'), 'attorneyapp'),
-            ('Home Builder', ('homebuilder', 'homebuilders'), 'homebuil')):
+            ('Home Builders', ('homebuilder', 'homebuilders'), 'homebuil')):
         if product in names or (truncated and product.startswith(prefix)
                                 and any(name.startswith(product) for name in names)):
             return status
@@ -96,8 +99,8 @@ def queue_rule(row, as_of=None):
         evidence = assigned or abstractor or commitment
         reason = f'ETA Comments contains {" ".join(evidence.group(0).split())}'
         return 4, 'Assign to ABS', reason
-    if task == 'typingmodule' and task_status == 'inprogress':
-        return 5, 'Typing in Progress', 'Task Name is TypingModule and Task Status is In Progress'
+    if task == 'typingmodule' and task_status in ('inprogress', 'tasksuspended'):
+        return 5, 'Typing in Progress', f"Task Name is TypingModule and Task Status is {'In Progress' if task_status == 'inprogress' else 'Task Suspended'}"
     from tracker_sync import suspended
     if suspended(dict(row, **{'Task Status': queue_field(row, 'Task Status')})):
         return 6, 'Awaiting for Clarification', 'Workflow is suspended'
@@ -105,8 +108,6 @@ def queue_rule(row, as_of=None):
     if (last_user in ('', '(blank)', 'null', 'none', 'n/a', '-')
             and task_status == 'available'):
         return 7, 'Search In Progress', 'Last User is blank and Task Status is Available'
-    if task_status == 'tasksuspended':
-        return 8, 'Typing in Progress', 'Task Status is Task Suspended; no higher-priority queue rule matches'
     return 9, '', ''
 
 

@@ -10,7 +10,7 @@ import ReportOrderSearch from './ReportOrderSearch';
 import RepeatedSlaOrders from './RepeatedSlaOrders';
 
 const categories=[['Future SLA','#81cbb5'],['Negative SLA','#ed8796'],['Today SLA','#e5bf68'],['Unknown SLA','#a8c5ed']];
-const standardStatuses=['Completed and Delivered','QC in Progress','Typing in Progress','Search In Progress','SearchFix','Waiting for Effective Date','Attorney Approval','Home Builder','Assign to ABS','Awaiting for Clarification'];
+const standardStatuses=['Completed and Delivered','QC in Progress','Typing in Progress','Search In Progress','SearchFix','Waiting for Effective Date','Attorney Approval','Home Builders','Assign to ABS','Awaiting for Clarification'];
 export default function SlaStatus({revision,onUpdated,mode='tracker'}){
   const suggestedStatuses=standardStatuses.filter(status=>mode!=='tracker'||status!=='Completed and Delivered');
   const [report,setReport]=useState(null),[error,setError]=useState(''),[refresh,setRefresh]=useState(0),[loading,setLoading]=useState(true),[detail,setDetail]=useState(null);

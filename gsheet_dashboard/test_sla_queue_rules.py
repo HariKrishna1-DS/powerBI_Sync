@@ -43,8 +43,8 @@ class SlaQueueRulesTests(unittest.TestCase):
                  ({'Task Name': 'SearchFix', 'Last User': '', 'Task Status': 'Available'}, 'SearchFix'),
                  ({'TaskName': ' search fix ', 'TaskStatus': 'Workflow Suspended'}, 'Awaiting for Clarification'),
                  ({'Product': 'Attorney Approval'}, 'Attorney Approval'),
-                 ({'Product': 'Home Builders'}, 'Home Builder'),
-                 ({'Product': 'Home Builder'}, 'Home Builder'),
+                 ({'Product': 'Home Builders'}, 'Home Builders'),
+                 ({'Product': 'Home Builder'}, 'Home Builders'),
                  ({'LastUser': ' ', 'TaskStatus': 'Available', 'Status': 'Assign to ABS'}, 'Search In Progress'),
                  ({'Last User': 'Named user', 'Task Status': 'Available', 'Status': 'Assign to ABS'}, 'Assign to ABS'),
                  ({'WorkflowSuspended': True, 'Task Status': 'Available'}, 'Awaiting for Clarification'),
@@ -217,7 +217,7 @@ class SlaQueueRulesTests(unittest.TestCase):
                  ({'TaskName': 'CRSP2'}, 'SearchFix'),
                  ({'Product': 'Quality Control'}, 'SearchFix'),
                  ({'Product': 'Attorney Approval'}, 'Attorney Approval'),
-                 ({'Product': 'Home Builders'}, 'Home Builder'),
+                 ({'Product': 'Home Builders'}, 'Home Builders'),
                  ({'ETA Comments': 'ON HOLD; ETA 10/21 EOD'}, 'Waiting for Effective Date'),
                  ({'ETA Comments': 'We apologize; ETA 10/22 EOD'}, 'Assign to ABS')]
         for changed, expected in cases:
@@ -289,17 +289,18 @@ class SlaQueueRulesTests(unittest.TestCase):
         self.assertEqual(self.client.get('/api/sla-order?preview_id=1&order_number=001').json['fields']['ETA Comments'], full)
         self.assertEqual(self.store.get(1)['rows'][0]['ETA Comments'], full)
 
-    def test_task_suspended_is_a_fallback_after_every_specific_queue_rule(self):
+    def test_task_suspended_requires_typing_module_and_respects_specific_queue_rules(self):
         cases = [
-            ({}, 'Typing in Progress'),
-            ({'TaskName': 'Search', 'TaskStatus': 'TASK\nSUSPENDED'}, 'Typing in Progress'),
+            ({}, ''),
+            ({'TaskName': 'Search', 'TaskStatus': 'TASK\nSUSPENDED'}, ''),
+            ({'TaskName': 'typing module', 'TaskStatus': 'TASK\nSUSPENDED'}, 'Typing in Progress'),
             ({'Task Name': 'TypingModule'}, 'Typing in Progress'),
             ({'ETA Comments': 'ETA: ON HOLD - waiting for plant date'}, 'Waiting for Effective Date'),
             ({'Task Name': 'CRSP2', 'ETA Comments': 'assigned to the abst'}, 'SearchFix'),
             ({'Product': 'ClientReview'}, 'SearchFix'),
             ({'Product': 'Quality Control'}, 'SearchFix'),
             ({'Product': 'Attorney Appro..'}, 'Attorney Approval'),
-            ({'Product': 'Home Builders'}, 'Home Builder'),
+            ({'Product': 'Home Builders'}, 'Home Builders'),
             ({'ETA Comments': 'Order has been assigned to the abst.'}, 'Assign to ABS'),
             ({'ETA Comments': 'Hello, we apologize for the delay'}, 'Assign to ABS'),
             ({'WorkflowSuspended': True}, 'Awaiting for Clarification'),
@@ -325,7 +326,7 @@ class SlaQueueRulesTests(unittest.TestCase):
             {'Order Number': 'REVIEW', 'Task Name': 'CRSP2', 'SLA Expiration*': '2h'},
             {'Order Number': 'unassigned', 'Task Name': 'TypingModule', 'Task Status': 'In Progress',
              'ETA Comments': 'we apologize', 'SLA Expiration*': '2h'},
-            {'Order Number': 'typing', 'Task Name': 'Search', 'Task Status': 'Task Suspended', 'SLA Expiration*': '2h'},
+            {'Order Number': 'typing', 'Task Name': 'TypingModule', 'Task Status': 'Task Suspended', 'SLA Expiration*': '2h'},
         ])
         before = deepcopy(self.store.history())
         report = build_sla_status(preview_snapshot(self.store, {
@@ -342,7 +343,7 @@ class SlaQueueRulesTests(unittest.TestCase):
             {'Order Number': 'assigned', 'Task Status': 'Task Suspended', 'ETA Comments': 'assigned to the abst', 'SLA Expiration*': '2h'},
             {'Order Number': 'unassigned', 'Task Status': 'Task Suspended', 'ETA Comments': 'we apologize', 'SLA Expiration*': '-2h'},
             {'Order Number': 'typo', 'ETA Comments': 'we Apoloize', 'SLA Expiration*': '1d'},
-            {'Order Number': 'typing', 'Task Name': 'Search', 'Task Status': 'Task Suspended', 'SLA Expiration*': '1d'},
+            {'Order Number': 'typing', 'Task Name': 'TypingModule', 'Task Status': 'Task Suspended', 'SLA Expiration*': '1d'},
         ])
         before = deepcopy(self.store.history())
         initial = self.client.get('/api/sla-status?preview_id=1').json
@@ -368,8 +369,9 @@ class SlaQueueRulesTests(unittest.TestCase):
     def test_shortened_product_names_get_separate_status_rows_and_export_counts(self):
         labels = [('Attorney Appro..', 'Attorney Approval'), ('Attorney Appro\u2026', 'Attorney Approval'),
                   ('Attorney Approach', 'Attorney Approval'), ('Attorney Approval', 'Attorney Approval'),
-                  ('Home Buil..', 'Home Builder'), ('Home Builder..', 'Home Builder'),
-                  ('Home Builders', 'Home Builder')]
+                  ('Home Buil..', 'Home Builders'), ('Home Builder..', 'Home Builders'),
+                  ('Home Builders', 'Home Builders'), ('Home Builder L..', 'Home Builders'),
+                  ('Home Builder L\u2026', 'Home Builders'), ('Home Builder Lot Out-Sale', 'Home Builders')]
         self.capture(1, [{'Order Number': str(index), 'Product': product, 'Last User': '',
                           'Task Status': 'Available', 'Status': 'Search In Progress',
                           'SLA Expiration*': '2099-10-19'}
@@ -377,13 +379,13 @@ class SlaQueueRulesTests(unittest.TestCase):
         report = self.client.get('/api/sla-status').json
         self.assertEqual([row['Status'] for row in report['rows']], [status for _, status in labels])
         self.assertEqual({row['Status']: row['Grand Total'] for row in report['summary']},
-                         {'Attorney Approval': 4, 'Home Builder': 3})
+                         {'Attorney Approval': 4, 'Home Builders': 6})
         book = load_workbook(excel_report(report), data_only=True)
         self.assertEqual([(book['Sheet2'].cell(row, 1).value, book['Sheet2'].cell(row, 5).value)
-                          for row in (5, 6)], [('Attorney Approval', 4), ('Home Builder', 3)])
+                          for row in (5, 6)], [('Attorney Approval', 4), ('Home Builders', 6)])
         self.assertEqual([row[5] for row in book['Sheet1'].iter_rows(min_row=2, values_only=True)],
                          [product for product, _ in labels])
-        self.assertEqual(book['Sheet2']._pivots[0].cache.recordCount, 7)
+        self.assertEqual(book['Sheet2']._pivots[0].cache.recordCount, 10)
         for unrelated in ('Attorney', 'Attorney App', 'Attorney Appointment', 'Attorney Appt..',
                           'Home', 'Home Buyer', 'Home Inspection..'):
             with self.subTest(product=unrelated):
@@ -425,7 +427,7 @@ class SlaQueueRulesTests(unittest.TestCase):
             'order_numbers': ['gone'], 'edit_scope': 'orders'})
         self.assertEqual(missing.status_code, 409)
         changed = self.client.post('/api/order-status', json={'preview_id': 2,
-            'status': 'Home Builder', 'replacement': 'QC in Progress',
+            'status': 'Home Builders', 'replacement': 'QC in Progress',
             'order_numbers': ['live'], 'edit_scope': 'orders'})
         self.assertEqual(changed.status_code, 200, changed.json)
         updated = self.client.get('/api/sla-status').json
