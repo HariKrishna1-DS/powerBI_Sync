@@ -143,7 +143,7 @@ test('an empty preview history shows zero SLA totals and never the production re
   const {errors}=await setup(page,{empty:true});
   await expect(page.getByRole('combobox',{name:'SLA preview'})).toBeDisabled();
   await expect(page.getByRole('button',{name:'Grand Total 0',exact:true})).toBeVisible();
-  await expect(page.getByText('No orders with a valid SLA expiration.',{exact:true})).toBeVisible();
+  await expect(page.getByText('No queue orders available.',{exact:true})).toBeVisible();
   expect(errors).toEqual([]);
 });
 
