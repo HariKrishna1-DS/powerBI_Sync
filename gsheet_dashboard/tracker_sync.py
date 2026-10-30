@@ -641,7 +641,8 @@ def sync_trackers(frame=None, on_progress=None, book=None):
             current[title] = existing + extra
             additions[title] = extra
         created = frame.attrs.get('preview_created') if frame is not None else None
-        anchor = datetime.fromisoformat(created).astimezone(IST).replace(tzinfo=None) if created else datetime.now(IST).replace(tzinfo=None)
+        from portal_time import capture_time, PORTAL_TIMEZONE
+        anchor = capture_time(created) if created else datetime.now(PORTAL_TIMEZONE).replace(tzinfo=None)
         previous = []
         if committed:
             last_name = max(committed, key=lambda name: int(name[7:]))

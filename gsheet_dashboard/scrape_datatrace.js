@@ -2,6 +2,7 @@ const puppeteer = require(process.env.DATATRACE_DESKTOP === '1' ? 'puppeteer-cor
 const fs = require('fs');
 const path = require('path');
 const {browserOptions} = require('./browser_options.cjs');
+const {refreshQueue} = require('./refresh_queue.cjs');
 
 require('dotenv').config({ path: path.join(__dirname, '.env'), quiet: true });
 const config = require('./sync_config.json');
@@ -114,21 +115,9 @@ const outputPath = process.env.DATATRACE_OUTPUT_JSON || path.join(__dirname, 'qu
         console.log(`[*] Waiting for queue grid table selector: ${GRID_SELECTOR}...`);
         await page.waitForSelector(GRID_SELECTOR, { visible: true, timeout: TIMEOUT_MS });
 
-        // A fresh login can show an empty results panel until Refresh View runs the query.
-        const hasResults = await page.$(`${GRID_SELECTOR} table`);
-        if (!hasResults) {
-            const refresh = await page.$('input[value="Refresh View"]');
-            if (!refresh) throw new Error('Results panel is empty and Refresh View was not found.');
-            phase = 'refreshing the queue results';
-            console.log('[*] Loading queue results with Refresh View...');
-            await Promise.all([
-                page.waitForFunction(selector => {
-                    const panel = document.querySelector(selector);
-                    return panel && panel.querySelector('table');
-                }, { timeout: TIMEOUT_MS }, GRID_SELECTOR),
-                refresh.click(),
-            ]);
-        }
+        phase = 'refreshing the queue results';
+        console.log('[*] Refreshing current queue results with Refresh View...');
+        await refreshQueue(page, GRID_SELECTOR, TIMEOUT_MS);
 
         // Collect the configured view once its resource and query requests finish.
         // Additional sorting causes an overlapping postback on this portal.

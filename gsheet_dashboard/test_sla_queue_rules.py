@@ -41,7 +41,7 @@ class SlaQueueRulesTests(unittest.TestCase):
                  ({'Product': 'Quailty Control'}, 'SearchFix'),
                  ({'TaskName': 'crsp2', 'LastUser': '', 'TaskStatus': 'Available', 'ETA Comments': 'ON HOLD'}, 'SearchFix'),
                  ({'Task Name': 'SearchFix', 'Last User': '', 'Task Status': 'Available'}, 'SearchFix'),
-                 ({'TaskName': ' search fix ', 'TaskStatus': 'Workflow Suspended'}, 'SearchFix'),
+                 ({'TaskName': ' search fix ', 'TaskStatus': 'Workflow Suspended'}, 'Awaiting for Clarification'),
                  ({'Product': 'Attorney Approval'}, 'Attorney Approval'),
                  ({'Product': 'Home Builders'}, 'Home Builder'),
                  ({'Product': 'Home Builder'}, 'Home Builder'),
@@ -70,21 +70,21 @@ class SlaQueueRulesTests(unittest.TestCase):
         self.capture(1, originals)
         before = deepcopy(self.store.history())
         report = self.client.get('/api/sla-status?preview_id=1').json
-        self.assertEqual(len(report['summary']), 1)
-        self.assertEqual(report['summary'][0]['Status'], 'SearchFix')
-        self.assertEqual(report['summary'][0]['Grand Total'], 5)
+        self.assertEqual(len(report['summary']), 2)
+        self.assertEqual(next(r['Grand Total'] for r in report['summary'] if r['Status'] == 'SearchFix'), 3)
+        self.assertEqual(next(r['Grand Total'] for r in report['summary'] if r['Status'] == 'Awaiting for Clarification'), 2)
         self.assertEqual({row['Order Number'].strip() for row in report['rows']}, {'001', '002', '003', '004', '005'})
         self.assertEqual(sum(report['totals'][name] for name in ('Future SLA', 'Negative SLA', 'Today SLA')), 5)
         self.assertEqual(next(row['Status Reason'] for row in report['rows'] if row['Order Number'] == '002'), 'Task Name is SearchFix')
         book = load_workbook(BytesIO(self.client.get('/api/export/report?sheet=SLA%20Status&preview_id=1').data))
         self.assertEqual({row[0].strip(): row[11] for row in book['Sheet1'].iter_rows(min_row=2, values_only=True)},
-                         dict.fromkeys(['001', '002', '003', '004', '005'], 'SearchFix'))
+                         {'001': 'SearchFix', '002': 'SearchFix', '003': 'Awaiting for Clarification', '004': 'Awaiting for Clarification', '005': 'SearchFix'})
         edited = self.client.post('/api/order-status', json={'preview_id': 1, 'status': 'SearchFix',
             'replacement': 'Ready to Send', 'order_numbers': ['002'], 'edit_scope': 'orders'})
         self.assertEqual(edited.status_code, 200, edited.json)
         updated = self.client.get('/api/sla-status?preview_id=1').json
         self.assertEqual(next(row['Status'] for row in updated['rows'] if row['Order Number'] == '002'), 'Ready to Send')
-        self.assertEqual(next(row['Grand Total'] for row in updated['summary'] if row['Status'] == 'SearchFix'), 4)
+        self.assertEqual(next(row['Grand Total'] for row in updated['summary'] if row['Status'] == 'SearchFix'), 2)
         self.assertEqual(updated['totals'], report['totals'])
         self.assertTrue(edited.json['publication']['synced'])
         self.assertEqual(self.store.history(), before)

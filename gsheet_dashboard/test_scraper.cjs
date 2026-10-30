@@ -18,6 +18,7 @@ const puppeteer = require('../desktop/extractor/node_modules/puppeteer-core');
         await page.setRequestInterception(true);
         page.on('request', request => request.respond({contentType: 'text/html', body: `
             <table><tr><th>Arrival Time</th><th>Task Status</th></tr><tr><td>outside</td><td>wrong</td></tr></table>
+            <form method="POST"><input type="submit" name="refresh" value="Refresh View"></form>
             <div id="ctl00_ContentPlaceHolder1_pnlResults">
               <table><tr><td>Layout only</td></tr></table>
               <table><thead><tr><td>Arrival Time</td><td>Task Status</td><td>OPON</td><td>ETA Comments</td><td>Comment</td><td>Comments</td><td>Product</td></tr></thead>

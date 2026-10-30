@@ -36,7 +36,8 @@ class RequestedReportUpdatesTests(unittest.TestCase):
         actual = {row['Order Number']: row for row in report['rows']}
         self.assertEqual(actual['latest']['SLA Category'], 'Today SLA')
         self.assertEqual(actual['older']['SLA Category'], 'Negative SLA')
-        self.assertEqual(actual['countdown']['SLA Expiration'], '2026-10-23 03:30:00')
+        self.assertEqual(actual['countdown']['SLA Expiration'], '2026-10-22 17:00:00')
+        self.assertEqual(actual['countdown']['SLA Category'], 'Today SLA')
         self.assertEqual(rows, original)
 
     def test_removed_abs_status_merges_automatic_saved_and_custom_groups(self):

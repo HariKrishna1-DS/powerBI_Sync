@@ -187,9 +187,10 @@ class SlaManualTests(unittest.TestCase):
             'status': 'In House Pending', 'order_numbers': ['bad'], 'replacement': 'Search In Progress'})
         self.assertEqual(response.status_code, 200, response.json)
         after = self.client.get('/api/sla-status?preview_id=1').json
-        self.assertEqual(after['excluded_rows'][0]['Status'], 'Search In Progress')
-        self.assertEqual(after['excluded_count'], 1)
-        self.assertEqual(after['totals']['Grand Total'], 0)
+        self.assertEqual(after['rows'][0]['Status'], 'Search In Progress')
+        self.assertEqual(after['excluded_count'], 0)
+        self.assertEqual(after['totals']['Unknown SLA'], 1)
+        self.assertEqual(after['totals']['Grand Total'], 1)
 
 
 if __name__ == '__main__':

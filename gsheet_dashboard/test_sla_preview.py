@@ -94,9 +94,9 @@ class SlaPreviewTests(unittest.TestCase):
         latest = self.client.get('/api/sla-status').json
         self.assertEqual(latest['preview_id'], 2)
         self.assertEqual(latest['preview_row_count'], 3)
-        self.assertEqual(latest['totals']['Grand Total'], 2)
-        self.assertEqual(latest['excluded_count'], 1)
-        self.assertEqual({r['Order Number'] for r in latest['rows']}, {'shared', 'new-only'})
+        self.assertEqual(latest['totals']['Grand Total'], 3)
+        self.assertEqual(latest['excluded_count'], 0)
+        self.assertEqual({r['Order Number'] for r in latest['rows']}, {'shared', 'new-only', 'missing'})
         self.assertEqual(next(r['Status'] for r in latest['rows'] if r['Order Number'] == 'shared'),
                          'Search In Progress')
         earlier = self.client.get('/api/sla-status?preview_id=1').json
@@ -185,7 +185,7 @@ class SlaPreviewTests(unittest.TestCase):
         self.assertTrue(result['synced'])
         all_products = self.book.worksheet('All Products').get_all_values()
         self.assertEqual(all_products[1][all_products[0].index('Order Number')], 'production-only')
-        self.assertEqual(int(self.book.worksheet('SLA Status').get_all_values()[-1][-1]), 2)
+        self.assertEqual(int(self.book.worksheet('SLA Status').get_all_values()[-1][-1]), 3)
         self.assertEqual(int(self.book.worksheet('Status Report').get_all_values()[1][1]), 1)
 
     def test_raw_queue_aliases_business_statuses_and_yearless_deadlines_use_capture_time(self):

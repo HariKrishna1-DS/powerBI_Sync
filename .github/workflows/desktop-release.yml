@@ -44,7 +44,7 @@ jobs:
         run: |
           npm --prefix desktop test
           if ($LASTEXITCODE -ne 0) { throw 'Desktop tests failed' }
-          node --test gsheet_dashboard/test_browser_options.cjs gsheet_dashboard/test_scraper.cjs
+          node --test gsheet_dashboard/test_browser_options.cjs gsheet_dashboard/test_scraper.cjs gsheet_dashboard/test_refresh_queue.cjs
           if ($LASTEXITCODE -ne 0) { throw 'Extractor fixture tests failed' }
           $env:PYTHONPATH = "$pwd/.desktop-build/deps;$pwd/gsheet_dashboard"
           python -m unittest discover -s gsheet_dashboard -p 'test_*.py'
@@ -142,11 +142,11 @@ jobs:
           $assets = @("$folder/Tv-Tracker-$version-x64.exe", "$folder/Tv-Tracker-$version-x64.exe.blockmap", "$folder/latest.yml", "$folder/Tv-Tracker-$version-x64.zip", "$folder/Tv-Tracker-$version-source.zip", "$folder/SHA256SUMS.txt")
           $installer = "$folder/Tv-Tracker-$version-x64.exe"
           # Preserve the owner's unsigned 2.6.0 exception and explicitly
-          # authorized 1.0.2, 1.0.3, 1.0.4, 1.0.8, 1.0.9, 1.0.10, and 1.0.11 application-branch releases.
+          # authorized 1.0.2, 1.0.3, 1.0.4, 1.0.8, 1.0.9, 1.0.10, 1.0.11, and 1.0.12 application-branch releases.
           $signature = Get-AuthenticodeSignature -LiteralPath $installer
-          $allowUnsigned = $signature.Status -eq 'NotSigned' -and ($version -eq '2.6.0' -or ($version -in @('1.0.2', '1.0.3', '1.0.4', '1.0.8', '1.0.9', '1.0.10', '1.0.11') -and $env:GITHUB_REF -eq 'refs/heads/tv-tracker-app'))
+          $allowUnsigned = $signature.Status -eq 'NotSigned' -and ($version -eq '2.6.0' -or ($version -in @('1.0.2', '1.0.3', '1.0.4', '1.0.8', '1.0.9', '1.0.10', '1.0.11', '1.0.12') -and $env:GITHUB_REF -eq 'refs/heads/tv-tracker-app'))
           if ($signature.Status -ne 'Valid' -and -not $allowUnsigned) {
-            throw "Public release requires a valid signing certificate. Installer signature status: $($signature.Status). Unsigned exceptions apply only to 2.6.0 and application-branch 1.0.2/1.0.3/1.0.4/1.0.8/1.0.9/1.0.10/1.0.11."
+            throw "Public release requires a valid signing certificate. Installer signature status: $($signature.Status). Unsigned exceptions apply only to 2.6.0 and application-branch 1.0.2/1.0.3/1.0.4/1.0.8/1.0.9/1.0.10/1.0.11/1.0.12."
           }
           $signingNote = if ($signature.Status -eq 'Valid') { 'The Windows installer is digitally signed.' } else { 'The Windows installer is unsigned. Windows may show an unknown-publisher warning.' }
           foreach ($asset in $assets) { if (!(Test-Path -LiteralPath $asset)) { throw "Missing release asset: $asset" } }
