@@ -27,8 +27,10 @@ class SlaManualTests(unittest.TestCase):
 
     def test_typing_rule_is_exact_and_preserves_priority(self):
         self.assertEqual(queue_rule({'TaskName': 'typingModule', 'TaskStatus': 'In\nProgress'})[1], 'Typing in Progress')
-        self.assertNotEqual(queue_rule({'TaskName': 'TypingModule', 'TaskStatus': 'Available'})[1], 'Typing in Progress')
+        self.assertEqual(queue_rule({'TaskName': 'TypingModule', 'TaskStatus': 'Available'})[1], 'Typing in Progress')
+        self.assertEqual(queue_rule({'TaskName': 'TypingModule', 'TaskStatus': 'Avavilable'})[1], 'Typing in Progress')
         self.assertNotEqual(queue_rule({'TaskName': 'Search', 'TaskStatus': 'In Progress'})[1], 'Typing in Progress')
+        self.assertNotEqual(queue_rule({'TaskName': 'Search', 'TaskStatus': 'Available'})[1], 'Typing in Progress')
         self.assertEqual(queue_rule({'Task Name': 'TypingModule', 'Task Status': 'In Progress',
             'ETA Comments': 'ON HOLD'})[1], 'Waiting for Effective Date')
         self.assertEqual(queue_rule({'Task Name': 'TypingModule', 'Task Status': 'In Progress',

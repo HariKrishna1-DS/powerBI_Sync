@@ -294,6 +294,8 @@ class SlaQueueRulesTests(unittest.TestCase):
             ({}, ''),
             ({'TaskName': 'Search', 'TaskStatus': 'TASK\nSUSPENDED'}, ''),
             ({'TaskName': 'typing module', 'TaskStatus': 'TASK\nSUSPENDED'}, 'Typing in Progress'),
+            ({'TaskName': 'typing module', 'TaskStatus': 'Available'}, 'Typing in Progress'),
+            ({'TaskName': 'TypingModule', 'TaskStatus': 'Avavilable'}, 'Typing in Progress'),
             ({'Task Name': 'TypingModule'}, 'Typing in Progress'),
             ({'ETA Comments': 'ETA: ON HOLD - waiting for plant date'}, 'Waiting for Effective Date'),
             ({'Task Name': 'CRSP2', 'ETA Comments': 'assigned to the abst'}, 'SearchFix'),

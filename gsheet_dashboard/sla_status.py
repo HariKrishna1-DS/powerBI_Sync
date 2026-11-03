@@ -99,8 +99,9 @@ def queue_rule(row, as_of=None):
         evidence = assigned or abstractor or commitment
         reason = f'ETA Comments contains {" ".join(evidence.group(0).split())}'
         return 4, 'Assign to ABS', reason
-    if task == 'typingmodule' and task_status in ('inprogress', 'tasksuspended'):
-        return 5, 'Typing in Progress', f"Task Name is TypingModule and Task Status is {'In Progress' if task_status == 'inprogress' else 'Task Suspended'}"
+    if task == 'typingmodule' and (task_status in ('inprogress', 'tasksuspended', 'available', 'avavilable') or 'avail' in task_status):
+        status_label = 'In Progress' if task_status == 'inprogress' else 'Available' if 'avail' in task_status else 'Task Suspended'
+        return 5, 'Typing in Progress', f'Task Name is TypingModule and Task Status is {status_label}'
     from tracker_sync import suspended
     if suspended(dict(row, **{'Task Status': queue_field(row, 'Task Status')})):
         return 6, 'Awaiting for Clarification', 'Workflow is suspended'
@@ -313,7 +314,8 @@ def category(value, as_of, anchor=None):
         days, hours, minutes = (int(part or 0) for part in relative.groups()[1:])
         due = (anchor or as_of) + timedelta(days=days, hours=hours, minutes=minutes)
     else:
-        due = local_datetime(value)
+        from tracker_sync import deadline
+        due = local_datetime(value) or (deadline(value, anchor or as_of) if (anchor or as_of) else None)
     if due is None:
         return ''
     return 'Today SLA' if due.date() == as_of.date() else 'Negative SLA' if due.date() < as_of.date() else 'Future SLA'

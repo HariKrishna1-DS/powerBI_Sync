@@ -25,6 +25,8 @@ class CaptureStatusRulesTests(unittest.TestCase):
             ({'TaskName': 'CRSP2', 'ETA Comments': 'abstractor'}, 'SearchFix'),
             ({'Product': 'Quality Control', 'ETA Comments': 'abstractor'}, 'SearchFix'),
             ({'TaskName': 'TypingModule', 'TaskStatus': 'In Progress'}, 'Typing in Progress'),
+            ({'TaskName': 'TypingModule', 'TaskStatus': 'Available'}, 'Typing in Progress'),
+            ({'TaskName': 'TypingModule', 'TaskStatus': 'Avavilable'}, 'Typing in Progress'),
             ({'TaskStatus': 'Workflow Suspended'}, 'Awaiting for Clarification'),
         ]
         for fields, expected in cases:
