@@ -331,7 +331,9 @@ def capacity_report(reports, settings):
     days = [dict(row, Capacity=daily_capacity, **{'Ext capacity': extended}) for row in activity]
     # A Daily Orders selection must not move the live capacity table back to an
     # earlier month. Only an explicitly requested monthly export overrides IST.
-    month = settings.get('capacity_month') or current_capacity_month()
+    available_months = sorted({day['Date'][:7] for day in days if day['Date'] != 'Undated'})
+    current = current_capacity_month()
+    month = settings.get('capacity_month') or (current if current in available_months else (available_months[-1] if available_months else current))
     monthly = []
     for key in sorted({day['Date'][:7] for day in days}):
         items = [day for day in days if day['Date'].startswith(key)]
