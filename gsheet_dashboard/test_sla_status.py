@@ -29,7 +29,9 @@ class SlaStatusTests(unittest.TestCase):
     def test_dates_durations_serials_and_day_boundaries(self):
         cases = [('2026-10-14 00:00:00', 'Today SLA'), ('2026-10-14 23:59:59', 'Today SLA'),
                  ('2026-10-13 23:59:59', 'Negative SLA'), ('2026-10-15', 'Future SLA'),
-                 ('-0d 1h', 'Negative SLA'), ('2h', 'Today SLA'), ('1d', 'Future SLA'),
+                 ('-0d 1h', 'Negative SLA'), ('2h', 'Today SLA'), ('1d', 'Today SLA'),
+                 ('1d 4h 5m', 'Today SLA'), ('1d 23h 59m', 'Today SLA'),
+                 ('-1d 4h 5m', 'Negative SLA'), ('2d 0h 0m', 'Future SLA'),
                  ('46309.9', 'Today SLA'), ('', ''), ('invalid', '')]
         for value, expected in cases:
             with self.subTest(value=value):

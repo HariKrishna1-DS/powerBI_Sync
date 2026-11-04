@@ -8,12 +8,15 @@
 .table-layout-heading strong { color:var(--ink); font-size:13px; }
 .table-layout-heading p { color:var(--muted); font-size:12px; margin:6px 0 12px; }
 .table-layout-options { display:flex; flex-wrap:wrap; gap:12px 24px; padding:8px 0 16px; }
-.table-layout-options label,.column-option label { display:flex; flex-direction:row; align-items:center; gap:8px; font-size:12px; min-width:0; }
-.column-options { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:8px 20px; max-height:260px; overflow:auto; padding:2px; }
-.column-option { display:flex; align-items:center; gap:8px; justify-content:space-between; min-width:0; }
-.column-option label { flex:1; overflow-wrap:anywhere; }
-.column-option input,.table-layout-options input { flex-shrink:0; width:15px; height:15px; accent-color:var(--accent); }
-.column-option select { width:84px; min-width:84px; min-height:32px; padding:4px 8px; font-size:12px; }
+.table-layout-options label,.table-layout-panel .column-visibility { display:flex; flex-direction:row; align-items:center; gap:8px; font-size:12px; }
+.column-options { display:flex; flex-wrap:wrap; align-items:flex-end; gap:12px 16px; }
+.table-layout-panel .column-field { display:grid; justify-items:start; gap:6px; min-width:0; color:var(--ink); font-size:12px; font-weight:600; }
+.column-field select { width:100%; min-height:36px; padding:4px 8px; border:1px solid var(--line); border-radius:var(--radius-control); background:var(--surface); color:var(--ink); font-size:12px; }
+.column-field:first-child { width:220px; max-width:100%; }
+.column-field:nth-child(2) { width:112px; }
+.column-options option { background-color:var(--surface); color:var(--ink); }
+.column-visibility { min-height:36px; }
+.column-visibility input,.table-layout-options input { flex-shrink:0; width:15px; height:15px; accent-color:var(--accent); }
 .orders-table.layout-table { table-layout:fixed; width:max-content; min-width:100%; }
 .layout-table th,.layout-table td { box-sizing:border-box; }
 .layout-table th { position:sticky; top:0; z-index:2; }
@@ -27,4 +30,4 @@
 .workspace-context .source-link { display:inline-flex; align-items:center; gap:7px; text-decoration:none; border-radius:4px; }
 .workspace-context .source-link:hover { text-decoration:underline; text-underline-offset:4px; }
 .workspace-context .context-refresh { display:inline-flex; align-items:center; gap:6px; min-height:28px; font-size:11px; }
-@media(max-width:600px) { .column-options { grid-template-columns:1fr; } .table-layout-panel { padding:12px; } }
+@media(max-width:600px) { .table-layout-panel { padding:12px; } }

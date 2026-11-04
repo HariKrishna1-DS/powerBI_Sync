@@ -7,6 +7,7 @@ from portal_time import PORTAL_TIMEZONE
 
 IST = timezone(timedelta(hours=5, minutes=30))
 CATEGORIES = ['Future SLA', 'Negative SLA', 'Today SLA']
+COUNTDOWN = re.compile(r'(-)?(?:(\d+)d\s*)?(?:(\d+)h\s*)?(?:(\d+)m\s*)?', re.I)
 SUMMARY_COLUMNS = ['Status', *CATEGORIES, 'Grand Total']
 DETAIL_COLUMNS = ['Order Number', 'SLA Expiration', 'SLA', 'Online/ Ground',
                   'Client', 'Product', 'St', 'County', 'Municipality',
@@ -307,11 +308,13 @@ def category(value, as_of, anchor=None):
     if not raw:
         return ''
     # Queue exports express overdue deadlines as signed elapsed durations.
-    relative = re.fullmatch(r'(-)?(?:(\d+)d\s*)?(?:(\d+)h\s*)?(?:(\d+)m\s*)?', raw, re.I)
+    relative = COUNTDOWN.fullmatch(raw)
     if relative and any(relative.groups()[1:]):
         if relative[1]:
             return 'Negative SLA'
         days, hours, minutes = (int(part or 0) for part in relative.groups()[1:])
+        if days == 1:
+            return 'Today SLA'
         due = (anchor or as_of) + timedelta(days=days, hours=hours, minutes=minutes)
     else:
         from tracker_sync import deadline
@@ -360,6 +363,10 @@ def build_sla_status(snapshot, as_of=None):
         if not str(original.get('Order Number') or '').strip():
             continue
         expiry = original.get('SLA Expiration', original.get('SLA Expiration*'))
+        portal_expiry = COUNTDOWN.fullmatch(str(original.get('SLA Expiration*') or '').strip())
+        if snapshot.get('report_scope') == 'preview' and portal_expiry and not portal_expiry[1] and int(portal_expiry[2] or 0) == 1:
+            # The portal countdown retains the day component after deadline normalization.
+            expiry = portal_expiry[0]
         result = category(expiry, as_of, anchor)
         row = dict(original, **arrival_details(original), **{'SLA Category': result})
         row['Status'] = status_name(original.get('Status') or original.get('Task Status') or '(Blank)')
