@@ -36,7 +36,10 @@ test('column visibility, widths, wrapping and pinning persist without changing e
   await setup(page);
   await page.getByRole('button',{name:'All columns',exact:true}).click();
   await page.getByText('Columns & layout',{exact:true}).click();
+  const column=page.getByRole('combobox',{name:'Column',exact:true});
+  await column.selectOption('Client');
   await page.getByLabel('Show Client',{exact:true}).uncheck();
+  await column.selectOption('Order Number');
   await page.getByLabel('Width for Order Number',{exact:true}).selectOption('240');
   await page.getByLabel('Wrap cell text',{exact:true}).check();
   await expect(page.getByRole('columnheader',{name:/^Client/})).toHaveCount(0);
