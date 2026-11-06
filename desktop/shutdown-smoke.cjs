@@ -8,11 +8,11 @@ const path=require('node:path');
   const profile=fs.mkdtempSync(path.join(os.tmpdir(),'tv-tracker-shutdown-test-'));
   const env={...process.env,DATATRACE_TEST_USER_DATA:profile};delete env.ELECTRON_RUN_AS_NODE;
   let app;
-  const launch=async()=>{app=await electron.launch({executablePath:process.env.DESKTOP_EXE,env,timeout:60000});return app.firstWindow();};
+  const launch=async()=>{app=await electron.launch({executablePath:process.env.DESKTOP_EXE||require('electron'),args:process.env.DESKTOP_EXE?[]:[__dirname],env,timeout:60000});return app.firstWindow();};
   const quit=async()=>{const closed=app.waitForEvent('close',{timeout:15000});await app.evaluate(({Menu})=>Menu.getApplicationMenu().items[0].submenu.items.find(item=>item.label==='Quit Tv Tracker').click());await closed;app=null;};
   try{
     const page=await launch();
-    await page.getByRole('heading',{name:'Clear work. Confident decisions.'}).waitFor();
+    await page.getByRole('heading',{name:'SLA Status',exact:true}).first().waitFor();
     const imported=await page.evaluate(async()=>{
       const form=new FormData();
       form.append('file',new Blob(['Order Number,Task Status,Product\nSHUTDOWN-QC,Available,Full Title\n'],{type:'text/csv'}),'capture.csv');
@@ -30,7 +30,8 @@ const path=require('node:path');
     await assert.rejects(fetch(origin+'/api/health'),undefined,'The engine must stop on quit');
     const reopened=await launch();
     await reopened.getByRole('button',{name:'Captures',exact:true}).click();
-    await reopened.getByRole('cell',{name:'SHUTDOWN-QC',exact:true}).waitFor();
+    await reopened.getByRole('button',{name:'Open capture',exact:true}).first().click();
+    await reopened.getByRole('cell',{name:'SHUTDOWN-QC',exact:true}).first().waitFor();
     assert.equal((await reopened.evaluate(()=>fetch('/api/state').then(r=>r.json()))).previews.length,1);
     await quit();
     console.log(JSON.stringify({passed:true,quitMs,checks:['bounded quit with stalled engine reply','engine termination','saved capture preserved after restart']},null,2));
