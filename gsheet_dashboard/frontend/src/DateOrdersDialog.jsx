@@ -1,3 +1,4 @@
+import {LoadingScreen} from './LoadingExperience';
 import {FilterableTable} from './ColumnFilters';
 import React, {useDeferredValue,useEffect,useMemo,useRef,useState} from 'react';
 import {LoaderCircle,Search} from 'lucide-react';
@@ -80,7 +81,7 @@ export default function DateOrdersDialog({kind,date='',month='',year='',aggregat
         <p className="muted">Edit this order’s report source. Imported received dates use Date first, then In-Time; tracker dates use In-Time first. {kind==='capacity'&&details?.mode==='excel'?'Completed and Delivered orders use Out Time, with Saturday and Sunday counted on the preceding Friday.':'Completion dates use Out Time first, then Completed Time.'} Use MM/DD/YYYY or YYYY-MM-DD with an optional time.</p>
         <div className="date-editor-fields">{editing.editable_columns.map(column=><label key={column}>{column}<input aria-label={`Edit ${column}`} value={draft[column]} disabled={busy} maxLength={10000} required={['Status','Task Status'].includes(column)} onChange={event=>setDraft(current=>({...current,[column]:event.target.value}))}/></label>)}</div>
         <div className="date-editor-actions"><button className="primary" disabled={busy||!Object.keys(changes).length}>{busy?<><LoaderCircle size={16} className="spin"/>Saving…</>:'Save order changes'}</button><button type="button" className="secondary" disabled={busy} onClick={()=>{setEditing(null);setEditError('');}}>Cancel</button></div>
-      </form>:loading?<p className="loading"><LoaderCircle className="spin"/>Loading date orders…</p>:details&&<>
+      </form>:loading?<LoadingScreen title="Loading date orders…"/>:details&&<>
         <p className="muted">{details.source} · {selected?.rows.length.toLocaleString()||0} matching records</p>
         {kind==='capacity'&&<p className="report-context">Received: {details.raw_received} orders {details.date?'on this reporting date':'in this reporting period'}. Status groups contain this period’s received orders; Completed uses recorded completion dates, including prior-month orders.</p>}
         <div className="date-detail-groups" role="group" aria-label="Order groups">{details.groups.map(item=><button type="button" className={item.key===selected?.key?'active':''} key={item.key} aria-pressed={item.key===selected?.key} onClick={()=>{setGroup(item.key);setSearch('');setEditError('');}}><span>{item.label}</span><strong>{item.rows.length.toLocaleString()}</strong></button>)}</div>

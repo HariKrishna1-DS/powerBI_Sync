@@ -8,7 +8,7 @@ import {api, csvDownload, str, normalized, orderKey, orderStatus, badgeClass, Ic
 const DuplicateOrdersDialog=React.lazy(()=>import('./WorkspaceViews').then(module=>({default:module.DuplicateOrdersDialog})));
 const DetailDialog=React.lazy(()=>import('./WorkspaceViews').then(module=>({default:module.SideDrawer})));
 
-export const VIEW_TITLES={overview:'Overview',sheets:'Data Sheets',captures:'Capture library',changes:'Changes',importChanges:'Import Excel Changes',daily:'Daily Orders',monthly:'Monthly Orders',sla:'SLA Status',capacity:'Capacity Report',audit:'Activity'};
+export const VIEW_TITLES={overview:'Overview',sheets:'Data Sheets',captures:'Capture library',captureDetail:'Saved capture',slaCompare:'SLA Compare',changes:'Changes',importChanges:'Import Excel Changes',daily:'Daily Orders',monthly:'Monthly Orders',sla:'SLA Status',capacity:'Capacity Report',audit:'Activity'};
 const orderCollator=new Intl.Collator(undefined,{numeric:true,sensitivity:'base'});
 const relativeTime=value=>value?new Date(value).toLocaleString(): 'Not available';
 const attention=row=>/clarification|hold|suspend|review|missing|rejected/i.test(orderStatus(row));

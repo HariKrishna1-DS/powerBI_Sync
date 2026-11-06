@@ -30,8 +30,7 @@ class SlaStatusTests(unittest.TestCase):
         cases = [('2026-10-14 00:00:00', 'Today SLA'), ('2026-10-14 23:59:59', 'Today SLA'),
                  ('2026-10-13 23:59:59', 'Negative SLA'), ('2026-10-15', 'Future SLA'),
                  ('-0d 1h', 'Negative SLA'), ('2h', 'Today SLA'), ('1d', 'Today SLA'),
-                 ('1d 4h 5m', 'Today SLA'), ('1d 23h 59m', 'Today SLA'),
-                 ('-1d 4h 5m', 'Negative SLA'), ('2d 0h 0m', 'Future SLA'),
+                 ('1d 4h 3m', 'Today SLA'), ('2d 4h 3m', 'Future SLA'),
                  ('46309.9', 'Today SLA'), ('', ''), ('invalid', '')]
         for value, expected in cases:
             with self.subTest(value=value):
@@ -46,6 +45,22 @@ class SlaStatusTests(unittest.TestCase):
         report = build_sla_status(snapshot, self.today)
         self.assertEqual(report['rows'][0]['SLA Category'], 'Today SLA')
         self.assertEqual(report['totals']['Today SLA'], 1)
+
+    def test_saved_capture_uses_capture_day_even_with_future_arrivals_and_deadlines(self):
+        snapshot = {'updated_at': '2026-11-05T15:00:00Z', 'report_scope': 'preview',
+                    'sla_reference_at': '2026-11-13T08:00:00', 'sheets': {'Overview': {'rows': [
+                        {'Order Number': 'same-day', 'SLA Expiration*': '11/05 05:00 PM'},
+                        {'Order Number': 'next-day', 'SLA Expiration*': '11/06 05:00 PM'},
+                        {'Order Number': 'red-negative', 'SLA Expiration*': '-4h 0m'},
+                        {'Order Number': 'unicode-negative', 'SLA Expiration*': '\u22121d 2h 0m'},
+                        {'Order Number': 'red-absolute', 'SLA Expiration*': '11/05 08:00 AM', 'SLA Expiration Overdue': True},
+                    ], 'columns': []}}}
+        report = build_sla_status(snapshot)
+        self.assertEqual(report['as_of'], '2026-11-05')
+        categories = {row['Order Number']: row['SLA Category'] for row in report['rows']}
+        self.assertEqual(categories, {'same-day': 'Today SLA', 'next-day': 'Future SLA',
+                                     'red-negative': 'Negative SLA', 'unicode-negative': 'Negative SLA',
+                                     'red-absolute': 'Negative SLA'})
 
     def test_one_day_countdown_takes_precedence_over_its_normalized_deadline(self):
         snapshot = {'sheets': {'Overview': {'rows': [

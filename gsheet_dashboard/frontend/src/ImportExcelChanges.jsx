@@ -1,3 +1,4 @@
+import {LoadingScreen} from './LoadingExperience';
 import {FilterableTable} from './ColumnFilters';
 import React, {useDeferredValue,useEffect,useState} from 'react';
 import {ChevronLeft,ChevronRight,LoaderCircle,RefreshCw,Search} from 'lucide-react';
@@ -36,7 +37,7 @@ export default function ImportExcelChanges({revision,onRefresh,refreshing}) {
     {(error||history?.sync_error)&&<p className="notice warning" role="alert">{error||history.sync_error}</p>}
     <div className="metrics">{[['Added','Orders added','green'],['Updated','Fields updated','blue'],['Removed','Orders removed','red']].map(([key,label,tone])=><div className={`metric ${tone}`} key={key}><span>{label}</span><strong>{(history?.counts?.[key]||0).toLocaleString()}</strong></div>)}</div>
     <div className="filter-toolbar"><div className="search-input"><Search size={16}/><input aria-label="Search changed Order Number" placeholder="Search Order Number" value={search} onChange={e=>setSearch(e.target.value)}/></div><label>Changes<select aria-label="Filter imported changes" value={action} onChange={e=>setAction(e.target.value)}><option value="">All changes</option><option>Added</option><option>Updated</option><option>Removed</option></select></label><span className="row-tally">{total.toLocaleString()} changes</span></div>
-    {!history&&!error?<p className="loading"><LoaderCircle size={18} className="spin"/>Loading changes…</p>:<div className="table-scroll"><FilterableTable aria-label="Import Excel change history"><thead><tr><th>Detected at</th><th>Order Number</th><th>Change</th><th>Column</th><th>Previous → New</th><th>Source tab</th><th>Details</th></tr></thead>
+    {!history&&!error?<LoadingScreen title="Loading changes…"/>:<div className="table-scroll"><FilterableTable aria-label="Import Excel change history"><thead><tr><th>Detected at</th><th>Order Number</th><th>Change</th><th>Column</th><th>Previous → New</th><th>Source tab</th><th>Details</th></tr></thead>
       <tbody>{rows.map(row=><tr key={row.id}><td>{new Date(row['Changed At']).toLocaleString()}</td><td>{row['Order Number']}</td><td><span className={`badge ${row.Change.toLowerCase()}`}>{row.Change}</span></td><td>{row.Column}</td><td className="change-values"><span>{row['Previous Value']||'—'}</span><span aria-hidden="true"> → </span><strong>{row['New Value']||'—'}</strong></td><td>{row['Source Tabs']}</td><td><button className="text-button" aria-label={`View change ${row.id} for order ${row['Order Number']}`} onClick={()=>setDetail(row)}>View</button></td></tr>)}</tbody></FilterableTable>
       {!rows.length&&<p className="table-empty">{search||action?'No changes match these filters.':'No Sheet changes recorded yet. Add, edit or remove an order in the imported tabs, then refresh.'}</p>}
     </div>}

@@ -9,6 +9,11 @@ import openpyxl
 
 from tracker_sync import canonical_headers, key, text, STATUS_NAMES
 from sla_status import preview_snapshot, build_sla_status
+from import_identity import number_key
+from sla_manual import revision as sla_revision
+
+COMPARISON_CATEGORIES = ['Future SLA', 'Negative SLA', 'Today SLA']
+COMPARISON_COLUMNS = ['Status', *COMPARISON_CATEGORIES, 'Grand Total']
 
 def clean_key(val):
     if val is None:
@@ -71,6 +76,8 @@ def normalize_status(val):
     if not raw:
         return ''
     compact = ' '.join(raw.casefold().split())
+    if compact == '(blank)':
+        return ''
     # Handle known aliases
     aliases = {
         'completed': 'Completed and Delivered',
@@ -93,11 +100,11 @@ def normalize_status(val):
         'need subscription': 'Need To Add Subscription',
         'site down': 'Site Down',
     }
-    return aliases.get(compact, raw.strip())
+    return aliases.get(compact, STATUS_NAMES.get(compact, raw.strip()))
 
 def read_production_file(content_or_path, filename=''):
     """Parse XLSX, XLS, or CSV production reports into a list of standardized order dicts.
-    Picks SLA Expiration (date only, ignoring time) from the production report.
+    Production deadlines are ignored; SLA categories come only from SLA Status.
     Skips non-production log sheets like Escalations.
     """
     is_path = isinstance(content_or_path, (str, Path))
@@ -165,19 +172,6 @@ def read_production_file(content_or_path, filename=''):
                         col_map['status'] = idx
                         break
 
-            # Explicit priority for prod_sla: SLA Expiration column comes first!
-            for idx, h in enumerate(headers):
-                c_name = clean_key(h)
-                if 'expiration' in c_name:
-                    col_map['prod_sla'] = idx
-                    break
-            if 'prod_sla' not in col_map:
-                for idx, h in enumerate(headers):
-                    c_name = clean_key(h)
-                    if c_name in ('sla', 'sladate', 'slatime', 'eta'):
-                        col_map['prod_sla'] = idx
-                        break
-
             # Must have order_number and at least one order identifier (not an empty log)
             if 'order_number' not in col_map or not any(k in col_map for k in ('product', 'client', 'state', 'county', 'searcher', 'typer')):
                 continue
@@ -201,8 +195,6 @@ def read_production_file(content_or_path, filename=''):
                         return str(val).strip()
                     return ''
 
-                raw_sla = get_val('prod_sla')
-                clean_sla_date = extract_date_only(raw_sla)
 
                 rows.append({
                     'order_number': order_num,
@@ -213,7 +205,7 @@ def read_production_file(content_or_path, filename=''):
                     'client': get_val('client'),
                     'in_time': get_val('in_time'),
                     'out_time': get_val('out_time'),
-                    'prod_sla': clean_sla_date,
+                    'prod_sla': '',
                     'searcher': get_val('searcher'),
                     'typer': get_val('typer'),
                     'comments': get_val('comments'),
@@ -265,16 +257,6 @@ def read_production_file(content_or_path, filename=''):
                             col_map['status'] = idx
                             break
 
-                # Explicit priority for prod_sla: SLA Expiration first!
-                for idx, c_name in enumerate(compact_cells):
-                    if 'expiration' in c_name:
-                        col_map['prod_sla'] = idx
-                        break
-                if 'prod_sla' not in col_map:
-                    for idx, c_name in enumerate(compact_cells):
-                        if c_name in ('sla', 'sladate', 'slatime', 'eta'):
-                            col_map['prod_sla'] = idx
-                            break
                 continue
 
             if 'order_number' not in col_map:
@@ -293,8 +275,6 @@ def read_production_file(content_or_path, filename=''):
                     return str(row[idx]).strip()
                 return ''
 
-            raw_sla = get_csv_val('prod_sla')
-            clean_sla_date = extract_date_only(raw_sla)
 
             rows.append({
                 'order_number': order_num,
@@ -305,7 +285,7 @@ def read_production_file(content_or_path, filename=''):
                 'client': get_csv_val('client'),
                 'in_time': get_csv_val('in_time'),
                 'out_time': get_csv_val('out_time'),
-                'prod_sla': clean_sla_date,
+                'prod_sla': '',
                 'searcher': get_csv_val('searcher'),
                 'typer': get_csv_val('typer'),
                 'comments': get_csv_val('comments'),
@@ -317,9 +297,7 @@ def read_production_file(content_or_path, filename=''):
     return rows
 
 def compare_sla_with_production(sla_report, production_rows, preview_name=''):
-    """Compare SLA Status snapshot with production rows, identifying status changes.
-    SLA Compare has its separate time base based on the Production Report's SLA Expiration column (date only).
-    """
+    """Compare production statuses using the selected SLA Status report's orders and categories."""
     if not production_rows:
         return {
             'has_production': False,
@@ -335,7 +313,7 @@ def compare_sla_with_production(sla_report, production_rows, preview_name=''):
             },
             'transitions': [],
             'sla_summary': {
-                'columns': ['Status', 'Future SLA', 'Negative SLA', 'Today SLA', 'Grand Total'],
+                'columns': COMPARISON_COLUMNS,
                 'rows': [],
                 'totals': {
                     'Status': 'Grand Total',
@@ -352,24 +330,26 @@ def compare_sla_with_production(sla_report, production_rows, preview_name=''):
 
     # Build unique SLA orders dictionary by clean key
     sla_map = {}
-    for r in sla_report.get('rows', []) + sla_report.get('excluded_rows', []):
+    for r in sla_report.get('rows', []):
         order_no = str(r.get('Order Number') or '').strip()
         if not order_no:
             continue
-        k = clean_key(order_no)
+        k = number_key({'Order Number': order_no})
         if k:
             sla_map[k] = r
 
     # Build unique Production orders dictionary
     # Prefer complete production entries over sparse or log rows
     prod_map = {}
+    production_candidates = defaultdict(list)
     for r in production_rows:
         order_no = str(r.get('order_number') or '').strip()
         if not order_no:
             continue
-        k = clean_key(order_no)
+        k = number_key({'Order Number': order_no})
         if not k:
             continue
+        production_candidates[k].append(r)
 
         existing = prod_map.get(k)
         if existing is None:
@@ -385,10 +365,22 @@ def compare_sla_with_production(sla_report, production_rows, preview_name=''):
             if new_fields >= existing_fields:
                 prod_map[k] = r
 
-    all_keys = list(dict.fromkeys(list(sla_map.keys()) + list(prod_map.keys())))
+    # An order can occur in both workbooks for different products. Compare the
+    # queue task with its corresponding production row, not whichever file is last.
+    from monthly_production import local_datetime
+    for identity, candidates in production_candidates.items():
+        if identity not in sla_map or len(candidates) < 2:
+            continue
+        queue_product = clean_key(sla_map[identity].get('Product'))
+        def score(row):
+            product = clean_key(row.get('product'))
+            product_match = 2 if product and product == queue_product else 1 if product and (
+                queue_product.startswith(product) or product.startswith(queue_product) and queue_product) else 0
+            received = local_datetime(row.get('in_time')) or datetime.min
+            return product_match, received.replace(tzinfo=None), bool(row.get('status'))
+        prod_map[identity] = max(candidates, key=score)
 
-    # In SLA Compare, the reference date is always today's date (real-time comparison)
-    ref_date = date.today()
+    all_keys = list(dict.fromkeys(list(sla_map.keys()) + list(prod_map.keys())))
 
     orders = []
     matched_count = 0
@@ -424,30 +416,17 @@ def compare_sla_with_production(sla_report, production_rows, preview_name=''):
                 same_count += 1
                 match_type = 'same_status'
 
-            # Production SLA deadline category based on today's date:
-            # - If SLA Expiration date == today -> Today SLA
-            # - If SLA Expiration date > today -> Future SLA
-            # - If SLA Expiration date < today -> Negative SLA
-            prod_sla_str = prod_item.get('prod_sla') or ''
-            prod_sla_date = parse_date_obj(prod_sla_str)
-            if prod_sla_date is not None:
-                if prod_sla_date == ref_date:
-                    prod_sla_cat = 'Today SLA'
-                elif prod_sla_date > ref_date:
-                    prod_sla_cat = 'Future SLA'
-                else:
-                    prod_sla_cat = 'Negative SLA'
-            else:
-                prod_sla_cat = sla_item.get('SLA Category') or 'Unknown SLA'
+            # Excel deadlines are not a classification source. Preserve SLA Status exactly.
+            sla_category = sla_item.get('SLA Category') or 'Unknown SLA'
 
             orders.append({
                 'order_number': order_no,
                 'match_type': match_type,
                 'status_changed': is_changed,
                 'sla_status': sla_status_str or '(Blank)',
-                'sla_category': prod_sla_cat,
+                'sla_category': sla_category,
                 'queue_sla_category': sla_item.get('SLA Category') or 'Unknown SLA',
-                'prod_sla_category': prod_sla_cat,
+                'prod_sla_category': sla_category,
                 'prod_status': prod_status_str or '(Blank)',
                 'change_label': f'{sla_status_str} ➔ {prod_status_str}' if is_changed else 'Unchanged',
                 'product': sla_item.get('Product') or prod_item.get('product') or '',
@@ -456,8 +435,9 @@ def compare_sla_with_production(sla_report, production_rows, preview_name=''):
                 'client': sla_item.get('Client') or prod_item.get('client') or '',
                 'in_time': sla_item.get('Arrival Time') or sla_item.get('Arrival Date') or prod_item.get('in_time') or '',
                 'out_time': prod_item.get('out_time') or '',
-                'prod_sla': prod_sla_str,
+                'prod_sla': '',
                 'sla_expiration': sla_item.get('SLA Expiration') or sla_item.get('SLA Expiration*') or '',
+                'sla_revision': sla_revision(sla_item),
                 'searcher': prod_item.get('searcher') or '',
                 'typer': prod_item.get('typer') or '',
                 'comments': prod_item.get('comments') or '',
@@ -474,8 +454,8 @@ def compare_sla_with_production(sla_report, production_rows, preview_name=''):
                 'sla_category': sla_item.get('SLA Category') or 'Unknown SLA',
                 'queue_sla_category': sla_item.get('SLA Category') or 'Unknown SLA',
                 'prod_sla_category': sla_item.get('SLA Category') or 'Unknown SLA',
-                'prod_status': 'Not in Production Report',
-                'change_label': 'Pending in Queue (SLA only)',
+                'prod_status': 'Home Builders' if sla_status_str == 'Home Builders' else 'Not in Production Report',
+                'change_label': 'Home Builders' if sla_status_str == 'Home Builders' else 'Pending in Queue (SLA only)',
                 'product': sla_item.get('Product') or '',
                 'state': sla_item.get('State') or sla_item.get('St') or '',
                 'county': sla_item.get('County') or '',
@@ -484,6 +464,7 @@ def compare_sla_with_production(sla_report, production_rows, preview_name=''):
                 'out_time': '',
                 'prod_sla': '',
                 'sla_expiration': sla_item.get('SLA Expiration') or sla_item.get('SLA Expiration*') or '',
+                'sla_revision': sla_revision(sla_item),
                 'searcher': '',
                 'typer': '',
                 'comments': '',
@@ -492,26 +473,14 @@ def compare_sla_with_production(sla_report, production_rows, preview_name=''):
         else:
             prod_only_count += 1
             prod_status_str = normalize_status(prod_item.get('status', ''))
-            prod_sla_str = prod_item.get('prod_sla') or ''
-            prod_sla_date = parse_date_obj(prod_sla_str)
-            if prod_sla_date is not None:
-                if prod_sla_date == ref_date:
-                    prod_sla_cat = 'Today SLA'
-                elif prod_sla_date > ref_date:
-                    prod_sla_cat = 'Future SLA'
-                else:
-                    prod_sla_cat = 'Negative SLA'
-            else:
-                prod_sla_cat = '—'
-
             orders.append({
                 'order_number': order_no,
                 'match_type': 'prod_only',
                 'status_changed': False,
                 'sla_status': 'Not in SLA Queue',
-                'sla_category': prod_sla_cat,
-                'queue_sla_category': '—',
-                'prod_sla_category': prod_sla_cat,
+                'sla_category': 'Not in SLA Queue',
+                'queue_sla_category': 'Not in SLA Queue',
+                'prod_sla_category': 'Not in SLA Queue',
                 'prod_status': prod_status_str or '(Blank)',
                 'change_label': 'Production Report Only',
                 'product': prod_item.get('product') or '',
@@ -520,7 +489,7 @@ def compare_sla_with_production(sla_report, production_rows, preview_name=''):
                 'client': prod_item.get('client') or '',
                 'in_time': prod_item.get('in_time') or '',
                 'out_time': prod_item.get('out_time') or '',
-                'prod_sla': prod_sla_str,
+                'prod_sla': '',
                 'sla_expiration': '',
                 'searcher': prod_item.get('searcher') or '',
                 'typer': prod_item.get('typer') or '',
@@ -547,13 +516,23 @@ def compare_sla_with_production(sla_report, production_rows, preview_name=''):
         },
         'transitions': [],
         'sla_summary': {
-            'columns': ['Status', 'Future SLA', 'Negative SLA', 'Today SLA', 'Grand Total'],
+            'columns': COMPARISON_COLUMNS,
             'rows': [],
             'totals': {},
         },
         'orders': orders,
     }
     return recalculate_summary(result)
+
+def comparison_summary_status(order):
+    if order.get('match_type') == 'prod_only':
+        return None
+    if normalize_status(order.get('sla_status')) == 'Home Builders':
+        return 'Home Builders'
+    if order.get('match_type') in ('status_moved', 'same_status'):
+        return order.get('prod_status') or '(Blank)'
+    return None
+
 
 def recalculate_summary(result):
     """Recalculate metrics, transitions, and SLA summary matrix from result['orders']."""
@@ -569,8 +548,8 @@ def recalculate_summary(result):
         mtype = o.get('match_type')
         if mtype in ('status_moved', 'same_status'):
             matched_count += 1
-            sla_st = o.get('sla_status', '')
-            prod_st = o.get('prod_status', '')
+            sla_st = normalize_status(o.get('sla_status', ''))
+            prod_st = normalize_status(o.get('prod_status', ''))
             is_changed = (sla_st.casefold() != prod_st.casefold()) and bool(sla_st and prod_st and prod_st != 'Not in Production Report')
             o['status_changed'] = is_changed
             if is_changed:
@@ -595,9 +574,9 @@ def recalculate_summary(result):
 
     summary_by_status = {}
     for o in orders:
-        if o.get('match_type') not in ('status_moved', 'same_status'):
+        st = comparison_summary_status(o)
+        if st is None:
             continue
-        st = o.get('prod_status') or '(Blank)'
         if st not in summary_by_status:
             summary_by_status[st] = {
                 'Status': st,
@@ -605,9 +584,10 @@ def recalculate_summary(result):
                 'Negative SLA': 0,
                 'Today SLA': 0,
                 'Unknown SLA': 0,
+                'Not in SLA Queue': 0,
                 'Grand Total': 0,
             }
-        cat = o.get('prod_sla_category') or o.get('sla_category')
+        cat = o.get('sla_category')
         if cat in summary_by_status[st]:
             summary_by_status[st][cat] += 1
         else:
@@ -621,6 +601,7 @@ def recalculate_summary(result):
         'Negative SLA': sum(r['Negative SLA'] for r in sla_summary_rows),
         'Today SLA': sum(r['Today SLA'] for r in sla_summary_rows),
         'Unknown SLA': sum(r['Unknown SLA'] for r in sla_summary_rows),
+        'Not in SLA Queue': sum(r['Not in SLA Queue'] for r in sla_summary_rows),
         'Grand Total': sum(r['Grand Total'] for r in sla_summary_rows),
     }
 
@@ -633,7 +614,7 @@ def recalculate_summary(result):
     result['metrics']['prod_only'] = prod_only_count
     result['transitions'] = all_transitions
     result['sla_summary'] = {
-        'columns': ['Status', 'Future SLA', 'Negative SLA', 'Today SLA', 'Grand Total'],
+        'columns': COMPARISON_COLUMNS,
         'rows': sla_summary_rows,
         'totals': sla_summary_totals,
     }
@@ -643,16 +624,17 @@ def update_order_production_status(result, order_number, new_prod_status, prod_r
     """Update production status of an order and recalculate summary matrix and metrics."""
     order_number_str = str(order_number).strip()
     norm_new_status = normalize_status(new_prod_status)
-    target_key = clean_key(order_number_str)
+    target_key = number_key({'Order Number': order_number_str})
 
     if prod_rows:
         for r in prod_rows:
-            if clean_key(r.get('order_number')) == target_key:
+            if number_key({'Order Number': r.get('order_number')}) == target_key:
                 r['status'] = norm_new_status
 
     for o in result.get('orders', []):
-        if clean_key(o.get('order_number')) == target_key:
+        if number_key({'Order Number': o.get('order_number')}) == target_key:
             o['prod_status'] = norm_new_status
+            o['status_conflict'] = False
             sla_status_str = o.get('sla_status', '')
             if o.get('match_type') in ('status_moved', 'same_status'):
                 is_changed = (sla_status_str.casefold() != norm_new_status.casefold()) and bool(sla_status_str and norm_new_status and norm_new_status != 'Not in Production Report')
@@ -667,7 +649,7 @@ def update_order_production_status(result, order_number, new_prod_status, prod_r
 
     return recalculate_summary(result)
 
-def export_comparison_excel(result, table_scope='all', filter_type=None, sla_status=None, prod_status=None, category=None, from_status=None, to_status=None, search=None):
+def export_comparison_excel(result, table_scope='all', filter_type=None, sla_status=None, prod_status=None, category=None, from_status=None, to_status=None, search=None, summary_status=None):
     """Generate clean, styled Excel workbooks for the SLA comparison.
     Supports table_scope in ('all', 'sla_summary', 'movements', 'orders').
     """
@@ -711,10 +693,16 @@ def export_comparison_excel(result, table_scope='all', filter_type=None, sla_sta
                 res = [o for o in res if o['match_type'] == 'sla_only']
             elif ft in ('prod_only', 'production_only'):
                 res = [o for o in res if o['match_type'] == 'prod_only']
+            elif ft in ('queue', 'sla_queue'):
+                res = [o for o in res if o['match_type'] != 'prod_only']
+            elif ft == 'summary':
+                res = [o for o in res if comparison_summary_status(o) is not None]
         if sla_status:
             res = [o for o in res if o['sla_status'] == sla_status]
         if prod_status:
             res = [o for o in res if o['prod_status'] == prod_status]
+        if summary_status:
+            res = [o for o in res if comparison_summary_status(o) == summary_status]
         if category:
             res = [o for o in res if o['sla_category'] == category]
         if from_status and to_status:
@@ -737,12 +725,12 @@ def export_comparison_excel(result, table_scope='all', filter_type=None, sla_sta
         ws.title = 'SLA Status Summary'
         ws.views.sheetView[0].showGridLines = True
 
-        ws['A1'] = "SLA Status Summary Matrix (Matched Orders in Production)"
+        ws['A1'] = "SLA Status Summary Matrix (SLA Status categories)"
         ws['A1'].font = header_font
-        ws['A2'] = f"Preview: {preview_name} | Matched Orders: {result.get('metrics', {}).get('matched', 0)} | As of: {as_of} | Exported: {now_str}"
+        ws['A2'] = f"Preview: {preview_name} | SLA Orders: {result.get('metrics', {}).get('total_sla', 0)} | As of: {as_of} | Exported: {now_str}"
         ws['A2'].font = sub_font
 
-        headers = ['Production Status', 'Future SLA', 'Negative SLA', 'Today SLA', 'Grand Total']
+        headers = ['Production Status', *COMPARISON_CATEGORIES, 'Grand Total']
         for c_idx, h in enumerate(headers, start=1):
             cell = ws.cell(row=4, column=c_idx, value=h)
             cell.font = matrix_hdr_font
@@ -752,7 +740,7 @@ def export_comparison_excel(result, table_scope='all', filter_type=None, sla_sta
         cur_r = 5
         for r in sla_sum.get('rows', []):
             ws.cell(row=cur_r, column=1, value=r['Status']).font = bold_font
-            for c_idx, col_name in enumerate(['Future SLA', 'Negative SLA', 'Today SLA', 'Grand Total'], start=2):
+            for c_idx, col_name in enumerate([*COMPARISON_CATEGORIES, 'Grand Total'], start=2):
                 val_cell = ws.cell(row=cur_r, column=c_idx, value=r.get(col_name, 0))
                 val_cell.alignment = Alignment(horizontal='right')
                 if col_name == 'Grand Total':
@@ -762,11 +750,11 @@ def export_comparison_excel(result, table_scope='all', filter_type=None, sla_sta
         tot = sla_sum.get('totals', {})
         if tot:
             ws.cell(row=cur_r, column=1, value='Grand Total').font = bold_font
-            for c_idx, col_name in enumerate(['Future SLA', 'Negative SLA', 'Today SLA', 'Grand Total'], start=2):
+            for c_idx, col_name in enumerate([*COMPARISON_CATEGORIES, 'Grand Total'], start=2):
                 tot_cell = ws.cell(row=cur_r, column=c_idx, value=tot.get(col_name, 0))
                 tot_cell.font = bold_font
                 tot_cell.alignment = Alignment(horizontal='right')
-            for c_idx in range(1, 6):
+            for c_idx in range(1, len(COMPARISON_COLUMNS) + 1):
                 ws.cell(row=cur_r, column=c_idx).fill = tot_fill
 
         for col in ws.columns:
@@ -837,7 +825,7 @@ def export_comparison_excel(result, table_scope='all', filter_type=None, sla_sta
 
         headers = [
             'Order Number', 'Match Type', 'Status Movement',
-            'SLA Status (Queue)', 'SLA Category', 'Production Status', 'Prod SLA / ETA',
+            'SLA Status (Queue)', 'SLA Category', 'Production Status', 'SLA Status Expiration',
             'Product', 'State', 'County', 'Client',
             'In-Time / Received', 'Production Out-Time', 'Searcher', 'Typer'
         ]
@@ -862,7 +850,7 @@ def export_comparison_excel(result, table_scope='all', filter_type=None, sla_sta
                 o['sla_status'],
                 o['sla_category'],
                 o['prod_status'],
-                o.get('prod_sla', ''),
+                o.get('sla_expiration', ''),
                 o['product'],
                 o['state'],
                 o['county'],
@@ -950,10 +938,10 @@ def export_comparison_excel(result, table_scope='all', filter_type=None, sla_sta
 
         # SLA Status Summary Matrix Table (Matched Orders)
         sum_start = max(len(metric_rows) + 7, len(transitions) + 7)
-        ws_sum[f'A{sum_start}'] = 'SLA Status Summary Matrix (Matched Orders in Production)'
+        ws_sum[f'A{sum_start}'] = 'SLA Status Summary Matrix (SLA Status categories)'
         ws_sum[f'A{sum_start}'].font = Font(name='Calibri', size=12, bold=True, color='1F2937')
 
-        sla_headers = ['Production Status', 'Future SLA', 'Negative SLA', 'Today SLA', 'Grand Total']
+        sla_headers = ['Production Status', *COMPARISON_CATEGORIES, 'Grand Total']
         for c_idx, h_name in enumerate(sla_headers, start=1):
             cell = ws_sum.cell(row=sum_start + 1, column=c_idx, value=h_name)
             cell.font = matrix_hdr_font
@@ -963,7 +951,7 @@ def export_comparison_excel(result, table_scope='all', filter_type=None, sla_sta
         cur_r = sum_start + 2
         for r_data in sla_sum.get('rows', []):
             ws_sum.cell(row=cur_r, column=1, value=r_data['Status']).font = bold_font
-            for c_idx, col_name in enumerate(['Future SLA', 'Negative SLA', 'Today SLA', 'Grand Total'], start=2):
+            for c_idx, col_name in enumerate([*COMPARISON_CATEGORIES, 'Grand Total'], start=2):
                 val_cell = ws_sum.cell(row=cur_r, column=c_idx, value=r_data.get(col_name, 0))
                 val_cell.alignment = Alignment(horizontal='right')
                 if col_name == 'Grand Total':
@@ -974,11 +962,11 @@ def export_comparison_excel(result, table_scope='all', filter_type=None, sla_sta
         tot = sla_sum.get('totals', {})
         if tot:
             ws_sum.cell(row=cur_r, column=1, value='Grand Total').font = bold_font
-            for c_idx, col_name in enumerate(['Future SLA', 'Negative SLA', 'Today SLA', 'Grand Total'], start=2):
+            for c_idx, col_name in enumerate([*COMPARISON_CATEGORIES, 'Grand Total'], start=2):
                 tot_c = ws_sum.cell(row=cur_r, column=c_idx, value=tot.get(col_name, 0))
                 tot_c.font = bold_font
                 tot_c.alignment = Alignment(horizontal='right')
-            for c_idx in range(1, 6):
+            for c_idx in range(1, len(COMPARISON_COLUMNS) + 1):
                 ws_sum.cell(row=cur_r, column=c_idx).fill = tot_fill
 
         # Sheet 2: Side-by-Side Orders
@@ -987,7 +975,7 @@ def export_comparison_excel(result, table_scope='all', filter_type=None, sla_sta
 
         columns = [
             'Order Number', 'Match Type', 'Status Movement',
-            'SLA Status (Queue)', 'SLA Category', 'Production Status', 'Prod SLA / ETA',
+            'SLA Status (Queue)', 'SLA Category', 'Production Status', 'SLA Status Expiration',
             'Product', 'State', 'County', 'Client',
             'In-Time / Received', 'Production Out-Time', 'Searcher', 'Typer'
         ]
@@ -1012,7 +1000,7 @@ def export_comparison_excel(result, table_scope='all', filter_type=None, sla_sta
                 row_data['sla_status'],
                 row_data['sla_category'],
                 row_data['prod_status'],
-                row_data.get('prod_sla', ''),
+                row_data.get('sla_expiration', ''),
                 row_data['product'],
                 row_data['state'],
                 row_data['county'],

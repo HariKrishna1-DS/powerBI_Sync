@@ -119,17 +119,14 @@ test('Excel report adds and copies orders then deletes a populated custom status
   await expect(page.getByRole('button',{name:'Grand Total 3',exact:true})).toBeVisible();
   await page.getByRole('button',{name:'Manual review',exact:true}).click();
   let detail=page.getByRole('dialog',{name:'Manual review',exact:true});
-  await page.evaluate(() => {
-    Object.defineProperty(navigator.clipboard, 'writeText', {value: async text => {
-      sessionStorage.setItem('copiedOrder', text);
-    }});
-  });
   await detail.getByRole('button',{name:'Copy order new-099',exact:true}).click();
-  await expect(detail.getByRole('status')).toContainText('Copied details for new-099');
-  expect(await page.evaluate(() => sessionStorage.getItem('copiedOrder'))).toContain('Order Number: new-099');
-  await expect(page.getByRole('dialog',{name:'Copy SLA order',exact:true})).toHaveCount(0);
+  editor=page.getByRole('dialog',{name:'Copy SLA order',exact:true});
+  await editor.getByLabel('SLA Order Number',{exact:true}).fill('copy-100');
+  await editor.getByRole('button',{name:'Look up order',exact:true}).click();
+  await editor.getByRole('button',{name:'Add order',exact:true}).click();
+  await expect(editor).toHaveCount(0);
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('button',{name:'Grand Total 3',exact:true})).toBeVisible();
+  await expect(page.getByRole('button',{name:'Grand Total 4',exact:true})).toBeVisible();
   await page.getByRole('combobox',{name:'SLA report date'}).selectOption('2026-10-12');
   await expect(page.getByRole('button',{name:'Manual review',exact:true})).toHaveCount(0);
   await page.getByRole('combobox',{name:'SLA report date'}).selectOption('2026-10-13');
@@ -138,7 +135,7 @@ test('Excel report adds and copies orders then deletes a populated custom status
   await remove.getByLabel('Move orders to',{exact:true}).selectOption('Typing in Progress');
   await remove.getByRole('button',{name:'Delete status',exact:true}).click();
   await expect(remove).toHaveCount(0);
-  await expect(page.getByRole('button',{name:'Grand Total 3',exact:true})).toBeVisible();
-  expect(rows.filter(row=>row._manual&&row.Status==='Typing in Progress')).toHaveLength(1);
+  await expect(page.getByRole('button',{name:'Grand Total 4',exact:true})).toBeVisible();
+  expect(rows.filter(row=>row._manual&&row.Status==='Typing in Progress')).toHaveLength(2);
   expect(errors).toEqual([]);
 });

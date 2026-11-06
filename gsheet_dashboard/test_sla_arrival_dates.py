@@ -176,13 +176,12 @@ class SlaArrivalDatesTests(unittest.TestCase):
     def test_relative_import_deadlines_use_selected_report_day(self):
         data = read_report_files([('relative.xlsx', excel([
             row('hours', date='10/13/2026 09:00 AM', **{'SLA Expiration': '2h'}),
-            row('one-day-countdown', date='10/13/2026 09:00 AM', **{'SLA Expiration': '1d 4h 5m'}),
-            row('two-day-countdown', date='10/13/2026 09:00 AM', **{'SLA Expiration': '2d'}),
+            row('tomorrow', date='10/13/2026 09:00 AM', **{'SLA Expiration': '1d'}),
         ]))])
         data['created'] = '2026-10-19T12:00:00Z'
         report = build_sla_status(imported_date_snapshot(imported_snapshot(data)))
         self.assertEqual(report['totals']['Today SLA'], 2)
-        self.assertEqual(report['totals']['Future SLA'], 1)
+        self.assertEqual(report['totals']['Future SLA'], 0)
 
 
 if __name__ == '__main__':

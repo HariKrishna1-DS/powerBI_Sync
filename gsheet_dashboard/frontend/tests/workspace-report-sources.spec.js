@@ -58,10 +58,60 @@ test('SLA Compare accepts dropped report files and rejects other extensions',asy
   await workspace.dispatchEvent('drop',{dataTransfer:transfer});
   await expect.poll(()=>uploads.length).toBe(1);
   expect(uploads[0]).toContain('production.csv');
+  await expect(page.getByRole('button',{name:'Upload Production Report (Excel)',exact:true})).toBeEnabled();
   const invalid=await page.evaluateHandle(()=>{
     const value=new DataTransfer();value.items.add(new File(['text'],'invalid.txt'));return value;
   });
   await workspace.dispatchEvent('drop',{dataTransfer:invalid});
   await expect(page.getByRole('alert')).toContainText('Choose Excel');
   expect(uploads).toHaveLength(1);
+});
+
+test('activity panel stays minimized across pages and shows report loading',async({page})=>{
+  await setup(page);
+  const panel=page.getByRole('complementary',{name:'Workspace activity'});
+  const toggle=panel.getByRole('button');
+  await expect(toggle).toHaveAttribute('aria-expanded','false');
+  await toggle.click();
+  await expect(toggle).toHaveAttribute('aria-expanded','true');
+  await page.getByRole('button',{name:'Monthly Orders',exact:true}).click();
+  await expect(toggle).toHaveAttribute('aria-expanded','true');
+  await toggle.click();
+  let release;
+  const ready=new Promise(resolve=>{release=resolve;});
+  await page.route('**/api/sla-status**',async route=>{await ready;await route.fulfill({status:500,json:{error:'Test report unavailable'}});});
+  await page.getByRole('button',{name:'SLA Status',exact:true}).click();
+  try {
+    await expect(page.locator('.workspace-loading')).toContainText('Loading SLA Status');
+    await expect(panel).toContainText('Loading SLA Status');
+    await expect(toggle).toHaveAttribute('aria-expanded','false');
+    const bounds=await panel.boundingBox();
+    expect(bounds.x+bounds.width).toBeLessThanOrEqual(1440);
+    expect(bounds.y+bounds.height).toBeLessThanOrEqual(1000);
+  } finally {release();}
+  await expect(page.locator('.workspace-loading')).toHaveCount(0);
+  await expect(panel).toContainText('Workspace ready');
+});
+
+test('modern navigation provides settings, theme switch and a capture card archive',async({page})=>{
+  await setup(page);
+  await expect(page.locator('.sidebar .capture-library')).toHaveCount(0);
+  await expect(page.locator('.sidebar-footer')).toHaveCount(0);
+  const toggle=page.getByRole('switch',{name:'Dark mode'});
+  await toggle.click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme','dark');
+  await toggle.click();
+  await expect(page.locator('html')).toHaveAttribute('data-theme','light');
+  await page.getByRole('button',{name:'Captures',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Every capture. One place.'})).toBeVisible();
+  await expect(page.locator('.capture-card')).toHaveCount(3);
+  await page.getByRole('textbox',{name:'Search saved captures'}).fill('preview32');
+  await expect(page.locator('.capture-card')).toHaveCount(1);
+  await page.screenshot({path:'test-results/capture-library-light.png',fullPage:true});
+  await toggle.click();
+  await page.screenshot({path:'test-results/capture-library-dark.png',fullPage:true});
+  await page.getByRole('button',{name:'Open capture',exact:true}).click();
+  await expect(page.getByRole('heading',{name:'Saved capture',exact:true}).first()).toBeVisible();
+  await page.getByRole('button',{name:'Settings',exact:true}).click();
+  await expect(page.getByRole('dialog',{name:'Connections & settings'})).toBeVisible();
 });

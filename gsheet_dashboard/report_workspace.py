@@ -78,7 +78,7 @@ class ReportWorkspace:
 
     def public(self):
         value = self.read()
-        public = {k: v for k, v in value.items() if k not in ('imported', 'cloud_baseline', 'tracker_status_baseline', 'other_tab_status_baseline', 'sheet_status_overrides', 'sheet_status_override_previews', 'sla_preview_statuses', 'sla_preview_order_edits', 'sla_preview_manual_orders', 'sla_preview_custom_statuses', 'sla_import_custom_statuses')}
+        public = {k: v for k, v in value.items() if k not in ('imported', 'sla_comparison_report', 'cloud_baseline', 'tracker_status_baseline', 'other_tab_status_baseline', 'sheet_status_overrides', 'sheet_status_override_previews', 'sla_preview_statuses', 'sla_preview_order_edits', 'sla_preview_manual_orders', 'sla_preview_custom_statuses', 'sla_import_custom_statuses')}
         effective = Counter(row.get('Source workbook', '') for row in (value.get('imported') or {}).get('rows', []))
         public['imports'] = [{'name': s['name'], 'rows': len(s['rows']), 'orders': len((value.get('imported') or {}).get('rows', [])) if s.get('legacy') else effective[s['name']],
                               'worksheets': len(s['files']), 'legacy': s.get('legacy', False)}
@@ -1102,6 +1102,11 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
             from sla_import_manual import decorate
             snapshot = decorate(snapshot, settings)
             return dict(build_sla_status(snapshot), sync_error=settings.get('cloud_refresh_error'))
+        return load_preview_sla_report(preview_id)
+
+    def load_preview_sla_report(preview_id=None):
+        from sla_status import build_sla_status, preview_snapshot, tracker_status_rows
+        settings = workspace.read()
         raw = request.args.get('preview_id') if preview_id is None else preview_id
         if raw is not None and (isinstance(raw, bool) or not str(raw).isdecimal() or int(raw) < 1):
             raise ValueError('Choose a valid saved preview.')
@@ -1484,7 +1489,9 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
         return send_file(stream, as_attachment=True, download_name=filename,
                          mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
-    sla_comparison_cache = {'result': None, 'rows': None, 'filename': None}
+    saved_comparison = workspace.read().get('sla_comparison_report') or {}
+    sla_comparison_cache = {'result': None, 'rows': saved_comparison.get('rows'),
+                            'filename': saved_comparison.get('filename'), 'active_rows': None}
 
     @app.route('/api/sla-compare', methods=['GET', 'POST'])
     def sla_compare_endpoint():
@@ -1500,6 +1507,7 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
 
             clear_report = request.args.get('clear') in ('1', 'true') or (request.form.get('clear') in ('1', 'true') if request.form else False)
             if clear_report:
+                workspace.save(sla_comparison_report=None)
                 sla_comparison_cache['rows'] = None
                 sla_comparison_cache['filename'] = None
                 sla_comparison_cache['result'] = None
@@ -1519,6 +1527,7 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
                         source_names.append(f.filename)
                 sla_comparison_cache['rows'] = prod_rows
                 sla_comparison_cache['filename'] = ', '.join(source_names)
+                workspace.save(sla_comparison_report={'rows': prod_rows, 'filename': ', '.join(source_names)})
             elif use_sample:
                 from sync_config import BASE_DIR
                 sample_dir = BASE_DIR / 'sample_production'
@@ -1532,15 +1541,12 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
                     source_names.append(p.name)
                 sla_comparison_cache['rows'] = prod_rows
                 sla_comparison_cache['filename'] = ', '.join(source_names) if source_names else 'Sample Report'
+            elif sla_comparison_cache.get('rows') is not None:
+                prod_rows = sla_comparison_cache['rows']
+                source_names = [sla_comparison_cache.get('filename') or 'Uploaded Report']
             elif workspace.read().get('imported') and not clear_report:
                 settings = workspace.read()
-                try:
-                    with sync_lock(workspace.store.root):
-                        book, _ = get_book()
-                        sync_imported_tabs(workspace, book, dict(settings, mode='excel'))
-                except Exception as exc:
-                    source_warning = f'Using saved imported reports. Google Sheets refresh failed: {exc}'
-                settings = workspace.read()
+                # Comparing an imported report must not replace its statuses with cloud values.
                 rows = imported_snapshot(settings['imported'])['sheets']['Overview']['rows']
                 prod_rows = [{
                     'order_number': str(row.get('Order Number', '')).strip(),
@@ -1548,20 +1554,16 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
                     'product': row.get('Product', ''), 'state': row.get('State', ''),
                     'county': row.get('County', ''), 'client': row.get('Client', ''),
                     'in_time': row.get('In-Time', ''), 'out_time': row.get('Out Time', ''),
-                    'prod_sla': row.get('SLA Expiration') or row.get('ETA', ''),
+                    'prod_sla': '',
                     'searcher': row.get('Searcher', ''), 'typer': row.get('Typer', ''),
                     'comments': row.get('Comments', ''), 'source_sheet': 'Imported Excel'
                 } for row in rows]
                 source_names = ['Imported Excel reports']
-            elif sla_comparison_cache.get('rows'):
-                prod_rows = sla_comparison_cache['rows']
-                source_names = [sla_comparison_cache.get('filename') or 'Uploaded Report']
             else:
                 prod_rows = []
                 source_names = []
 
-            from sla_status import build_sla_status, preview_snapshot
-            sla_report = build_sla_status(preview_snapshot(workspace.store, workspace.read(), preview_id))
+            sla_report = load_preview_sla_report(preview_id)
             preview_name = sla_report.get('preview_name') or (f"preview{preview_id}" if preview_id else "Latest preview")
 
             result = compare_sla_with_production(sla_report, prod_rows, preview_name=preview_name)
@@ -1569,6 +1571,7 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
             result['source_warning'] = source_warning
             result['selected_preview_id'] = preview_id or sla_report.get('preview_id')
             result['previews'] = sla_report.get('previews', [])
+            sla_comparison_cache['active_rows'] = prod_rows
             sla_comparison_cache['result'] = result
 
             return jsonify(result)
@@ -1596,10 +1599,62 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
                 prod_status,
                 prod_rows=sla_comparison_cache.get('rows')
             )
+            if sla_comparison_cache.get('rows') is not None:
+                workspace.save(sla_comparison_report={'rows': sla_comparison_cache['rows'],
+                                                     'filename': sla_comparison_cache['filename']})
             return jsonify(ok=True, result=updated)
         except Exception as exc:
             app.logger.exception('Failed to update production status')
             return jsonify(error=str(exc)), 400
+
+    @app.post('/api/sla-compare/expiration')
+    def sla_compare_expiration():
+        from copy import deepcopy
+        from import_identity import number_key
+        from sla_manual import find_order, revision
+        from sla_compare import compare_sla_with_production
+        body = request.get_json(silent=True) or {}
+        if not isinstance(body, dict):
+            return jsonify(error='Enter valid SLA expiration details.'), 400
+        current = sla_comparison_cache.get('result')
+        if not current or type(body.get('preview_id')) is not int or body['preview_id'] != current.get('selected_preview_id'):
+            return jsonify(error='The selected preview changed. Refresh the comparison and try again.'), 409
+        if not gate.acquire(blocking=False):
+            return jsonify(error='Wait for the current capture or Sheets update to finish, then save.'), 409
+        try:
+            with sync_lock(workspace.store.root), workspace.lock:
+                expiry = body.get('expiration')
+                if not isinstance(expiry, str) or len(expiry) > 40 or not ('T' in expiry or ' ' in expiry):
+                    raise ValueError('Choose a valid SLA expiration date and time.')
+                try:
+                    expiration = datetime.fromisoformat(expiry)
+                except ValueError:
+                    raise ValueError('Choose a valid SLA expiration date and time.')
+                if expiration.tzinfo:
+                    raise ValueError('Use the date and time shown in SLA Status, without a timezone offset.')
+                report = load_preview_sla_report(body['preview_id'])
+                number = body.get('order_number')
+                if not isinstance(number, str) or not number.strip():
+                    raise ValueError('Choose an order from the selected preview.')
+                row = find_order(report, number)
+                if row is None or body.get('expected_revision') != revision(row):
+                    return jsonify(error='This SLA order changed. Refresh the comparison before editing it.'), 409
+                settings = workspace.read()
+                edits = deepcopy(settings.get('sla_preview_order_edits') or {})
+                edits.setdefault(str(report['preview_id']), {}).setdefault(number_key(row), {})['SLA Expiration'] = expiration.isoformat(sep=' ', timespec='minutes')
+                from workspace_backup import save_safety_backup
+                save_safety_backup(workspace.store, 'before-update')
+                workspace.save(sla_preview_order_edits=edits)
+                report = load_preview_sla_report(body['preview_id'])
+                updated = compare_sla_with_production(report, sla_comparison_cache['active_rows'] or [],
+                                                     preview_name=report['preview_name'])
+                updated.update({key: current.get(key) for key in ('source_files', 'source_warning', 'selected_preview_id', 'previews')})
+                sla_comparison_cache['result'] = updated
+                return jsonify(ok=True, result=updated)
+        except ValueError as exc:
+            return jsonify(error=str(exc)), 400
+        finally:
+            gate.release()
 
     @app.get('/api/sla-compare/export')
     def sla_compare_export_endpoint():
@@ -1611,6 +1666,7 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
         filter_type = request.args.get('filter_type')
         sla_status = request.args.get('sla_status')
         prod_status = request.args.get('prod_status')
+        summary_status = request.args.get('summary_status')
         category = request.args.get('category')
         from_status = request.args.get('from_status')
         to_status = request.args.get('to_status')
@@ -1622,6 +1678,7 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
             filter_type=filter_type,
             sla_status=sla_status,
             prod_status=prod_status,
+            summary_status=summary_status,
             category=category,
             from_status=from_status,
             to_status=to_status,

@@ -21,12 +21,13 @@ const puppeteer = require('../desktop/extractor/node_modules/puppeteer-core');
             <form method="POST"><input type="submit" name="refresh" value="Refresh View"></form>
             <div id="ctl00_ContentPlaceHolder1_pnlResults">
               <table><tr><td>Layout only</td></tr></table>
-              <table><thead><tr><td>Arrival Time</td><td>Task Status</td><td>OPON</td><td>ETA Comments</td><td>Comment</td><td>Comments</td><td>Product</td></tr></thead>
+              <table><thead><tr><td>Arrival Time</td><td>Task Status</td><td>OPON</td><td>ETA Comments</td><td>Comment</td><td>Comments</td><td>Product</td><td>SLA Expiration*</td></tr></thead>
                 <tbody><tr><td>09/22/2026 01:00 PM</td><td>Available</td><td id="task" title="Open order overview">001</td>
                   <td id="eta" title="${fullEta}">ETA: Order has been assigned to the abst.</td>
                   <td><span data-original-title="${fullComment}">Continue - Full review..</span></td>
                   <td title="Unrelated action label that must not become the comment"><span aria-describedby="comment-details">Additional comment..</span></td>
                   <td title="Product details are not a comment">ClientRev..</td>
+                  <td><span style="color:red">-4h 0m</span></td>
                 </tr></tbody>
               </table>
               <button class="rgPageNext" onclick="advance();this.disabled=true">Next</button>
@@ -64,6 +65,8 @@ const puppeteer = require('../desktop/extractor/node_modules/puppeteer-core');
         assert.ok(captured.every(row => row.Comment === fullComment));
         assert.ok(captured.every(row => row.Comments === describedComment));
         assert.ok(captured.every(row => row.Product === 'ClientRev..'));
+        assert.ok(captured.every(row => row['SLA Expiration*'] === '-4h 0m'));
+        assert.ok(captured.every(row => row['SLA Expiration Overdue'] === true));
         console.log('PASS: results-panel selection, two-page extraction, complete tooltip comments, and preserved order IDs');
     } finally {
         await browser.close();

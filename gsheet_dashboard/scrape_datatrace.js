@@ -210,6 +210,13 @@ const outputPath = process.env.DATATRACE_OUTPUT_JSON || path.join(__dirname, 'qu
                 cells.forEach((cell, idx) => {
                     const colName = headers[idx] || `Column_${idx + 1}`;
                     rowObj[colName] = cellValue(cell, colName);
+                    if (colName.toLowerCase().replace(/[^a-z]/g, '') === 'slaexpiration') {
+                        // Preserve the portal's overdue indicator alongside the displayed deadline.
+                        rowObj['SLA Expiration Overdue'] = [cell, ...cell.querySelectorAll('*')].some(node => {
+                            const channels = getComputedStyle(node).color.match(/[\d.]+/g)?.map(Number) || [];
+                            return channels[0] >= 180 && channels[1] < 100 && channels[2] < 100;
+                        });
+                    }
                 });
 
                 if (Object.keys(rowObj).length > 0 && Object.values(rowObj).some(val => val !== "")) {

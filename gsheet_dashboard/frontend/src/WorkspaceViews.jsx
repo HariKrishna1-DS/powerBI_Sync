@@ -1,3 +1,4 @@
+import {LoadingScreen} from './LoadingExperience';
 import {FilterableTable,useColumnFilters} from './ColumnFilters';
 import React, { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -588,7 +589,7 @@ function DailyOrders({preview, running, revision}) {
   }
   return <section className="daily-orders"><OfflineNotice snapshot={snapshot}/>{snapshot&&!snapshot.offline&&<p className="report-context">{snapshot.source||'Google Sheets'} production · {snapshot.updated_at?`Refreshed ${new Date(snapshot.updated_at).toLocaleString()}`:'Refresh time unavailable'}</p>}
     {error&&<div className="notice error" role="alert">{error}</div>}{publishMessage&&<p role="status">{publishMessage}</p>}{publishing&&<p role="status">Updating Google Sheets for the selected date…</p>}
-    {loading?<div className="loading"><LoaderCircle className="spin"/>Loading daily orders...</div>:<>
+    {loading?<LoadingScreen title="Loading daily orders..."/>:<>
       <div className="section-heading"><h2>Daily production orders</h2><div className="monthly-actions"><a className="secondary" href="/api/export/report?sheet=Daily%20Orders" download>Download Daily Orders</a><button type="button" className="secondary" disabled={publishing||!history.length} onClick={()=>chooseDate('')}>Reset date</button><label>Date<select aria-label="Daily orders date" value={selectedDay?.Date||''} disabled={publishing} onChange={e=>chooseDate(e.target.value)}>{history.map(day=><option key={day.Date} value={day.Date}>{dailyDateLabel(day.Date)}</option>)}</select></label></div></div>
       {snapshot?.mode!=='excel'&&<p className="report-context">Received uses each order's In-Time or received Date. Completed and pending counts show the current statuses of those received orders. A saved capture can also contain orders received on earlier dates.</p>}
       <div className="metrics">{names.map((name,index)=><button type="button" className={`metric ${DAILY_TONES[index]}`} key={name} aria-pressed={activeGroup===index} aria-controls={`daily-orders-group-${index}`} disabled={!selectedDay} onClick={()=>showGroup(index)}><span>{name}</span><strong>{selectedDay?.[name]??0}</strong></button>)}</div>
@@ -754,7 +755,7 @@ function MonthlyOrders({preview,running,reportMode='tracker'}) {
     {reportMode==='excel'&&<div className="notice">Import Excel report: all statuses from your saved files are included. Use Import files to replace an updated workbook or remove a saved file.</div>}
     {error&&<div className="notice error">{error}</div>}
     {reportMode==='tracker'&&<MonthlyMaintenance month={selectedMonth?.Month} running={running||saving||snapshot?.offline} onChanged={()=>setRefreshId(value=>value+1)}/>}
-    {loading?<div className="loading"><LoaderCircle className="spin"/>Loading monthly orders...</div>:<>
+    {loading?<LoadingScreen title="Loading monthly orders..."/>:<>
       <div className="section-heading"><h2>Monthly production orders</h2><div className="monthly-actions"><a className="secondary" href="/api/export/report?sheet=Monthly%20Orders" download>Download Monthly Orders</a><label>Month<select aria-label="Monthly orders date" disabled={saving} value={selectedMonth?.Month||''} onChange={e=>{setMonth(e.target.value);setSearch('');}}>{history.map(m=><option key={m.Month} value={m.Month}>{m.MonthLabel || m.Month}</option>)}</select></label><MonthlyDownload month={selectedMonth?.Month} disabled={running||saving||snapshot?.offline}/></div></div>
       <div className="metrics">{names.slice(0,4).map((name,index)=><button type="button" className={`metric metric-action ${['green','gold','gray','purple'][index]}`} key={name} disabled={!selectedMonth} onClick={()=>showMetric(name)}><span>{name}</span><strong>{selectedMonth?.[name]??(error?'—':0)}</strong><small>{monthlyPercentage(selectedMonth,name)} of {selectedMonth?.['Month Orders']??0} month orders</small></button>)}</div>
       <p className="report-context">SLA percentages use completed orders with an On Time or Missed result. Orders without an SLA result are excluded.</p><div className="section-heading"><h2>SLA results</h2><button className="secondary" disabled={saving} onClick={()=>setRefreshId(value=>value+1)}>Refresh SLA</button></div>

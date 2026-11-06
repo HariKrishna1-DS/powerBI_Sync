@@ -37,14 +37,16 @@ class ReportSourceVisibilityTests(unittest.TestCase):
             self.assertEqual(response.json['source_files'], 'Imported Excel reports')
             self.assertEqual(response.json['selected_preview_id'], 1)
             self.assertTrue(response.json['has_production'])
-            self.assertEqual(self.refresh.call_args.args[2]['mode'], 'excel')
+            self.refresh.assert_not_called()
 
-    def test_compare_uses_saved_imports_when_sheets_refresh_fails(self):
+    def test_compare_keeps_imported_statuses_without_refreshing_from_sheets(self):
+        self.refresh.reset_mock()
         self.refresh.side_effect = RuntimeError('offline')
         response = self.client.get('/api/sla-compare')
         self.assertEqual(response.status_code, 200, response.json)
         self.assertTrue(response.json['has_production'])
-        self.assertIn('offline', response.json['source_warning'])
+        self.refresh.assert_not_called()
+        self.assertIsNone(response.json['source_warning'])
 
     def test_publication_clears_old_results_and_replaces_all_products(self):
         settings = self.workspace.read()

@@ -142,19 +142,18 @@ test('new orders and editable copies have deadlines and explicit manual counts; 
   await editor.getByRole('button',{name:'Save order',exact:true}).click();
   await expect(editor).toHaveCount(0);
   await expect(detail).toContainText('Corrected borrower');
-  await page.evaluate(() => {
-    Object.defineProperty(navigator.clipboard, 'writeText', {value: async text => {
-      sessionStorage.setItem('copiedOrder', text);
-    }});
-  });
   await detail.getByRole('button',{name:'Copy order 001',exact:true}).click();
-  await expect(detail.getByRole('status')).toContainText('Copied details for 001');
-  expect(await page.evaluate(() => sessionStorage.getItem('copiedOrder'))).toContain('Order Number: 001');
-  await expect(page.getByRole('dialog',{name:'Copy SLA order',exact:true})).toHaveCount(0);
-  await expect(detail.locator('tbody tr')).toHaveCount(2);
+  editor=page.getByRole('dialog',{name:'Copy SLA order',exact:true});
+  await expect(editor.getByLabel('SLA Order Number',{exact:true})).toHaveValue('');
+  await editor.getByLabel('SLA Order Number',{exact:true}).fill('COPY-004');
+  await editor.getByRole('button',{name:'Look up order',exact:true}).click();
+  await expect(editor.getByLabel('Borrower',{exact:true})).toHaveValue('Original borrower');
+  await editor.getByRole('button',{name:'Add order',exact:true}).click();
+  await expect(editor).toHaveCount(0);
+  await expect(detail.locator('tbody tr')).toHaveCount(3);
   await page.screenshot({path:'test-results/sla-manual-order-actions.png',fullPage:true});
   await page.keyboard.press('Escape');
-  await expect(page.locator('.sla-total-equation')).toContainText('Grand Total 3');
+  await expect(page.locator('.sla-total-equation')).toContainText('Grand Total 4');
   expect(rows.find(row=>row['Order Number']==='001').Borrower).toBe('Original borrower');
   expect(errors).toEqual([]);
 });

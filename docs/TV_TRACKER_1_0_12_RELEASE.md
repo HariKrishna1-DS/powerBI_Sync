@@ -6,7 +6,7 @@ TitleVision extraction now runs Refresh View before reading the queue, even when
 
 SLA countdown anchors use US Central time (America/Chicago), including seasonal daylight-saving offsets. Portal arrival timestamps and absolute deadlines retain their source wall-clock values. The report reference remains the latest arrival date in the selected preview; this is a date-based queue snapshot, not a live overdue timer.
 
-Suspended SearchFix/CRSP2 tasks, suspended orders with Cannot in Comment, suspended orders referencing abstraction or abstractors in ETA Comments, and Workflow Suspended orders with ON HOLD in ETA Comments take Awaiting for Clarification priority. ON HOLD without Workflow Suspended retains the existing rules. Manual status overrides remain supported.
+Suspended SearchFix/CRSP2 tasks, suspended orders with Cannot in Comment, suspended orders referencing abstraction or abstractors in ETA Comments, and Workflow Suspended orders with ON HOLD in ETA Comments take Awaiting for Clarification priority. ON HOLD without Workflow Suspended retains the existing rules. TypingModule tasks with Task Status Available, In Progress, or Task Suspended map to Typing in Progress. Manual status overrides remain supported.
 
 Home Builder product matching includes Home Builder L.., Home Builder U.., Home Builders and the home buiders spelling.
 

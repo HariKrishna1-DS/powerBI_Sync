@@ -1,9 +1,19 @@
-import React, {useEffect, useState} from 'react';
+import React, {useEffect, useRef, useState} from 'react';
+import {Upload} from 'lucide-react';
 import {Dialog} from './DesktopExperience';
 import {api} from './workspaceUtils';
 
 export default function ReportControls({mode, running, open, setOpen, onChanged, onBusy, workspaceState}) {
   const [settings,setSettings]=useState({}),[files,setFiles]=useState([]),[busy,setBusy]=useState(false),[message,setMessage]=useState(''),[replaceAll,setReplaceAll]=useState(false);
+  const [dragging,setDragging]=useState(false);
+  const fileInput=useRef(null),dragDepth=useRef(0);
+  useEffect(()=>{if(!open){dragDepth.current=0;setDragging(false);}},[open]);
+  function chooseFiles(values){
+    if(busy)return;
+    const selected=Array.from(values||[]);
+    if(selected.some(file=>!/\.(xlsx|csv)$/i.test(file.name))){setMessage('Choose Excel (.xlsx) or CSV (.csv) files.');return;}
+    setFiles(selected);setMessage('');
+  }
   useEffect(()=>{api('/api/report-workspace').then(setSettings).catch(e=>setMessage(e.message));},[open]);
   useEffect(()=>{if(workspaceState)setSettings(workspaceState);},[workspaceState]);
   useEffect(()=>{if(!open)return;const timer=setInterval(()=>api('/api/report-workspace').then(setSettings).catch(()=>{}),2000);return()=>clearInterval(timer);},[open]);
@@ -34,10 +44,21 @@ export default function ReportControls({mode, running, open, setOpen, onChanged,
       <button disabled={busy} className={mode==='excel'?'active':''} aria-pressed={mode==='excel'} onClick={()=>choose('excel')}>Import Excel report</button>
     </div>
     {(message||settings.sync_error||['pending','working'].includes(settings.publication_state))&&!open&&<button className="text-button" onClick={()=>setOpen(true)} title={message||settings.sync_error}>{settings.sync_error?'Sheets update pending':['pending','working'].includes(settings.publication_state)?'Sheets updating':'Report details'}</button>}
-    {open&&<Dialog title="Import Excel reports" onClose={()=>{if(!busy)setOpen(false);}}>
+    {open&&<Dialog title="Import Excel reports" className="report-import-dialog" onClose={()=>{if(!busy)setOpen(false);}}>
       <div className="dialog-content">
         <p>Upload one or several workbooks. Every order worksheet and every status is included. Uploading the same filename again replaces its previous rows, including updated statuses and newly added orders. Other saved files are kept.</p>
-        <label className="report-file-picker">Excel or CSV files<input type="file" multiple accept=".xlsx,.csv" disabled={busy} onChange={e=>{setFiles(Array.from(e.target.files||[]));e.target.value='';}}/></label>
+        <label className="report-file-label" htmlFor="report-workbook-files">Excel or CSV files</label>
+        <div className={`report-file-dropzone${dragging?' is-dragging':''}`} role="region" aria-label="Excel report upload"
+          onDragEnter={event=>{if(!busy&&Array.from(event.dataTransfer.types||[]).includes('Files')){event.preventDefault();dragDepth.current++;setDragging(true);}}}
+          onDragOver={event=>{if(Array.from(event.dataTransfer.types||[]).includes('Files')){event.preventDefault();event.dataTransfer.dropEffect=busy?'none':'copy';}}}
+          onDragLeave={event=>{event.preventDefault();dragDepth.current=Math.max(0,dragDepth.current-1);if(!dragDepth.current)setDragging(false);}}
+          onDrop={event=>{event.preventDefault();dragDepth.current=0;setDragging(false);chooseFiles(event.dataTransfer.files);}}>
+          <input ref={fileInput} id="report-workbook-files" type="file" multiple hidden accept=".xlsx,.csv" disabled={busy}
+            onChange={event=>{chooseFiles(event.target.files);event.target.value='';}}/>
+          <Upload size={25} aria-hidden="true"/>
+          <button type="button" className="secondary report-choose-files" disabled={busy} onClick={()=>fileInput.current?.click()}>Choose files</button>
+          <span role="status">{dragging?'Drop your files here':files.length?`${files.length} file${files.length===1?'':'s'} selected`:'Drag Excel or CSV files here'}</span>
+        </div>
         {!!files.length&&<ul className="report-upload-list">{files.map((file,index)=><li key={`${file.name}-${index}`}><span>{file.name}</span><button className="secondary" disabled={busy} onClick={()=>setFiles(current=>current.filter((_,i)=>i!==index))}>Remove selection</button></li>)}</ul>}
         {!!settings.row_count&&<label className="slicer-item report-replace-all"><input type="checkbox" checked={replaceAll} disabled={busy} onChange={e=>setReplaceAll(e.target.checked)}/>Replace all saved files with this upload</label>}
         <p>Importing selects the Excel report for all dashboards and publishes it to Google Sheets. Tracker report restores your tracker data. The Sheet includes eight report tabs, including SLA Status; source/history tabs are kept hidden for recovery.</p>

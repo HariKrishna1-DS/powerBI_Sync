@@ -151,9 +151,6 @@ def queue_orders(preview, as_of=None, *, rule=None):
 def preview_snapshot(store, settings=None, preview_id=None, production=None, as_of=None):
     """Only orders present in the selected queue, with SLA-specific status rules."""
     settings = settings or {}
-    as_of = as_of or datetime.now()
-    if as_of.tzinfo:
-        as_of = as_of.replace(tzinfo=None)
     previews = store.list()
     if preview_id is not None:
         preview = store.get(preview_id)
@@ -161,6 +158,9 @@ def preview_snapshot(store, settings=None, preview_id=None, production=None, as_
         saved = settings.get('sla_preview_id')
         selected = next((p for p in previews if p['id'] == saved), None) or next(iter(previews), None)
         preview = store.get(selected['id']) if selected else None
+    as_of = as_of or (local_time(preview['created']) if preview else None) or datetime.now(PORTAL_TIMEZONE)
+    if as_of.tzinfo:
+        as_of = as_of.astimezone(PORTAL_TIMEZONE).replace(tzinfo=None)
     from reporting_dates import latest_arrival
     from status_updates import status_name
     reference = latest_arrival(preview['rows']) if preview else None
@@ -307,7 +307,7 @@ def local_time(value):
 def category(value, as_of, anchor=None, raw_countdown=None):
     from monthly_production import local_datetime
     # Check 1-day or relative countdown first if available
-    countdown = str(raw_countdown or '').strip()
+    countdown = str(raw_countdown or '').replace('\u2212', '-').strip()
     match_cd = re.fullmatch(r'(-)?(?:(\d+)d\s*)?(?:(\d+)h\s*)?(?:(\d+)m\s*)?', countdown, re.I)
     if match_cd and any(match_cd.groups()[1:]):
         if match_cd[1]:
@@ -318,7 +318,7 @@ def category(value, as_of, anchor=None, raw_countdown=None):
         due = (anchor or as_of) + timedelta(days=days, hours=int(match_cd[3] or 0), minutes=int(match_cd[4] or 0))
         return 'Today SLA' if due.date() == as_of.date() else 'Negative SLA' if due.date() < as_of.date() else 'Future SLA'
 
-    raw = str(value if value is not None else '').strip()
+    raw = str(value if value is not None else '').replace('\u2212', '-').strip()
     if not raw:
         return ''
     # Queue exports express overdue deadlines as signed elapsed durations.
@@ -366,27 +366,25 @@ def build_sla_status(snapshot, as_of=None):
     sheets = snapshot.get('sheets', {})
     source = sheets.get('Overview') or sheets.get('All Products') or {'rows': [], 'columns': []}
 
-    today_local = datetime.now()
-    today_m_d = today_local.strftime('%m/%d')
-    today_iso = today_local.date().isoformat()
-    # If queue has orders expiring today (e.g. 11/06), take today's date so they are counted as Today SLA
-    has_today_expiration = any(
-        today_m_d in str(r.get('SLA Expiration*') or r.get('SLA Expiration') or '') or
-        today_iso in str(r.get('SLA Expiration*') or r.get('SLA Expiration') or '')
-        for r in source['rows']
-    )
+    # A saved queue describes its capture, not the day on which it is reopened.
+    captured_at = local_time(snapshot.get('updated_at'))
+    # Portal timestamps can be on the next calendar day at the capture boundary.
+    # Ignore implausibly distant arrival dates and never consult today's date.
+    portal_reference = reference if reference and (not captured_at or
+        abs((reference.date() - captured_at.date()).days) <= 1) else None
     if as_of is None:
         if snapshot.get('report_scope') == 'imported_date' and selected_day and selected_day != 'Undated':
             as_of = datetime.fromisoformat(selected_day)
-        elif has_today_expiration:
-            as_of = today_local
         else:
-            as_of = reference or local_time(snapshot.get('updated_at')) or today_local
+            as_of = portal_reference or captured_at or reference or datetime.now(PORTAL_TIMEZONE)
     if isinstance(as_of, date) and not isinstance(as_of, datetime):
         as_of = datetime.combine(as_of, datetime.min.time())
     if as_of.tzinfo:
-        as_of = as_of.replace(tzinfo=None)
-    anchor = as_of if has_today_expiration or snapshot.get('report_scope') == 'imported_date' else (local_time(snapshot.get('updated_at')) or as_of)
+        as_of = as_of.astimezone(PORTAL_TIMEZONE).replace(tzinfo=None)
+    anchor = as_of if snapshot.get('report_scope') == 'imported_date' else (captured_at or as_of)
+    if snapshot.get('report_scope') == 'preview':
+        # The captured positive countdown belongs to this queue's SLA day.
+        anchor = as_of.replace(hour=0, minute=0, second=0, microsecond=0)
     rows, excluded, counts = [], [], Counter()
     for original in source['rows']:
         if not str(original.get('Order Number') or '').strip():
@@ -394,6 +392,8 @@ def build_sla_status(snapshot, as_of=None):
         expiry = original.get('SLA Expiration') or original.get('SLA Expiration*')
         raw_cd = original.get('SLA Expiration*') or original.get('SLA Expiration')
         result = category(expiry, as_of, anchor, raw_countdown=raw_cd)
+        if str(original.get('SLA Expiration Overdue', '')).strip().casefold() in ('true', '1', 'yes'):
+            result = 'Negative SLA'
         row = dict(original, **arrival_details(original), **{'SLA Category': result})
         row['Status'] = status_name(original.get('Status') or original.get('Task Status') or '(Blank)')
         if not result and snapshot.get('report_scope') == 'preview':
@@ -424,7 +424,7 @@ def build_sla_status(snapshot, as_of=None):
                                   'Counted SLA': counted[number_key(row)]['SLA Category'],
                                   'Applied status condition': counted[number_key(row)].get('Status Reason', '')})
                       for row in snapshot.get('duplicate_rows') or []]
-    date_basis = 'selected_date' if selected_day and selected_day != 'Undated' else 'today' if has_today_expiration else 'arrival_time' if reference else 'capture_time'
+    date_basis = 'selected_date' if selected_day and selected_day != 'Undated' else 'arrival_time' if portal_reference else 'capture_time'
     return {'as_of': as_of.date().isoformat(), 'date_basis': date_basis,
             'sla_reference_at': reference.isoformat() if reference else None, 'rows': rows, 'excluded_rows': excluded,
             'excluded_count': len(excluded), 'summary': summary, 'totals': totals,

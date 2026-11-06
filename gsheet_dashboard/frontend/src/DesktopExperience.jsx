@@ -1,3 +1,4 @@
+import {LoadingScreen} from './LoadingExperience';
 import React, {useEffect, useLayoutEffect, useRef, useState} from 'react';
 import {saveBlob} from './workspaceUtils';
 import {version as workspaceVersion} from '../package.json';
@@ -74,7 +75,7 @@ function Connections({onClose,running,initialTab='connections'}) {
   async function importKey(event){const file=event.target.files?.[0];event.target.value='';if(!file)return;await action(async()=>{if(file.size>65536)throw Error('Choose a service-account JSON file smaller than 64 KB.');const raw=await file.text();let value;try{value=JSON.parse(raw.replace(/^\uFEFF/,''));}catch{throw Error('The selected file is not valid JSON.');}if(value?.type!=='service_account'||!value.client_email||!value.private_key)throw Error('Choose a Google service-account JSON key.');setForm(current=>({...current,serviceAccount:JSON.stringify(value),serviceAccountEmail:value.client_email}));setMessage('Key selected. Save settings to apply it.');});}
   async function checkConnection() {await action(async()=>{if(!desktop){const value=await localRequest('check-connection',{});setMessage(`Connected to ${value.title}.${value.missingTrackers.length?` Tracker tabs not found: ${value.missingTrackers.join(', ')}.`:' Both tracker tabs are available.'}`);return;}const response=await fetch('/api/desktop/check-connection',{method:'POST',signal:AbortSignal.timeout(120000)});const value=await response.json();if(!response.ok)throw Error(value.error);setMessage(`Connected. ${value.orders.toLocaleString()} production orders are available. Next capture: preview${value.next_preview}.`);});}
   return <Dialog title="Connections & settings" onClose={close} className="settings-dialog">
-    {!form?<div className="settings-body">{error?<p role="alert">{error}</p>:<p className="loading"><LoaderCircle className="spin"/>Loading settings…</p>}</div>:<form onSubmit={save}>
+    {!form?<div className="settings-body">{error?<p role="alert">{error}</p>:<LoadingScreen title="Loading settings…"/>}</div>:<form onSubmit={save}>
       <div className="settings-tabs" role="tablist" aria-label="Settings sections"><button type="button" role="tab" aria-selected={tab==='connections'} onClick={()=>setTab('connections')}><Plug size={16}/>Connections</button>{desktop&&<button type="button" role="tab" aria-selected={tab==='workspace'} onClick={()=>setTab('workspace')}><HardDrive size={16}/>Workspace</button>}<button type="button" role="tab" aria-selected={tab==='updates'} onClick={()=>setTab('updates')}><Download size={16}/>Updates</button></div>
       <div className="settings-body" role="tabpanel">
       {form.connectionRecovery&&<div className="notice warning" role="alert">{form.connectionRecovery.message}</div>}

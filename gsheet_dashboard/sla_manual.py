@@ -27,6 +27,8 @@ def editable_fields(row):
 
 def apply_fields(row, fields):
     """Keep portal aliases and canonical columns consistent after an edit."""
+    if 'SLA Expiration' in fields:
+        row.pop('SLA Expiration Overdue', None)
     for column in list(row):
         name = canonical(column)
         if name in fields:

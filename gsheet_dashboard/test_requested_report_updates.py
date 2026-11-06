@@ -15,7 +15,7 @@ from test_pdf_report_workspace import excel
 
 
 class RequestedReportUpdatesTests(unittest.TestCase):
-    def test_portal_arrival_sets_today_without_changing_capture_countdowns(self):
+    def test_portal_capture_date_preserves_saved_deadlines_and_countdowns(self):
         rows = [
             {'Order Number': 'latest', 'Arrival Time': '10/22/2026 10:47 PM', 'Task Status': 'Available',
              'SLA Expiration*': '2026-10-22T23:59:00-07:00'},

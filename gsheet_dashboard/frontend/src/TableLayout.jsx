@@ -25,23 +25,12 @@ export function useTableLayout(columns) {
 
 export function TableLayoutControls({columns,preferences}) {
   const {layout,visible,update,ready,error}=preferences;
-  const [selectedColumn,setSelectedColumn]=useState('Order Number');
-  const column=columns.includes(selectedColumn)?selectedColumn:columns[0];
-  const width=layout.widths[column]??180;
-  const widths=[...new Set([120,180,240,320,400,width])].sort((a,b)=>a-b);
   return <details className="table-layout-control" onKeyDown={event=>{if(event.key==='Escape'){event.currentTarget.open=false;event.currentTarget.querySelector('summary')?.focus();}}}>
     <summary><Columns3 size={15}/>Columns & layout</summary>
     <section className="table-layout-panel" aria-label="Table layout preferences">
       <div className="table-layout-heading"><div><strong>Make this table yours</strong><p>Saved on this computer. Exports always include every column.</p></div><button type="button" className="text-button" disabled={!ready} onClick={()=>update(defaults)}><RotateCcw size={14}/>Reset layout</button></div>
       <div className="table-layout-options"><label><input type="checkbox" checked={layout.pinIdentifier} disabled={!ready} onChange={event=>update({pinIdentifier:event.target.checked})}/>Keep order number in view</label><label><input type="checkbox" checked={layout.wrap} disabled={!ready} onChange={event=>update({wrap:event.target.checked})}/>Wrap cell text</label></div>
-      {column&&<div className="column-options">
-        <label className="column-field"><span>Column</span>
-          <select value={column} onChange={event=>setSelectedColumn(event.target.value)}>
-            {columns.map(name=><option key={name} value={name}>{name}</option>)}
-          </select>
-        </label>
-        <label className="column-field"><span>Column width</span><select aria-label={`Width for ${column}`} disabled={!ready} value={width} onChange={event=>update({widths:{...layout.widths,[column]:Number(event.target.value)}})}>{widths.map(width=><option key={width} value={width}>{width} px</option>)}</select></label><label className="column-visibility"><input type="checkbox" aria-label={`Show ${column}`} checked={visible.includes(column)} disabled={!ready||column==='Order Number'||(visible.length===1&&visible.includes(column))} onChange={event=>{const shown=new Set(visible);event.target.checked?shown.add(column):shown.delete(column);update({mode:'custom',hidden:columns.filter(c=>!shown.has(c))});}}/><span>{column==='Order Number'?'Always shown':'Show in table'}</span></label>
-      </div>}
+      <div className="column-options">{columns.map(column=><div className="column-option" key={column}><label><input type="checkbox" aria-label={`Show ${column}`} checked={visible.includes(column)} disabled={!ready||column==='Order Number'||(visible.length===1&&visible.includes(column))} onChange={event=>{const shown=new Set(visible);event.target.checked?shown.add(column):shown.delete(column);update({mode:'custom',hidden:columns.filter(c=>!shown.has(c))});}}/><span>{column}</span></label><select aria-label={`Width for ${column}`} disabled={!ready} value={layout.widths[column]||180} onChange={event=>update({widths:{...layout.widths,[column]:Number(event.target.value)}})}>{[120,180,240,320,400].map(width=><option key={width} value={width}>{width} px</option>)}</select></div>)}</div>
       {error&&<p role="alert" className="field-help">{error}</p>}
     </section>
   </details>;
