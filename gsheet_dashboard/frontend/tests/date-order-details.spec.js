@@ -233,7 +233,7 @@ test('capacity orders can edit status and completion date and show recorded fiel
   await dialog.getByLabel('Edit Status',{exact:true}).fill('Completed and Delivered');
   await dialog.getByLabel('Edit Out Time',{exact:true}).fill('10/03/2026 01:00 PM');
   await dialog.getByRole('button',{name:'Save order changes',exact:true}).click();
-  await expect(dialog.getByRole('status')).toContainText('saved. Google Sheets reports are updating');
+  await expect(dialog.getByRole('status').filter({hasText:'saved'})).toContainText('saved. Google Sheets reports are updating');
   await dialog.getByRole('button',{name:'Recorded changes 2',exact:true}).click();
   await expect(dialog.locator('tbody tr')).toHaveCount(2);
   await expect(dialog.getByRole('cell',{name:'10/03/2026 01:00 PM',exact:true}).first()).toBeVisible();
