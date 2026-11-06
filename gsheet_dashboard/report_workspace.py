@@ -1479,4 +1479,140 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
         return send_file(stream, as_attachment=True, download_name=filename,
                          mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
+    sla_comparison_cache = {'result': None, 'rows': None, 'filename': None}
+
+    @app.route('/api/sla-compare', methods=['GET', 'POST'])
+    def sla_compare_endpoint():
+        from sla_compare import read_production_file, compare_sla_with_production
+        try:
+            preview_id = request.args.get('preview_id')
+            if not preview_id and request.form:
+                preview_id = request.form.get('preview_id')
+            if preview_id and str(preview_id).isdecimal():
+                preview_id = int(preview_id)
+            else:
+                preview_id = None
+
+            clear_report = request.args.get('clear') in ('1', 'true') or (request.form.get('clear') in ('1', 'true') if request.form else False)
+            if clear_report:
+                sla_comparison_cache['rows'] = None
+                sla_comparison_cache['filename'] = None
+                sla_comparison_cache['result'] = None
+
+            uploaded_files = request.files.getlist('files') or ([request.files['file']] if 'file' in request.files else [])
+            use_sample = request.args.get('sample') in ('1', 'true') or (request.form.get('sample') in ('1', 'true'))
+
+            prod_rows = []
+            source_names = []
+            if uploaded_files and any(f.filename for f in uploaded_files):
+                for f in uploaded_files:
+                    if f.filename:
+                        content = f.read()
+                        f_rows = read_production_file(content, filename=f.filename)
+                        prod_rows.extend(f_rows)
+                        source_names.append(f.filename)
+                sla_comparison_cache['rows'] = prod_rows
+                sla_comparison_cache['filename'] = ', '.join(source_names)
+            elif use_sample:
+                from sync_config import BASE_DIR
+                sample_dir = BASE_DIR / 'sample_production'
+                if sample_dir.is_dir() and any(sample_dir.glob('*.xlsx')):
+                    for p in sorted(sample_dir.glob('*.xlsx')):
+                        prod_rows.extend(read_production_file(p))
+                        source_names.append(p.name)
+                elif (BASE_DIR / 'sample_production_report.csv').is_file():
+                    p = BASE_DIR / 'sample_production_report.csv'
+                    prod_rows.extend(read_production_file(p))
+                    source_names.append(p.name)
+                sla_comparison_cache['rows'] = prod_rows
+                sla_comparison_cache['filename'] = ', '.join(source_names) if source_names else 'Sample Report'
+            elif sla_comparison_cache.get('rows'):
+                prod_rows = sla_comparison_cache['rows']
+                source_names = [sla_comparison_cache.get('filename') or 'Uploaded Report']
+            else:
+                prod_rows = []
+                source_names = []
+
+            sla_report = load_sla_report(preview_id=preview_id)
+            preview_name = sla_report.get('preview_name') or (f"preview{preview_id}" if preview_id else "Latest preview")
+
+            result = compare_sla_with_production(sla_report, prod_rows, preview_name=preview_name)
+            result['source_files'] = ', '.join(source_names)
+            result['selected_preview_id'] = preview_id or sla_report.get('preview_id')
+            result['previews'] = sla_report.get('previews', [])
+            sla_comparison_cache['result'] = result
+
+            return jsonify(result)
+        except Exception as exc:
+            app.logger.exception('SLA compare failed')
+            return jsonify(error=str(exc)), 400
+
+    @app.route('/api/sla-compare/update-status', methods=['POST'])
+    def sla_compare_update_status():
+        from sla_compare import update_order_production_status
+        try:
+            payload = request.get_json(force=True) or {}
+            order_number = payload.get('order_number')
+            prod_status = payload.get('prod_status')
+            if not order_number or not prod_status:
+                return jsonify(error='order_number and prod_status are required'), 400
+
+            result = sla_comparison_cache.get('result')
+            if not result:
+                return jsonify(error='No active SLA comparison session found'), 400
+
+            updated = update_order_production_status(
+                result,
+                order_number,
+                prod_status,
+                prod_rows=sla_comparison_cache.get('rows')
+            )
+            return jsonify(ok=True, result=updated)
+        except Exception as exc:
+            app.logger.exception('Failed to update production status')
+            return jsonify(error=str(exc)), 400
+
+    @app.get('/api/sla-compare/export')
+    def sla_compare_export_endpoint():
+        from sla_compare import export_comparison_excel
+        res = sla_comparison_cache.get('result')
+        if not res:
+            return jsonify(error='No active SLA comparison to export. Run a comparison first.'), 400
+        table_scope = request.args.get('table', 'all')
+        filter_type = request.args.get('filter_type')
+        sla_status = request.args.get('sla_status')
+        prod_status = request.args.get('prod_status')
+        category = request.args.get('category')
+        from_status = request.args.get('from_status')
+        to_status = request.args.get('to_status')
+        search = request.args.get('q')
+
+        stream = export_comparison_excel(
+            res,
+            table_scope=table_scope,
+            filter_type=filter_type,
+            sla_status=sla_status,
+            prod_status=prod_status,
+            category=category,
+            from_status=from_status,
+            to_status=to_status,
+            search=search,
+        )
+        preview_label = res.get('preview_name', 'sla').replace(' ', '_')
+        if table_scope == 'sla_summary':
+            filename = f"SLA_Status_Summary_{preview_label}.xlsx"
+        elif table_scope == 'movements':
+            filename = f"Status_Movements_{preview_label}.xlsx"
+        elif table_scope == 'orders':
+            suffix = f"_{filter_type}" if filter_type else ""
+            if sla_status:
+                clean_s = re.sub(r'[^a-zA-Z0-9]', '_', sla_status)
+                suffix += f"_{clean_s}"
+            filename = f"Comparison_Orders{suffix}_{preview_label}.xlsx"
+        else:
+            filename = f"SLA_Production_Compare_{preview_label}.xlsx"
+
+        return send_file(stream, as_attachment=True, download_name=filename,
+                         mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+
     return publish

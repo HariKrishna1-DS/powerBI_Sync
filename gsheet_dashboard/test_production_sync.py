@@ -106,9 +106,9 @@ class ProductionRulesTests(unittest.TestCase):
 
     def test_new_completed_and_task_suspended_are_not_guessed(self):
         p = preview(1, [raw('A', **{'Task Status': 'Completed and Delivered'}),
-                        raw('B', **{'Task Status': 'Task Suspended'}), raw('C', WorkflowSuspended='True')])
+                        raw('B', **{'Task Status': 'Task Suspended', 'Task Name': 'TypingModule'}), raw('C', WorkflowSuspended='True')])
         rows, _ = merge_trackers(p, None, [[], []])
-        self.assertEqual([r['Status'] for r in rows[0]], ['Search In Progress', 'Search In Progress', 'Awaiting for Clarification'])
+        self.assertEqual([r['Status'] for r in rows[0]], ['Search In Progress', 'Typing in Progress', 'Awaiting for Clarification'])
         self.assertTrue(all(not r['Out Time'] for r in rows[0]))
         frame, completed = automatic_sync_frame(preview(2, [raw('A')]), p)
         self.assertEqual(len(frame), 1)

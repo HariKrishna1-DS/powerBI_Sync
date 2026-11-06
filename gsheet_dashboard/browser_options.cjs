@@ -17,7 +17,7 @@ function browserOptions(env = process.env, platform = process.platform) {
             ]).find(candidate => fs.existsSync(candidate));
     }
     return {
-        headless: env.DATATRACE_HEADLESS !== 'false',
+        headless: env.DATATRACE_HEADLESS === 'true' ? true : false,
         defaultViewport: null,
         timeout: Number(env.DATATRACE_TIMEOUT_MS || 120000),
         ...(executablePath ? {executablePath} : {}),

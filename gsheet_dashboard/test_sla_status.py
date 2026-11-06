@@ -39,6 +39,23 @@ class SlaStatusTests(unittest.TestCase):
         self.assertEqual(category('2026-10-13T20:00:00Z', self.today), 'Negative SLA')
         self.assertEqual(category('2h', self.today, datetime(2026, 10, 13, 16, 15)), 'Negative SLA')
 
+    def test_one_day_countdown_is_in_the_today_sla_report_bucket(self):
+        snapshot = {'sheets': {'Overview': {'rows': [
+            {'Order Number': 'countdown', 'Status': 'Search In Progress',
+             'SLA Expiration': '1d 4h 3m'}], 'columns': []}}}
+        report = build_sla_status(snapshot, self.today)
+        self.assertEqual(report['rows'][0]['SLA Category'], 'Today SLA')
+        self.assertEqual(report['totals']['Today SLA'], 1)
+
+    def test_one_day_countdown_takes_precedence_over_its_normalized_deadline(self):
+        snapshot = {'sheets': {'Overview': {'rows': [
+            {'Order Number': 'countdown', 'Status': 'Typing in Progress',
+             'SLA Expiration': '2026-10-15 18:35:00', 'SLA Expiration*': '1d 2h 20m'}],
+            'columns': []}}}
+        report = build_sla_status(snapshot, self.today)
+        self.assertEqual(report['rows'][0]['SLA Category'], 'Today SLA')
+        self.assertEqual(report['totals']['Future SLA'], 0)
+
     def test_summary_download_and_exclusions_reconcile(self):
         report = build_sla_status(self.snapshot, self.today)
         self.assertEqual(report['totals'], dict(Status='Grand Total', **{'Future SLA': 1, 'Negative SLA': 1, 'Today SLA': 1, 'Grand Total': 3}))

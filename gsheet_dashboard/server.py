@@ -1275,7 +1275,41 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
                 return jsonify(error='The recovery copy could not be saved. Check free disk space; the capture was not deleted.'), 503
             store.delete(number)
             invalidate_snapshot()
+            production_cache.invalidate()
+            production_cache.reload()
             return jsonify(deleted=number, recovery_backup=backup.name)
+        finally:
+            gate.release()
+
+    @app.post('/api/previews/batch-delete')
+    def batch_delete_previews():
+        if not gate.acquire(blocking=False):
+            return jsonify(error='Wait for extraction or sync to finish before deleting previews.'), 409
+        try:
+            payload = request.get_json(silent=True) or {}
+            raw_ids = payload.get('ids', [])
+            ids = [int(i) for i in raw_ids if str(i).isdecimal()]
+            if not ids:
+                return jsonify(error='No preview IDs provided for deletion.'), 400
+
+            from workspace_backup import save_safety_backup
+            try:
+                backup = save_safety_backup(store, 'before-delete')
+            except OSError:
+                return jsonify(error='The recovery copy could not be saved. Check free disk space; captures were not deleted.'), 503
+
+            deleted_ids = []
+            for number in ids:
+                try:
+                    store.delete(number)
+                    deleted_ids.append(number)
+                except Exception:
+                    pass
+
+            invalidate_snapshot()
+            production_cache.invalidate()
+            production_cache.reload()
+            return jsonify(deleted=deleted_ids, recovery_backup=backup.name)
         finally:
             gate.release()
 

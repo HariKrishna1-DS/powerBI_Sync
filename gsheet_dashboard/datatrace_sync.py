@@ -677,7 +677,8 @@ def run_sync(on_progress=None, auto_sync=True, cancel_event=None):
         with tempfile.TemporaryDirectory(prefix='datatrace-') as folder:
             output = Path(folder) / 'queue.json'
             env = dict(os.environ, DATATRACE_OUTPUT_JSON=str(output),
-                       DATATRACE_DIAGNOSTICS_DIR=str(BASE_DIR / 'extractor-diagnostics'))
+                       DATATRACE_DIAGNOSTICS_DIR=str(BASE_DIR / 'extractor-diagnostics'),
+                       DATATRACE_HEADLESS='false')
             extractor = Path(os.environ.get('DATATRACE_EXTRACTOR_DIR', str(ASSET_DIR)))
             node = os.environ.get('DATATRACE_NODE_EXECUTABLE', 'node')
             env.pop('GOOGLE_SERVICE_ACCOUNT_JSON', None)
