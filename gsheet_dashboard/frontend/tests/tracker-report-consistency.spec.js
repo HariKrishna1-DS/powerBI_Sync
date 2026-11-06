@@ -45,10 +45,10 @@ test('Daily and monthly use tracker statuses while capacity shows its independen
   await expect(page.getByLabel('Daily orders date')).toHaveCount(0);
   await page.getByRole('button',{name:'Monthly Orders',exact:true}).click();
   await expect(page.getByText('Daily Orders and Monthly Orders are available in Import Excel report.',{exact:false})).toBeVisible();
-  await expect(page.getByRole('heading',{name:'Completed Orders · 1',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('heading',{name:'Completed Orders Â· 1',exact:true})).toHaveCount(0);
   await page.getByRole('button',{name:'Capacity Report',exact:true}).click();
   await expect(page.getByRole('heading',{name:'Daily capacity',exact:true})).toBeVisible();
-  await expect(page.locator('.page-heading .muted')).toHaveText('Imported Excel orders');
+  await expect(page.locator('.page-heading .muted')).toHaveText('Plan capacity and track daily workload.');
   await expect(page.locator('.workspace-context .context-preview')).toHaveText('Excel report');
   const daily=page.locator('section.table-section').filter({has:page.getByRole('heading',{name:'Daily capacity',exact:true})});
   const values=await daily.locator('tbody tr').first().locator('td').allTextContents();

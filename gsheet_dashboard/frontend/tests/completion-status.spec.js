@@ -35,7 +35,9 @@ test('Daily Orders and Missing Previews show completed status, Out Time and comp
   await expect(completed.getByRole('cell',{name:'Completed and Delivered',exact:true})).toHaveCount(2);
   await expect(completed.getByRole('cell',{name:'10/05/2026 10:00:00 AM',exact:true})).toBeVisible();
   for(const theme of ['light','dark']){
-    await page.getByLabel('Appearance',{exact:true}).selectOption(theme);
+    const toggle=page.getByRole('switch',{name:'Dark mode',exact:true});
+    if((await toggle.getAttribute('aria-checked'))!==String(theme==='dark'))await toggle.click();
+    await expect(page.locator('html')).toHaveAttribute('data-theme',theme);
     await expect(completed.locator('tbody tr').first().locator('td').first()).toHaveCSS('background-color','rgb(255, 255, 153)');
   }
   await completed.scrollIntoViewIfNeeded();
