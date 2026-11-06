@@ -19,7 +19,7 @@ test('charts show values and selected periods, production overview is available,
   await page.route('**/api/**',async route=>{
     const url=new URL(route.request().url()),path=url.pathname;
     let body={};
-    if(path==='/api/state')body={previews:[preview],job:{running:false,stage:'Ready'},schedule:{enabled:true,times:['12:07']},
+    if(path==='/api/state')body={report_workspace:{mode:'excel'},previews:[preview],job:{running:false,stage:'Ready'},schedule:{enabled:true,times:['12:07']},
       clock:{epoch_ms:Date.parse('2026-10-02T06:30:00Z')+performance.now()-started,synchronized:true,timezone:'Asia/Kolkata'},remaining_products:[]};
     if(path.startsWith('/api/previews/'))body={...preview,rows,columns};
     if(path==='/api/live-sheets')body={mode:'tracker',sheets:{'All Products':{columns,rows},'Full Title':{columns,rows:rows.slice(0,1)},'Remaining Products':{columns,rows:rows.slice(1)}}};

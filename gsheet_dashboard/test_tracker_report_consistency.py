@@ -35,7 +35,7 @@ class TrackerReportConsistencyTests(unittest.TestCase):
             frame.attrs['defer_report_views'] = True
             sync_trackers(frame, book=book)
             formatting.assert_not_called()
-            self.assertEqual({sheet.title for sheet in book.worksheets()}, {FULL, REMAINING, 'Sheet1'})
+            self.assertEqual({sheet.title for sheet in book.worksheets()}, {FULL, REMAINING, 'Sheet1', 'All Products'})
             self.assertEqual(records(book.worksheet('Sheet1').get_all_values())[0]['Order Number'], 'A')
             frame, _ = automatic_sync_frame(store.get(2), store=store)
             sync_trackers(frame, book=book)

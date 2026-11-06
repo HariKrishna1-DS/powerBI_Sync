@@ -4,7 +4,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from import_excel_changes import editable_frames, reconcile
+from import_excel_changes import editable_frames as current_editable_frames, reconcile
 from monthly_production import decode
 from monthly_views import refresh_monthly_views
 from preview_completion import reconcile_completions
@@ -19,6 +19,13 @@ def capture(number, ids, created):
     rows = [row(identity, **{'Task Status': 'Available'}) for identity in ids]
     return {'id': number, 'name': f'preview{number}', 'created': created,
             'columns': list(rows[0]) if rows else ['Order Number'], 'rows': rows}
+
+
+def editable_frames(snapshot, settings):
+    from report_workspace import report_frames
+    frames = current_editable_frames(snapshot, settings)
+    frames["Full_Search_SEP_2026"] = report_frames(snapshot, settings)[0]["All Products"]
+    return frames
 
 
 class OutTimeCompletionTests(unittest.TestCase):
@@ -96,12 +103,12 @@ class OutTimeCompletionTests(unittest.TestCase):
         snapshot = imported_snapshot(imported)
         baseline = editable_frames(snapshot, {'mode': 'excel'})
         remote = deepcopy(baseline)
-        values = remote['All Products']
+        values = remote['Full_Search_SEP_2026']
         values[1][values[0].index('Out Time')] = '10/05/2026 11:00 AM'
         updated, events = reconcile(imported, baseline, remote)
         self.assertEqual(updated['rows'][0]['Status'], 'Completed and Delivered')
         self.assertTrue(any(event['Column'] == 'Status' and event['New Value'] == 'Completed and Delivered' for event in events))
-        published = editable_frames(imported_snapshot(updated), {'mode': 'excel'})['All Products']
+        published = editable_frames(imported_snapshot(updated), {'mode': 'excel'})['Full_Search_SEP_2026']
         self.assertEqual(published[1][published[0].index('Status')], 'Completed and Delivered')
 
     def test_saved_import_is_repaired_with_backup_and_original_source_preserved(self):

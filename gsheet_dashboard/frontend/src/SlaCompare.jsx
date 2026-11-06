@@ -157,6 +157,9 @@ export default function SlaCompare({state, reportMode}) {
   const [showSummaryTable, setShowSummaryTable] = useState(true);
   const [search, setSearch] = useState('');
   const [uploading, setUploading] = useState(false);
+  const [draggingFiles, setDraggingFiles] = useState(false);
+  const uploadInProgress = useRef(false);
+  const dragDepth = useRef(0);
   const [message, setMessage] = useState('');
   const [popModal, setPopModal] = useState(null);
   const [popSearch, setPopSearch] = useState('');
@@ -429,12 +432,18 @@ export default function SlaCompare({state, reportMode}) {
 
   useEffect(() => {
     loadComparison();
-  }, [selectedPreview]);
+  }, [selectedPreview, reportMode, state?.report_workspace?.data_revision]);
 
-  const handleFileUpload = async (event) => {
-    const files = event.target.files;
-    if (!files || !files.length) return;
+  const uploadFiles = async (fileList) => {
+    const files = Array.from(fileList || []);
+    if (!files.length || loading || uploadInProgress.current) return;
+    if (files.some(file => !/\.(xlsx|xlsm|csv)$/i.test(file.name))) {
+      setError('Choose Excel (.xlsx, .xlsm) or CSV (.csv) production reports.');
+      setMessage('');
+      return;
+    }
 
+    uploadInProgress.current = true;
     setUploading(true);
     setError('');
     setMessage('');
@@ -463,9 +472,36 @@ export default function SlaCompare({state, reportMode}) {
     } catch (err) {
       setError(err.message || 'Failed to upload production report');
     } finally {
+      uploadInProgress.current = false;
       setUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
+  };
+
+  const handleFileUpload = (event) => {
+    uploadFiles(event.target.files);
+    event.target.value = '';
+  };
+
+  const handleDragEnter = (event) => {
+    if (!Array.from(event.dataTransfer.types).includes('Files')) return;
+    event.preventDefault();
+    dragDepth.current += 1;
+    setDraggingFiles(true);
+  };
+
+  const handleDragLeave = (event) => {
+    event.preventDefault();
+    dragDepth.current = Math.max(0, dragDepth.current - 1);
+    if (!dragDepth.current) setDraggingFiles(false);
+  };
+
+  const handleDrop = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    dragDepth.current = 0;
+    setDraggingFiles(false);
+    uploadFiles(event.dataTransfer.files);
   };
 
   // 1. High-level filtering (tabs, transition pills, status card clicks, search text)
@@ -604,7 +640,15 @@ export default function SlaCompare({state, reportMode}) {
   }, [popModal, popSearch]);
 
   return (
-    <section className="sla-compare-workspace" aria-label="SLA Compare Workspace">
+    <section className="sla-compare-workspace" aria-label="SLA Compare Workspace"
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={(event) => {
+        event.preventDefault();
+        event.dataTransfer.dropEffect = uploading || loading ? 'none' : 'copy';
+      }}
+      onDrop={handleDrop}
+    >
       {/* Top Header & Actions */}
       <div className="section-heading">
         <div>
@@ -619,7 +663,7 @@ export default function SlaCompare({state, reportMode}) {
             ref={fileInputRef}
             style={{display: 'none'}}
             multiple
-            accept=".xlsx,.xls,.csv"
+            accept=".xlsx,.xlsm,.csv"
             onChange={handleFileUpload}
           />
           <button
@@ -708,6 +752,19 @@ export default function SlaCompare({state, reportMode}) {
       {/* Notices */}
       {message && <p className="notice success" role="status">{message}</p>}
       {error && <p className="notice warning" role="alert">{error}</p>}
+      {data?.source_warning && <p className="notice warning" role="status">{data.source_warning}</p>}
+
+      <p role="status" style={{
+        padding: '12px 18px',
+        border: `2px dashed ${draggingFiles ? 'var(--accent, #0d9488)' : 'var(--border, #cbd5e1)'}`,
+        borderRadius: 12,
+        background: draggingFiles ? 'var(--accent-subtle, #f0fdfa)' : 'var(--surface, #ffffff)',
+        textAlign: 'center'
+      }}>
+        {uploading ? 'Processing production reports…' : loading ? 'Loading comparison…' : draggingFiles
+          ? 'Drop production reports here to compare'
+          : 'Drag and drop production reports anywhere in SLA Compare, or use Upload Production Report. Supports .xlsx, .xlsm and .csv files.'}
+      </p>
 
       {!data?.has_production ? (
         <div className="sla-compare-empty-state" style={{
@@ -737,7 +794,7 @@ export default function SlaCompare({state, reportMode}) {
           </div>
           <h2 style={{fontSize: '20px', fontWeight: 600, margin: 0}}>No Production Report Uploaded</h2>
           <p style={{maxWidth: '540px', color: 'var(--muted, #64748b)', margin: 0, lineHeight: 1.5}}>
-            Upload your Production Report Excel sheet (.xlsx) to compare order statuses, view the SLA Status Summary Matrix, and track moved or changed orders against the SLA Queue.
+            Drag and drop your Production Report files here to compare order statuses, view the SLA Status Summary Matrix, and track moved or changed orders against the SLA Queue.
           </p>
           <button
             type="button"
@@ -752,7 +809,7 @@ export default function SlaCompare({state, reportMode}) {
               cursor: 'pointer'
             }}
             onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
+            disabled={uploading || loading}
           >
             <Upload size={18} />
             {uploading ? 'Processing File…' : 'Upload Production Report (Excel)'}

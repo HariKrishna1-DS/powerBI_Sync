@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import patch
 
 from flask import Flask
-from import_excel_changes import editable_frames, reconcile, sync_imported_tabs
+from import_excel_changes import editable_frames as current_editable_frames, reconcile, sync_imported_tabs
 from monthly_production import decode
 from preview_store import PreviewStore
 from report_workspace import ReportWorkspace, imported_snapshot, read_report_files, register_report_routes
@@ -20,6 +20,13 @@ def set_cell(frames, title, number, column, value):
     values = frames[title]
     cells = next(cells for cells in values[1:] if cells[values[0].index('Order Number')] == number)
     cells[values[0].index(column)] = value
+
+
+def editable_frames(snapshot, settings):
+    from report_workspace import report_frames
+    frames = current_editable_frames(snapshot, settings)
+    frames["Full_Search_SEP_2026"] = report_frames(snapshot, settings)[0]["All Products"]
+    return frames
 
 
 class ReportSearchSyncTests(unittest.TestCase):
@@ -39,9 +46,9 @@ class ReportSearchSyncTests(unittest.TestCase):
         set_cell(baseline, 'Full_Search_OCT_2026', 'A', 'Status', 'Search In Progress')
         set_cell(baseline, 'Full_Search_OCT_2026', 'A', 'Out Time', '')
         # The actual new edit clears Out Time and reopens A in All Products.
-        set_cell(remote, 'All Products', 'A', 'Status', 'Search In Progress')
-        set_cell(remote, 'All Products', 'A', 'Out Time', '')
-        set_cell(remote, 'All Products', 'B', 'Status', 'Completed and Delivered')
+        set_cell(remote, 'Full_Search_SEP_2026', 'A', 'Status', 'Search In Progress')
+        set_cell(remote, 'Full_Search_SEP_2026', 'A', 'Out Time', '')
+        set_cell(remote, 'Full_Search_SEP_2026', 'B', 'Status', 'Completed and Delivered')
         saved = deepcopy(self.imported)
         updated, events = reconcile(self.imported, baseline, remote)
         orders = {r['Order Number']: r for r in updated['rows']}
@@ -53,7 +60,7 @@ class ReportSearchSyncTests(unittest.TestCase):
     def test_two_different_new_manual_statuses_still_require_resolution(self):
         baseline = editable_frames(imported_snapshot(self.imported), {'mode': 'excel'})
         remote = deepcopy(baseline)
-        set_cell(remote, 'All Products', 'B', 'Status', 'Typing in Progress')
+        set_cell(remote, 'Full_Search_SEP_2026', 'B', 'Status', 'Typing in Progress')
         set_cell(remote, 'Full_Search_OCT_2026', 'B', 'Status', 'Cancelled')
         with self.assertRaisesRegex(ValueError, 'conflicting Status'):
             reconcile(self.imported, baseline, remote)
@@ -70,7 +77,7 @@ class ReportSearchSyncTests(unittest.TestCase):
         self.assertTrue(sync_imported_tabs(self.workspace, book, self.workspace.read()))
         self.assertEqual(self.workspace.read()['imported']['rows'][1]['Status'], 'Completed and Delivered')
         frames = editable_frames(imported_snapshot(self.workspace.read()['imported']), {'mode': 'excel'})
-        for title in ('All Products', 'Full_Search_OCT_2026'):
+        for title in ('Full_Search_SEP_2026', 'Full_Search_OCT_2026'):
             self.assertEqual(decode(frames[title])[1]['Status'], 'Completed and Delivered')
 
     def test_tracker_edit_propagates_to_all_monthly_order_copies(self):

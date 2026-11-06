@@ -3,61 +3,6 @@ import {readFile} from 'node:fs/promises';
 import path from 'node:path';
 import {workspaceFixture} from './workspace-fixture.js';
 
-test('Overview duplicate count opens all repeated orders and their source files',async({page})=>{
-  const fixture=workspaceFixture(10),errors=[];
-  const duplicates=fixture.rows.slice(0,6).map(row=>({...row,Date:'2026-10-05',
-    'Earlier file':'remaining.xlsx','Earlier worksheet':'TV Orders','Earlier row':18,'Replacement row':2412,
-    'Replacement file':'remaining.xlsx','Replacement worksheet':'Updates'}));
-  const overlaps=[{...duplicates[0],'Earlier file':'full.xlsx','Replacement file':'remaining.xlsx','Order Number':'SHARED-1'}];
-  const settings={mode:'excel',row_count:10,files:[],duplicate_row_count:6,duplicate_orders:duplicates,source_overlap_count:1,source_overlap_orders:overlaps};
-  page.on('pageerror',error=>errors.push(error.message));
-  await page.route('**/*',async route=>{
-    const name=new URL(route.request().url()).pathname;
-    if(name.startsWith('/api/')){
-      let body=fixture.response(name);
-      if(name==='/api/state')body={...body,report_workspace:settings};
-      if(name==='/api/report-workspace')body=settings;
-      if(name==='/api/live-sheets')body={...body,mode:'excel',source:'Imported Excel'};
-      return route.fulfill({json:body});
-    }
-    const filename=path.join(process.cwd(),'dist',name==='/'?'index.html':name.slice(1));
-    const contentType=name.endsWith('.js')?'application/javascript':name.endsWith('.css')?'text/css':'text/html';
-    try{return route.fulfill({body:await readFile(filename),contentType});}
-    catch{return route.fulfill({status:404,body:''});}
-  });
-  await page.goto('http://localhost:8510/');
-  await page.getByRole('button',{name:'Overview',exact:true}).click();
-  await expect(page.getByText('Filter insights',{exact:true})).toBeVisible();
-  await expect(page.locator('details.status-report.analytics-status')).toHaveAttribute('open','');
-  await expect(page.locator('details.advanced-chart')).toHaveAttribute('open','');
-  const metric=page.getByRole('button',{name:'Duplicate Orders 6',exact:true});
-  await expect(metric).toBeVisible();
-  await expect(page.getByText('Imported files',{exact:true})).toHaveCount(0);
-  await metric.click();
-  const dialog=page.getByRole('dialog');
-  await expect(dialog).toContainText('Duplicate orders · 6');
-  await expect(dialog.locator('tbody tr')).toHaveCount(6);
-  for(const row of duplicates)await expect(dialog.getByRole('cell',{name:row['Order Number'],exact:true})).toBeVisible();
-  await expect(dialog).toContainText('remaining.xlsx');
-  await dialog.getByRole('button',{name:/Across workbooks/}).click();
-  await expect(dialog).toContainText('These entries do not increase the Duplicate Orders count');
-  await expect(dialog.locator('tbody tr')).toHaveCount(1);
-  await expect(dialog.getByRole('cell',{name:'SHARED-1',exact:true})).toBeVisible();
-  await expect(dialog.getByRole('cell',{name:'full.xlsx',exact:true})).toBeVisible();
-  await dialog.getByLabel('Search repeated orders').fill('absent');
-  await expect(dialog.locator('tbody tr')).toHaveCount(0);
-  await dialog.getByRole('button',{name:/Within workbook/}).click();
-  await dialog.getByLabel('Search repeated orders').fill(duplicates[0]['Order Number']);
-  await expect(dialog.locator('tbody tr')).toHaveCount(1);
-  await expect(dialog.getByRole('cell',{name:'18',exact:true})).toBeVisible();
-  await expect(dialog.getByRole('cell',{name:'2412',exact:true})).toBeVisible();
-  await page.screenshot({path:'test-results/duplicate-orders-dialog.png',fullPage:true});
-  await page.keyboard.press('Escape');
-  await expect(dialog).toHaveCount(0);
-  await expect(metric).toBeFocused();
-  expect(errors).toEqual([]);
-});
-
 test('batch report import, source switching, daily publication and capacity view',async({page})=>{
   const fixture=workspaceFixture(10),errors=[],requests=[];
   let mode='tracker',selected='2026-10-02';

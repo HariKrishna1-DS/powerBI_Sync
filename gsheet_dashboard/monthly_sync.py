@@ -111,7 +111,8 @@ def sync_monthly(book, frame, store, on_progress=None, _tab_retry=0):
                   default_conflicts=[], ambiguous_count=len(report['ambiguous']), not_in_latest_count=len(report['not_in_latest']))
     raw_rows = [dict(r, Preview=preview, **{'Preview Timestamp': anchor.isoformat()}) for r in incoming]
     raw_rows = raw_rows or [{'Preview': preview, 'Preview Timestamp': anchor.isoformat()}]
-    for title in (('All Products', 'Sheet1') if publish_tracker_reports else ('Sheet1',)):
+    plan['writes']['All Products'] = matrix(incoming, list(columns))
+    for title in ('Sheet1',):
         prior = sheets[title].get_all_values(value_render_option='UNFORMATTED_VALUE') if title in sheets else []
         headers = list(dict.fromkeys((prior[0] if prior else []) + ['Preview', 'Preview Timestamp'] + list(columns)))
         plan['writes'][title] = matrix(records(prior) + raw_rows, headers)
@@ -126,7 +127,7 @@ def sync_monthly(book, frame, store, on_progress=None, _tab_retry=0):
             headers = [period, 'Received', 'Completed', 'Clarification', 'Cancelled',
                        'Vendor Pending', 'In-House Pending', 'SLA OnTime', 'SLA on Missing']
             values = [dict(row, **{'SLA on Missing': row.get('Missing', 0)}) for row in reports[kind]]
-            plan['writes'][title] = matrix(values, headers)
+            plan['writes'][title] = [headers]
         plan['writes']['PR Excel'] = capacity_report_values(reports['monthly'], reports['daily'])
         from collections import Counter
         statuses = Counter(text(r.get('Status')) or '(Blank)' for rows in merged.values() for r in rows)

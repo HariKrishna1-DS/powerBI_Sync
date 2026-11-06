@@ -19,7 +19,7 @@ async function setup(page) {
   const control={fail:false};
   await page.route('**/api/**',async route=>{
     const path=new URL(route.request().url()).pathname;
-    if(path==='/api/state') await route.fulfill({json:{previews:[{...preview,row_count:1}],
+    if(path==='/api/state') await route.fulfill({json:{report_workspace:{mode:'excel'},previews:[{...preview,row_count:1}],
       job:{running:false,stage:'Ready',result:null},schedule:{enabled:false,times:['09:00']},daily_completed_ids:[]}});
     else if(path==='/api/previews/31') await route.fulfill({json:preview});
     else if(path==='/api/live-sheets') await route.fulfill({json:{mode:'tracker',preview_name:'preview31',sheets:{

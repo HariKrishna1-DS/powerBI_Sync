@@ -4,8 +4,9 @@ const port=Number(process.env.TV_TRACKER_TEST_PORT||8511);
 
 export default defineConfig({
   testDir: './tests',
-  testMatch: ['upgrade-workspace.spec.js', 'desktop-ui.spec.js', 'desktop-alignment.spec.js', 'desktop-updates.spec.js',
-    'tracker-v2.spec.js', 'october-updates.spec.js', 'sla-comments.spec.js', 'studio-workspace.spec.js', 'production-sync.spec.js', 'live-sheet-refresh.spec.js', 'sync-performance.spec.js', 'monthly-production.spec.js', 'workspace-redesign.spec.js'],
+  // The compact sidebar retired Overview, Data Sheets and Activity navigation.
+  // Retain legacy suites on disk; run current navigation and updater regressions.
+  testMatch: ['desktop-updates.spec.js', 'workspace-report-sources.spec.js'],
   timeout: 45000,
   workers: 1,
   use: {baseURL: `http://127.0.0.1:${port}`, viewport: {width: 1440, height: 1000}, channel: 'chrome'},

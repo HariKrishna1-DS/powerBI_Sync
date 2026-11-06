@@ -184,7 +184,7 @@ class SlaPreviewTests(unittest.TestCase):
         result = self.publish()
         self.assertTrue(result['synced'])
         all_products = self.book.worksheet('All Products').get_all_values()
-        self.assertEqual(all_products[1][all_products[0].index('Order Number')], 'production-only')
+        self.assertEqual(all_products[1][all_products[0].index('Order Number')], 'shared')
         self.assertEqual(int(self.book.worksheet('SLA Status').get_all_values()[-1][-1]), 3)
         self.assertEqual(int(self.book.worksheet('Status Report').get_all_values()[1][1]), 1)
 

@@ -120,8 +120,8 @@ test('preview selection updates SLA cards, statuses, detail rows, chart and down
   expect(publications).toEqual([2,2]);
   expect(refreshes).toEqual([]);
   await page.screenshot({path:'test-results/sla-preview-selector.png',fullPage:true,animations:'disabled'});
-  await page.getByRole('button',{name:'Overview',exact:true}).click();
-  await expect(page.getByRole('button',{name:'Production orders 35',exact:true})).toBeVisible();
+  await expect(page.getByRole('combobox',{name:'SLA preview'})).toHaveValue('2');
+  await expect(page.getByRole('button',{name:/^preview3 /})).toBeVisible();
   expect(errors).toEqual([]);
 });
 

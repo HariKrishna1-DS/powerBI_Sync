@@ -8,7 +8,7 @@ async function setup(page){
   const report=month=>({Month:month,Previews:[],columns,rows,'Month Orders':1,'Completed Orders':0,'Unchanged':1,'Awaiting for Clarification':0,'SLA On Time':0,'SLA Missed':0,completed_ids:[],sla_rows:[]});
   await page.route('**/api/**',async route=>{
     const request=route.request(),url=new URL(request.url());let body={};
-    if(url.pathname==='/api/state')body={previews:[preview],job:{running:false,stage:'Ready',run_id:run,result:{action:'sync',preview_name:'preview1',rows:1,pass_report:{scanned:1,added:1,updated:0,unchanged:0,ambiguous:[{Reason:'Review'}]}}}};
+    if(url.pathname==='/api/state')body={report_workspace:{mode:'excel'},previews:[preview],job:{running:false,stage:'Ready',run_id:run,result:{action:'sync',preview_name:'preview1',rows:1,pass_report:{scanned:1,added:1,updated:0,unchanged:0,ambiguous:[{Reason:'Review'}]}}}};
     if(url.pathname==='/api/sync'){run++;body={started:true};}
     if(url.pathname==='/api/previews/1')body={...preview,columns,rows};
     if(url.pathname==='/api/live-sheets')body={mode:'tracker',sheets:{Overview:{columns,rows}},offline:false};

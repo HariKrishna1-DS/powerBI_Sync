@@ -112,44 +112,6 @@ test('SLA editor changes only the chosen order number and retains its unselected
   expect(errors).toEqual([]);
 });
 
-test('custom chart starts with Status and allows manual grouping changes',async({page})=>{
-  const {errors}=await setup(page);
-  await page.getByRole('button',{name:'Overview',exact:true}).click();
-  const chart=page.locator('details.advanced-chart');
-  await expect(chart.getByRole('combobox',{name:'Group by',exact:true})).toHaveValue('Status');
-  await expect(chart.getByRole('heading',{name:'Orders by Status',exact:true})).toBeVisible();
-  await chart.getByRole('combobox',{name:'Group by',exact:true}).selectOption('Client');
-  await expect(chart.getByRole('heading',{name:'Orders by Client',exact:true})).toBeVisible();
-  await chart.getByRole('combobox',{name:'Group by',exact:true}).selectOption('Arrival Date');
-  await expect(chart.getByRole('heading',{name:'Orders by Arrival Date',exact:true})).toBeVisible();
-  await chart.getByRole('combobox',{name:'Group by',exact:true}).selectOption('Status');
-  await expect(chart.getByRole('heading',{name:'Orders by Status',exact:true})).toBeVisible();
-  expect(errors).toEqual([]);
-});
-
-test('Overview and Data Sheets counts open the exact records and worksheet metadata',async({page})=>{
-  const {fixture,errors}=await setup(page);
-  await page.getByRole('button',{name:'Overview',exact:true}).click();
-  await expect(page.getByText('TITLE PRODUCTION',{exact:true})).toHaveCount(0);
-  const attention=fixture.rows.filter(row=>/clarification|hold|suspend|review|missing|rejected/i.test(row.Status));
-  for(const [name,count] of [['Imported orders',10],['Need attention',attention.length],['Imported worksheets',2]]){
-    await page.getByRole('button',{name:`${name} ${count}`,exact:true}).click();
-    const dialog=page.getByRole('dialog');
-    await expect(dialog.locator('tbody tr')).toHaveCount(count);
-    if(name==='Imported worksheets')await expect(dialog).toContainText('remaining.xlsx');
-    else await expect(dialog.getByRole('columnheader',{name:'Typer Sort Typer'})).toBeVisible();
-    await page.keyboard.press('Escape');
-  }
-  await page.getByRole('button',{name:'Data Sheets',exact:true}).click();
-  await page.getByRole('button',{name:/C-O & Update file \d/}).click();
-  await page.getByLabel('Search rows',{exact:true}).fill('TV-62002');
-  await page.getByRole('button',{name:'Visible orders 1',exact:true}).click();
-  await expect(page.getByRole('dialog').locator('tbody tr')).toHaveCount(1);
-  await expect(page.getByRole('dialog').getByRole('cell',{name:'TV-62002',exact:true})).toBeVisible();
-  await expect(page.getByText('TITLE PRODUCTION',{exact:true})).toHaveCount(0);
-  expect(errors).toEqual([]);
-});
-
 test('Every monthly metric shows matching order numbers and full details',async({page})=>{
   const {month,errors}=await setup(page);
   await page.getByRole('button',{name:'Monthly Orders',exact:true}).click();

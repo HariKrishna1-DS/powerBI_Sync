@@ -5,7 +5,7 @@ import path from 'node:path';
 async function setup(page, captureCount=3){
   const fixture=workspaceFixture();
   if(captureCount>3)fixture.previews.push(...Array.from({length:captureCount-3},(_,i)=>({id:29-i,name:`preview${29-i}`,created:'2026-09-29T12:00:00Z',row_count:240})));
-  await page.route('**/api/**',route=>{const req=route.request();return route.fulfill({json:fixture.response(new URL(req.url()).pathname,req.postData()?req.postDataJSON():{})});});
+  await page.route('**/api/**',route=>{const req=route.request();const body=fixture.response(new URL(req.url()).pathname,req.postData()?req.postDataJSON():{});if(new URL(req.url()).pathname==='/api/state')body.report_workspace={mode:'excel'};return route.fulfill({json:body});});
   await page.goto('/');
   await expect(page.locator('.orders-table tbody tr')).toHaveCount(50);
   return fixture;

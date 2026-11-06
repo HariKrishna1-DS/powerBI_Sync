@@ -221,7 +221,8 @@ class SheetTransactionTests(unittest.TestCase):
         self.assertFalse(any(s.title.startswith('preview') for s in self.book.worksheets()))
         self.assertFalse(any(s.title in ('Preview History', 'Default conflicts', 'Changes', 'Ambiguous - Needs review')
                              for s in self.book.worksheets()))
-        self.assertEqual(len(records(self.book.worksheet('All Products').get_all_values())), 2)
+        self.assertEqual([row['Order Number'] for row in records(self.book.worksheet('All Products').get_all_values())], ['B'])
+        self.assertEqual(len(records(self.book.worksheet('Sheet1').get_all_values())), 2)
         self.assertEqual(b.attrs['pass_report']['not_in_latest'], ['A'])
 
     def test_committed_preview_is_a_noop(self):

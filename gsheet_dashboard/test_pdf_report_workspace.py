@@ -130,10 +130,7 @@ class PdfReportWorkspaceTests(unittest.TestCase):
                          if 'setBasicFilter' in request]
                 self.assertEqual(len(filters),1)
                 self.assertEqual(filters[0]['range']['sheetId'],book.worksheet('All Products').id)
-                condition=next(iter(filters[0]['criteria'].values()))['condition']
-                self.assertEqual(condition['type'],'CUSTOM_FORMULA')
-                self.assertIn('DATE(2026,10,'+date[-2:].lstrip('0')+')',
-                              condition['values'][0]['userEnteredValue'])
+                self.assertNotIn('criteria', filters[0])
 
     def test_publish_hides_internal_tabs_preserves_trackers_and_reuses_chart(self):
         book=ReportBook();book.add(FULL,[row('tracker')]);book.add(REMAINING,[])
@@ -273,7 +270,9 @@ class PdfReportWorkspaceTests(unittest.TestCase):
             frame,_=automatic_sync_frame(store.get(saved['id']),store=store)
             sync_monthly(book,frame,store)
             for name,values in before.items():
-                self.assertEqual(book.worksheet(name).get_all_values(),values)
+                if name != 'All Products':
+                    self.assertEqual(book.worksheet(name).get_all_values(),values)
+            self.assertTrue(any('CAPTURE-001' in cells for cells in book.worksheet('All Products').get_all_values()))
             self.assertTrue(any('CAPTURE-001' in cells for cells in book.worksheet('Sheet1').get_all_values()))
 
 

@@ -1,4 +1,4 @@
-"""Reconcile manual edits to the three imported order tabs against the last sync."""
+"""Reconcile manual edits to imported workbook tabs against the last sync."""
 from collections import defaultdict
 from datetime import datetime, timezone
 import json
@@ -10,7 +10,7 @@ def editable_frames(snapshot, settings):
     from monthly_views import view_identity
     frames, _ = report_frames(snapshot, settings)
     return {title: values for title, values in frames.items()
-            if title == 'All Products' or view_identity(title)}
+            if view_identity(title)}
 
 
 def records(values, title):
@@ -54,6 +54,8 @@ def read_editable_tabs(book, baseline):
     sheets = {sheet.title: sheet for sheet in book.worksheets()}
     actual = {}
     for title in baseline:
+        if title == 'All Products':
+            continue  # This tab now belongs to the latest captured queue.
         match = title if title in sheets else next((name for name in sheets
             if view_identity(title) and view_identity(name) == view_identity(title)), None)
         if match is None:

@@ -349,7 +349,7 @@ def capacity_report(reports, settings):
             'completion_date_basis': 'out_time' if out_time_only else 'completion_time'}
 
 
-def report_frames(snapshot, settings):
+def report_frames(snapshot, settings, sheet_publication=False):
     from tracker_sync import matrix
     from monthly_views import view_name, product_view_headers
     from sla_status import build_sla_status, sheet_summary_values, imported_date_snapshot
@@ -362,7 +362,9 @@ def report_frames(snapshot, settings):
     month = day['Date'][:7] if day and day['Date'] != 'Undated' else datetime.now().strftime('%Y-%m')
     detail_columns = product_view_headers(snapshot['sheets']['Full Title']['columns'])
     all_rows = snapshot['sheets']['Overview']['rows']
-    frames = {'All Products': matrix(all_rows, snapshot['sheets']['Overview']['columns'])}
+    latest = (snapshot.get('latest_preview', {'rows': [], 'columns': snapshot['sheets']['Overview']['columns']})
+              if sheet_publication else snapshot['sheets']['Overview'])
+    frames = {'All Products': matrix(latest['rows'], latest['columns'])}
     for full, label in ((True, 'Full Title'), (False, 'Remaining Products')):
         from status_updates import full_product
         rows = snapshot['sheets'][label]['rows'] if snapshot.get('mode') == 'excel' else [r for r in all_rows if full_product(r) == full]
@@ -370,14 +372,14 @@ def report_frames(snapshot, settings):
     status_columns = ['Status: ' + status for status in snapshot.get('statuses', [])]
     monthly_columns = ['Month'] + DAILY_COLUMNS[1:7] + ['SLA OnTime', 'SLA on Missing']
     monthly_rows = [dict(row, **{'SLA on Missing': row.get('Missing', 0)}) for row in reports['monthly']]
-    frames['Monthly Orders'] = matrix(monthly_rows, monthly_columns)
+    frames['Monthly Orders'] = [monthly_columns] if sheet_publication else matrix(monthly_rows, monthly_columns)
     daily_status_columns = DAILY_COLUMNS[:7] + ['SLA On Time', 'SLA Missing']
     daily_status = [dict(row, **{'SLA On Time': row.get('SLA OnTime', 0),
                                 'SLA Missing': row.get('Missing', 0)})
                     for row in sorted(reports['daily'], key=lambda row: row['Date'])]
     daily_total = {'Date': 'Total', **{column: sum(row.get(column, 0) for row in daily_status)
                                       for column in daily_status_columns[1:]}}
-    frames['Daily Status Report'] = matrix(daily_status + [daily_total], daily_status_columns)
+    frames['Daily Status Report'] = [daily_status_columns] if sheet_publication else matrix(daily_status + [daily_total], daily_status_columns)
     counts = Counter(str(r.get('Status', '')).strip() or '(Blank)' for r in all_rows)
     frames['Status Report'] = [['Status', 'Orders', 'Share']] + [[s, n, n / len(all_rows)] for s, n in counts.items()]
     sla_snapshot = snapshot.get('sla_snapshot', snapshot)
@@ -449,7 +451,7 @@ def publish_reports(book, snapshot, settings, backup_root, daily_only=False, _co
     from datatrace_sync import sheet_cell, sheet_color
     from tracker_formatting import format_requests, capacity_sheet_values, REPORT_COLORS
     from monthly_views import view_identity
-    frames, capacity = report_frames(snapshot, settings)
+    frames, capacity = report_frames(snapshot, settings, sheet_publication=True)
     all_products_frame = frames['All Products']
     if daily_only:
         # The tracker sync can refresh All Products between report publications.
@@ -466,7 +468,7 @@ def publish_reports(book, snapshot, settings, backup_root, daily_only=False, _co
     by_title = {s['properties']['title']: s for s in metadata}
     if daily_only and 'All Products' not in by_title:
         # An initial publication may still be pending when the date is chosen.
-        frames, capacity = report_frames(snapshot, settings)
+        frames, capacity = report_frames(snapshot, settings, sheet_publication=True)
         daily_only = False
     all_products_id = by_title.get('All Products', {}).get('properties', {}).get('sheetId')
     ids = {s['properties']['sheetId'] for s in metadata}
@@ -568,7 +570,7 @@ def publish_reports(book, snapshot, settings, backup_root, daily_only=False, _co
             retired_value_ranges.append(quoted + rowcol_to_a1(1, cols+1) + ':' +
                                         rowcol_to_a1(max(len(values), old_grid.get('rowCount', len(values))), old_cols))
             requests.append({'repeatCell': {'range': {'sheetId': number,
-                'endRowIndex': max(len(values), old_grid.get('rowCount', len(values))),
+                'endRowIndex': max(len(values)+25, old_grid.get('rowCount', 0)),
                 'startColumnIndex': cols, 'endColumnIndex': old_cols},
                 'cell': {}, 'fields': 'userEnteredValue'}})
             if not preserve_capacity_format and (title != 'SLA Status' or snapshot.get('sla_snapshot') is None):
@@ -637,7 +639,7 @@ def publish_reports(book, snapshot, settings, backup_root, daily_only=False, _co
                     requests.append({'updateEmbeddedObjectPosition': {'objectId': chart['chartId'], 'newPosition': {'overlayPosition': {'anchorCell': {'sheetId': number, 'rowIndex': len(values)+2, 'columnIndex': 0}, 'widthPixels': 900, 'heightPixels': 350}}, 'fields': 'anchorCell,widthPixels,heightPixels'}})
             else:
                 requests.append({'addChart': {'chart': {'spec': spec, 'position': {'overlayPosition': {'anchorCell': {'sheetId': number, 'rowIndex': len(values)+2, 'columnIndex': 0}, 'widthPixels': 900, 'heightPixels': 350}}}}})
-    date_filter = all_products_date_filter(all_products_id, all_products_frame, settings.get('selected_date', ''))
+    date_filter = all_products_date_filter(all_products_id, all_products_frame, '')
     if date_filter and not only_titles:
         requests.append(date_filter)
     if not daily_only and not only_titles:
@@ -721,6 +723,9 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
                 snapshot = (imported_snapshot(settings['imported'])
                             if settings['mode'] == 'excel' and settings.get('imported')
                             else load_snapshot(force=True, tracker_only=True))
+                previews = workspace.store.list()
+                latest_preview = workspace.store.get(previews[0]['id']) if previews else {'rows': [], 'columns': []}
+                snapshot = dict(snapshot, latest_preview=latest_preview)
                 if settings['mode'] == 'tracker':
                     from sla_status import preview_snapshot
                     snapshot = dict(snapshot, sla_snapshot=preview_snapshot(workspace.store, settings, production=snapshot))
@@ -1504,6 +1509,7 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
 
             prod_rows = []
             source_names = []
+            source_warning = None
             if uploaded_files and any(f.filename for f in uploaded_files):
                 for f in uploaded_files:
                     if f.filename:
@@ -1526,6 +1532,27 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
                     source_names.append(p.name)
                 sla_comparison_cache['rows'] = prod_rows
                 sla_comparison_cache['filename'] = ', '.join(source_names) if source_names else 'Sample Report'
+            elif workspace.read().get('imported') and not clear_report:
+                settings = workspace.read()
+                try:
+                    with sync_lock(workspace.store.root):
+                        book, _ = get_book()
+                        sync_imported_tabs(workspace, book, dict(settings, mode='excel'))
+                except Exception as exc:
+                    source_warning = f'Using saved imported reports. Google Sheets refresh failed: {exc}'
+                settings = workspace.read()
+                rows = imported_snapshot(settings['imported'])['sheets']['Overview']['rows']
+                prod_rows = [{
+                    'order_number': str(row.get('Order Number', '')).strip(),
+                    'status': row.get('Status', ''),
+                    'product': row.get('Product', ''), 'state': row.get('State', ''),
+                    'county': row.get('County', ''), 'client': row.get('Client', ''),
+                    'in_time': row.get('In-Time', ''), 'out_time': row.get('Out Time', ''),
+                    'prod_sla': row.get('SLA Expiration') or row.get('ETA', ''),
+                    'searcher': row.get('Searcher', ''), 'typer': row.get('Typer', ''),
+                    'comments': row.get('Comments', ''), 'source_sheet': 'Imported Excel'
+                } for row in rows]
+                source_names = ['Imported Excel reports']
             elif sla_comparison_cache.get('rows'):
                 prod_rows = sla_comparison_cache['rows']
                 source_names = [sla_comparison_cache.get('filename') or 'Uploaded Report']
@@ -1533,11 +1560,13 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
                 prod_rows = []
                 source_names = []
 
-            sla_report = load_sla_report(preview_id=preview_id)
+            from sla_status import build_sla_status, preview_snapshot
+            sla_report = build_sla_status(preview_snapshot(workspace.store, workspace.read(), preview_id))
             preview_name = sla_report.get('preview_name') or (f"preview{preview_id}" if preview_id else "Latest preview")
 
             result = compare_sla_with_production(sla_report, prod_rows, preview_name=preview_name)
             result['source_files'] = ', '.join(source_names)
+            result['source_warning'] = source_warning
             result['selected_preview_id'] = preview_id or sla_report.get('preview_id')
             result['previews'] = sla_report.get('previews', [])
             sla_comparison_cache['result'] = result

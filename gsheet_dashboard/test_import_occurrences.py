@@ -10,7 +10,7 @@ from unittest.mock import patch
 from flask import Flask
 from openpyxl import Workbook, load_workbook
 from import_identity import order_key, upgrade_workbook_orders
-from import_excel_changes import editable_frames, reconcile, preserve_sheet_edits
+from import_excel_changes import editable_frames as current_editable_frames, reconcile, preserve_sheet_edits
 from preview_store import PreviewStore
 from report_workspace import ReportWorkspace, read_report_files, imported_snapshot, report_frames, register_report_routes, combine_sources
 from sla_status import build_sla_status, imported_date_snapshot
@@ -20,6 +20,13 @@ from test_pdf_report_workspace import excel
 def occurrence(date, status='Completed and Delivered', out='', product='Legal & Vesting'):
     return {'Order Number':'SYNTHETIC-REPEAT-1','Date':date,'In-Time':date,'Product':product,
             'Status':status,'Out Time':out,'SLA Expiration':'2099-10-20 17:00'}
+
+
+def editable_frames(snapshot, settings):
+    from report_workspace import report_frames
+    frames = current_editable_frames(snapshot, settings)
+    frames["Full_Search_SEP_2026"] = report_frames(snapshot, settings)[0]["All Products"]
+    return frames
 
 
 class ImportedOccurrenceTests(unittest.TestCase):
@@ -101,13 +108,13 @@ class ImportedOccurrenceTests(unittest.TestCase):
         self.assertFalse(events)
         self.assertEqual(unchanged,self.imported)
         remote=deepcopy(baseline)
-        values=remote['All Products'];headers=values[0]
+        values=remote['Full_Search_SEP_2026'];headers=values[0]
         values[1][headers.index('Out Time')]='10/05/2026'
         updated,events=reconcile(self.imported,baseline,remote)
         self.assertEqual(len(events),1)
         self.assertEqual([row['Out Time'] for row in updated['rows']],['10/05/2026',''])
         self.assertEqual(updated['rows'][1]['Status'],'Waiting for Effective Date')
-        remote=deepcopy(baseline);remote['All Products'].pop(1)
+        remote=deepcopy(baseline);remote['Full_Search_SEP_2026'].pop(1)
         removed,events=reconcile(self.imported,baseline,remote)
         self.assertEqual(len(removed['rows']),1)
         self.assertEqual(removed['rows'][0]['Status'],'Waiting for Effective Date')
@@ -116,8 +123,8 @@ class ImportedOccurrenceTests(unittest.TestCase):
         preserved=preserve_sheet_edits(removed,rebuilt,['other.xlsx'])
         self.assertEqual(len(preserved['rows']),2)
         self.assertNotIn('Completed and Delivered',[row['Status'] for row in preserved['rows']])
-        bad=deepcopy(baseline);index=bad['All Products'][0].index('Source row ID')
-        for cells in bad['All Products']:cells.pop(index)
+        bad=deepcopy(baseline);index=bad['Full_Search_SEP_2026'][0].index('Source row ID')
+        for cells in bad['Full_Search_SEP_2026']:cells.pop(index)
         with self.assertRaisesRegex(ValueError,'Source row ID'):
             reconcile(self.imported,baseline,bad)
 

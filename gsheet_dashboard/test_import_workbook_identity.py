@@ -7,13 +7,20 @@ from unittest.mock import Mock, patch
 
 from flask import Flask
 from import_identity import upgrade_workbook_orders
-from import_excel_changes import editable_frames, reconcile, preserve_sheet_edits
+from import_excel_changes import editable_frames as current_editable_frames, reconcile, preserve_sheet_edits
 from preview_store import PreviewStore
 from report_workspace import ReportWorkspace, read_report_files, combine_sources, imported_snapshot, report_frames, register_report_routes, publish_reports, all_products_date_filter
 from sla_status import build_sla_status
 from status_updates import rename_status
 from tracker_sync import key
 from test_pdf_report_workspace import ReportBook, excel, row
+
+
+def editable_frames(snapshot, settings):
+    from report_workspace import report_frames
+    frames = current_editable_frames(snapshot, settings)
+    frames["Full_Search_SEP_2026"] = report_frames(snapshot, settings)[0]["All Products"]
+    return frames
 
 
 class ImportedWorkbookIdentityTests(unittest.TestCase):
@@ -65,7 +72,7 @@ class ImportedWorkbookIdentityTests(unittest.TestCase):
         self.assertEqual(full[1][full[0].index('Order Number')],'F')
         self.assertEqual(other[1][other[0].index('Order Number')],'C')
         remote=deepcopy(baseline)
-        remote['All Products'][2][remote['All Products'][0].index('Product')]='Full Title'
+        remote['Full_Search_SEP_2026'][2][remote['Full_Search_SEP_2026'][0].index('Product')]='Full Title'
         updated,events=reconcile(imported,baseline,remote)
         self.assertEqual(len(events),1)
         self.assertEqual([record['Order Number'] for record in imported_snapshot(updated)['sheets']['Full Title']['rows']],['F'])
@@ -97,7 +104,7 @@ class ImportedWorkbookIdentityTests(unittest.TestCase):
         self.assertFalse(events)
         self.assertEqual(len(unchanged['rows']),5)
         remote=deepcopy(baseline)
-        values=remote['All Products'];headers=values[0]
+        values=remote['Full_Search_SEP_2026'];headers=values[0]
         for cells in values[1:]:
             if cells[headers.index('Order Number')]=='A' and cells[headers.index('Source workbook')]=='other.xlsx':
                 cells[headers.index('Status')]='Cancelled'
@@ -107,7 +114,7 @@ class ImportedWorkbookIdentityTests(unittest.TestCase):
         self.assertEqual(copies,{'full.xlsx':'Completed and Delivered','other.xlsx':'Cancelled'})
         self.assertEqual(len(events),4)
         for kind in ('missing','blank'):
-            bad=deepcopy(baseline);values=bad['All Products'];index=values[0].index('Source workbook')
+            bad=deepcopy(baseline);values=bad['Full_Search_SEP_2026'];index=values[0].index('Source workbook')
             if kind=='missing':
                 for cells in values:cells.pop(index)
             else:values[1][index]=''
@@ -187,10 +194,10 @@ class ImportedWorkbookIdentityTests(unittest.TestCase):
             records=[cells[column] for cells in values[1:] if len(cells)>column and cells[column]]
             counts[title]=len(records)
             self.assertFalse(any(str(number).startswith('OLD-') for number in records))
-        self.assertEqual(counts['All Products'],5)
+        self.assertEqual(counts['All Products'],0)
         self.assertEqual(counts['Full_Search_OCT_2026']+counts['Remaining_Search_OCT_2026'],5)
         ranges=book.values_batch_clear.call_args.kwargs['body']['ranges']
-        self.assertTrue(any(value.startswith("'All Products'!A7:") and value.endswith('12436') for value in ranges))
+        self.assertTrue(any(value.startswith("'All Products'!A2:") and value.endswith('12436') for value in ranges))
 
 
 if __name__=='__main__':unittest.main()

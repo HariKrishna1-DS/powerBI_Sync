@@ -121,7 +121,7 @@ def refresh_monthly_views(book, *, return_changed=False, only_completions=False)
                            'Vendor Pending', 'In-House Pending', 'SLA OnTime', 'SLA on Missing']
         monthly_rows = [dict(row, **{'SLA on Missing': row.get('Missing', 0)})
                         for row in reports['monthly']]
-        plan['writes']['Monthly Orders'] = matrix(monthly_rows, monthly_columns)
+        plan['writes']['Monthly Orders'] = [monthly_columns]
         plan['writes']['PR Excel'] = capacity_report_values(reports['monthly'], reports['daily'])
     def normalized(values):
         result = []
