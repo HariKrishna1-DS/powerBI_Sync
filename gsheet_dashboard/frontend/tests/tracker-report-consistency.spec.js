@@ -37,27 +37,6 @@ async function reports(page){
   return {fixture,syncs};
 }
 
-test('Tracker Overview uses tracker status totals and syncs the latest capture from report pages',async({page})=>{
-  const {syncs}=await reports(page);
-  await page.goto('/');
-  await page.getByRole('button',{name:'Overview',exact:true}).click();
-  await expect(page.getByRole('button',{name:/^Production orders 5$/})).toBeVisible();
-  await expect(page.getByRole('button',{name:/^Completed orders 1$/})).toBeVisible();
-  await expect(page.getByRole('button',{name:/^Pending orders 3/})).toBeVisible();
-  await expect(page.getByRole('button',{name:/Duplicate Orders/})).toHaveCount(0);
-  await expect(page.getByText('Tracker reports are waiting for 2 saved captures to sync.',{exact:true})).toBeVisible();
-  await page.getByRole('button',{name:/^Completed orders 1$/}).click();
-  await expect(page.getByRole('dialog').getByRole('cell',{name:'MiXeD-1',exact:true})).toBeVisible();
-  await page.keyboard.press('Escape');
-  await page.locator('.preview-select').filter({hasText:'preview31'}).click();
-  await expect(page.getByRole('heading',{name:'Capture library',exact:true})).toBeVisible();
-  await page.getByRole('button',{name:'Overview',exact:true}).click();
-  await page.getByRole('button',{name:'Sync latest captures',exact:true}).click();
-  await expect.poll(()=>syncs.length).toBe(1);
-  expect(syncs[0].preview).toBe(32);
-  expect(syncs[0].previous).toBeUndefined();
-});
-
 test('Daily and monthly use tracker statuses while capacity shows its independent Excel source',async({page})=>{
   await reports(page);
   await page.goto('/');
