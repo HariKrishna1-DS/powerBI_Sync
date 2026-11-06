@@ -372,7 +372,7 @@ def build_sla_status(snapshot, as_of=None):
     # If queue has orders expiring today (e.g. 11/06), take today's date so they are counted as Today SLA
     has_today_expiration = any(
         today_m_d in str(r.get('SLA Expiration*') or r.get('SLA Expiration') or '') or
-        today_iso in str(r.get('SLA Expiration') or r.get('SLA Expiration*') or '')
+        today_iso in str(r.get('SLA Expiration*') or r.get('SLA Expiration') or '')
         for r in source['rows']
     )
     if as_of is None:

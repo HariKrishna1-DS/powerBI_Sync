@@ -67,3 +67,17 @@ class ReportSourceVisibilityTests(unittest.TestCase):
         book = ReportBook()
         # An old baseline must not cause queue rows to overwrite imported orders.
         self.assertEqual(read_editable_tabs(book, {'All Products': [['Order Number'], ['OLD']]}), {})
+
+    def test_normalized_countdown_does_not_replace_portal_arrival_reference(self):
+        from datetime import datetime
+        from sla_status import build_sla_status
+        class Clock(datetime):
+            @classmethod
+            def now(cls):
+                return cls(2026, 11, 6)
+        snapshot = {'sla_reference_at': '2026-10-22T22:47:00',
+                    'sheets': {'Overview': {'rows': [{'Order Number': 'A',
+                        'SLA Expiration*': '1d', 'SLA Expiration': '2026-11-06 12:00:00'}]}}}
+        with patch('sla_status.datetime', Clock):
+            report = build_sla_status(snapshot)
+        self.assertEqual(report['as_of'], '2026-10-22')
