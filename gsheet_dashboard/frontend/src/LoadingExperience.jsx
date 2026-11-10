@@ -76,7 +76,7 @@ export function ActivityPanel({busy,title,error,cancelled,pendingSync,job={},sta
   const Icon=failed?AlertCircle:stopped?X:active?LoaderCircle:error&&!showExtraction?AlertCircle:Check;
   const rows=Number(result.rows)||0;
   const saved=!!(result.preview_name||result.saved_locally||result.preview_id);
-  return <aside className={`workspace-activity ${active?'is-active':''} ${failed||error&&!active?'has-error':''}`} aria-label="Workspace activity">
+  return <aside className={`workspace-activity ${expanded?'is-expanded':'is-collapsed'} ${active?'is-active':''} ${failed||error&&!active?'has-error':''}`} aria-label="Workspace activity">
     <button type="button" className="activity-toggle" onClick={()=>setExpanded(value=>!value)} aria-expanded={expanded} aria-controls="workspace-activity-details" title={expanded?'Minimize activity':'Expand activity'}>
       <span className="activity-status-icon"><Icon size={18} className={active&&!failed&&!stopped?'spin':''}/></span>
       <span className="activity-summary"><small>TV TRACKER · {showExtraction?'QUEUE EXTRACTION':'ACTIVITY'}</small><strong role="status">{label}</strong></span>

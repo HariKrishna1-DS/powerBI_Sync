@@ -43,6 +43,19 @@ class SlaCompareTests(unittest.TestCase):
         self.assertEqual(next(row for row in result['orders'] if row['order_number'] == 'NEG-2')['match_type'], 'sla_only')
         self.assertEqual(next(row for row in result['orders'] if row['order_number'] == 'PROD-ONLY')['sla_category'], 'Not in SLA Queue')
 
+    def test_completed_excel_match_keeps_preview_status(self):
+        self.production[0]['status'] = 'Completed and Delivered'
+        result = compare_sla_with_production(self.report, self.production)
+        order = next(row for row in result['orders'] if row['order_number'] == self.production[0]['order_number'])
+        preview = next(row for row in self.report['rows'] if row['Order Number'] == order['order_number'])
+        self.assertEqual(order['prod_status'], preview['Status'])
+        self.assertEqual(order['imported_prod_status'], 'Completed and Delivered')
+        self.assertEqual(order['match_type'], 'same_status')
+        self.assertFalse(order['status_changed'])
+        self.assertEqual(order['change_label'], 'Unchanged')
+        self.assertFalse(any(row['Status'] == 'Completed and Delivered' for row in result['sla_summary']['rows']))
+        self.assertEqual(self.production[0]['status'], 'Completed and Delivered')
+
     def test_summary_keeps_the_original_queue_scope_and_columns(self):
         self.production[0]['status'] = 'Typing in Progress'
         self.production[-1]['status'] = 'Typing in Progress'

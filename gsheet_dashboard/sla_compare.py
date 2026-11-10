@@ -404,6 +404,10 @@ def compare_sla_with_production(sla_report, production_rows, preview_name=''):
             matched_count += 1
             sla_status_str = normalize_status(sla_item.get('Status', ''))
             prod_status_str = normalize_status(prod_item.get('status', ''))
+            imported_prod_status = prod_status_str
+            # Completed Excel rows must not replace the active preview status.
+            if prod_status_str == 'Completed and Delivered':
+                prod_status_str = sla_status_str
 
             # Check if statuses differ
             is_changed = (sla_status_str.casefold() != prod_status_str.casefold()) and bool(sla_status_str and prod_status_str)
@@ -428,6 +432,7 @@ def compare_sla_with_production(sla_report, production_rows, preview_name=''):
                 'queue_sla_category': sla_item.get('SLA Category') or 'Unknown SLA',
                 'prod_sla_category': sla_category,
                 'prod_status': prod_status_str or '(Blank)',
+                'imported_prod_status': imported_prod_status or '(Blank)',
                 'change_label': f'{sla_status_str} ➔ {prod_status_str}' if is_changed else 'Unchanged',
                 'product': sla_item.get('Product') or prod_item.get('product') or '',
                 'state': sla_item.get('State') or sla_item.get('St') or prod_item.get('state') or '',
@@ -461,6 +466,11 @@ def compare_sla_with_production(sla_report, production_rows, preview_name=''):
                 'county': sla_item.get('County') or '',
                 'client': sla_item.get('Client') or '',
                 'in_time': sla_item.get('Arrival Time') or sla_item.get('Arrival Date') or '',
+                'arrival_date': sla_item.get('Arrival Date') or '',
+                'traceq_id': sla_item.get('TraceQ id') or sla_item.get('TraceQ ID') or '',
+                'online_ground': sla_item.get('Online/Ground') or '',
+                'assignee': sla_item.get('Assignee') or '',
+                'queue_comments': sla_item.get('Comments') or sla_item.get('Comment') or '',
                 'out_time': '',
                 'prod_sla': '',
                 'sla_expiration': sla_item.get('SLA Expiration') or sla_item.get('SLA Expiration*') or '',

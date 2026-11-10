@@ -7,6 +7,10 @@
 .loading-skeleton i:nth-child(2){width:85%}.loading-skeleton i:nth-child(3){width:60%}
 .workspace-activity{position:fixed;right:22px;bottom:20px;width:320px;max-width:calc(100vw - 32px);border:1px solid var(--line);border-radius:16px;background:var(--surface);color:var(--ink);box-shadow:0 8px 36px #0002;overflow:hidden;z-index:70}
 .workspace-activity .activity-toggle{width:100%;display:flex;align-items:center;gap:12px;padding:14px;background:transparent;border:0;border-radius:0;text-align:left;color:var(--ink);cursor:pointer}
+.workspace-activity.is-collapsed{width:auto;max-width:min(280px,calc(100vw - 24px));border-radius:12px;right:12px;bottom:12px}
+.workspace-activity.is-collapsed .activity-toggle{gap:8px;padding:8px 10px}
+.workspace-activity.is-collapsed .activity-status-icon{width:26px;height:26px;border-radius:8px}
+.workspace-activity.is-collapsed .activity-summary small{display:none}
 .workspace-activity .activity-toggle:hover{background:var(--hover)}
 .activity-toggle:focus-visible{outline:2px solid var(--focus);outline-offset:-3px}
 .activity-status-icon{width:36px;height:36px;flex-shrink:0;display:grid;place-items:center;background:var(--accent-soft);color:var(--accent);border-radius:12px}

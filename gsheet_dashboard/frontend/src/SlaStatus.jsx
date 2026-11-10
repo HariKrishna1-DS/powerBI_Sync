@@ -21,6 +21,22 @@ export default function SlaStatus({revision,onUpdated,mode='tracker'}){
   const [orderEditor,setOrderEditor]=useState(null),[newStatus,setNewStatus]=useState(null);
   const [deleting,setDeleting]=useState(null),[moveTo,setMoveTo]=useState(''),[deleteError,setDeleteError]=useState('');
   const editor=useRef(null),statusCreator=useRef(null),selectionGeneration=useRef(0),dateSelecting=useRef(false);
+  const reportStart=useRef(null),initialPositioned=useRef(false);
+  useEffect(()=>{initialPositioned.current=false;},[mode]);
+  useEffect(()=>{
+    if(loading||!report||initialPositioned.current)return;
+    const frame=requestAnimationFrame(()=>{
+      if(!reportStart.current)return;
+      const main=reportStart.current.closest('main');
+      if(main){
+        const headerHeight=main.querySelector('.topbar')?.getBoundingClientRect().height||0;
+        const top=main.scrollTop+reportStart.current.getBoundingClientRect().top-main.getBoundingClientRect().top-headerHeight-20;
+        main.scrollTo({top:Math.max(0,top),behavior:'instant'});
+      }else reportStart.current.scrollIntoView({block:'start',behavior:'instant'});
+      initialPositioned.current=true;
+    });
+    return()=>cancelAnimationFrame(frame);
+  },[loading,report,mode]);
   useEffect(()=>{if(editing)editor.current?.scrollIntoView({block:'center'});},[editing?.status]);
   useEffect(()=>{if(newStatus!==null)statusCreator.current?.scrollIntoView({block:'center'});},[newStatus===null]);
   const previewId=mode==='tracker'?(selectedPreview||report?.preview_id):null;
@@ -131,9 +147,10 @@ export default function SlaStatus({revision,onUpdated,mode='tracker'}){
   const editableDetail=manual&&detail?.scope!=='duplicates';
   const hasRepeated=report?.report_scope==='preview'&&!!(report.duplicate_row_count||report.missing_order_number_count);
   const showRepeated=orderNumber=>setDetail({title:orderNumber?`Repeated entries · ${orderNumber}`:'Repeated Order Numbers',scope:'duplicates',orderNumber});
-  function rowActions(row){return <div className="inline"><button type="button" className="icon-button" aria-label={`Edit details ${row['Order Number']}`} title="Edit order details" onClick={()=>setOrderEditor({row,status:row.Status})}><Pencil size={15}/></button><button type="button" className="icon-button" aria-label={`Add order to ${row.Status}`} title="Add order to this status" onClick={()=>setOrderEditor({status:row.Status})}><Plus size={15}/></button><button type="button" className="icon-button" aria-label={`Copy order ${row['Order Number']}`} title="Copy into a new order" onClick={()=>setOrderEditor({row,status:row.Status,copy:true})}><Copy size={15}/></button></div>;}
+  function rowActions(row){return <div className="inline"><button type="button" className="icon-button" aria-label={`Edit details ${row['Order Number']}`} title="Edit order details" onClick={()=>setOrderEditor({row,status:row.Status})}><Pencil size={15}/></button><button type="button" className="icon-button" aria-label={`Copy order ${row['Order Number']}`} title="Copy into a new order" onClick={()=>setOrderEditor({row,status:row.Status,copy:true})}><Copy size={15}/></button></div>;}
   return <section className="sla-status-workspace">
     <div className="section-heading"><div><h2>SLA Status</h2>{report&&<p className="muted">{report.preview_name?`${report.preview_name} · ${capturedCount.toLocaleString()} unique orders · ${report.preview_row_count.toLocaleString()} captured rows`:report.source} · As of {report.as_of} ({report.date_basis==='arrival_time'?'Arrival Time date':'capture date'})</p>}</div><div className="inline">{manual&&<button className="secondary" disabled={saving||publishing||!!editing} onClick={startStatus}><Plus size={16}/>Add status</button>}<button className="secondary" disabled={loading||saving||publishing||!!editing} onClick={refreshStatus}><RefreshCw size={16}/>Refresh SLA Status</button><a className="secondary" href={downloadUrl} download aria-disabled={loading||saving||publishing||!report} onClick={event=>{if(loading||saving||publishing||!report)event.preventDefault();}}><ArrowDownToLine size={16}/>Download SLA Status</a></div></div>
+    <div className="sla-controls-bar" ref={reportStart}>
     {mode==='tracker'&&<label className="sla-preview-picker">Preview<select aria-label="SLA preview" value={String(previewId||'')} disabled={loading||saving||publishing||!!editing||!report?.previews?.length} onChange={event=>selectPreview(event.target.value)}>
       {!report?.previews?.length&&<option value="">{loading?'Loading previews…':'No saved previews'}</option>}
       {report?.previews?.map(preview=><option key={preview.id} value={preview.id}>{preview.name} · {preview.row_count.toLocaleString()} captured rows{preview.id===report.preview_id?` · ${capturedCount.toLocaleString()} unique orders`:''} · {new Date(preview.created).toLocaleString('en-IN',{timeZone:'Asia/Kolkata',day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'})}</option>)}
@@ -145,6 +162,7 @@ export default function SlaStatus({revision,onUpdated,mode='tracker'}){
     <div className={`sla-report-tools${hasRepeated?' has-repeated-orders':''}`}>
       <RepeatedSlaOrders report={report} onShow={showRepeated}/>
       <ReportOrderSearch name="SLA Status" rows={searchRows} columns={report?.columns||[]} disabled={!report}/>
+    </div>
     </div>
     <OfflineNotice snapshot={report}/>{(error||report?.sync_error)&&<p className="notice warning" role="alert">{error||report.sync_error}</p>}
     {loading&&!report?<LoadingScreen title="Loading SLA Status…"/>:report&&<>

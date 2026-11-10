@@ -1,0 +1,46 @@
+/* Shared, readable typography for the two SLA reports and their detail tables. */
+:is(.sla-status-workspace,.sla-compare-workspace,.orders-detail-dialog) {
+  font-family:"Segoe UI Variable Text","Segoe UI",Arial,sans-serif;
+  font-size:14px;
+  line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+}
+.workspace :is(.sla-status-workspace,.sla-compare-workspace) :is(h2,h3) {
+  font-family:"Segoe UI Variable Display","Segoe UI",Arial,sans-serif;
+  font-weight:700;
+  letter-spacing:-.35px;
+  line-height:1.35;
+}
+.workspace :is(.sla-status-workspace>.section-heading,.compare-page-header) h2 { font-size:23px; }
+.workspace :is(.sla-status-workspace,.sla-compare-workspace) :is(.muted,.report-context,.compare-control-label,.report-order-search-label,.filtered-tally) { font-size:13px; line-height:1.6; }
+.workspace :is(.sla-status-workspace,.sla-compare-workspace) :is(button,input,select,.secondary,.primary,.button-link) { font-family:inherit; font-size:13px; }
+.workspace :is(.sla-status-workspace,.sla-compare-workspace) :is(input,select) { min-height:42px; }
+.workspace :is(.sla-status-workspace,.sla-compare-workspace) :is(.secondary,.primary,.button-link) { min-height:40px; border-radius:9px; }
+.workspace :is(.sla-status-workspace,.sla-compare-workspace) :is(th,th button,.column-label) { font-size:13px; font-weight:650; line-height:1.5; }
+.workspace :is(.sla-status-workspace,.sla-compare-workspace) td { font-size:14px; line-height:1.6; padding:12px 14px; }
+.workspace :is(.sla-status-workspace,.sla-compare-workspace) td :is(.text-button,.status-pill,.sla-category-pill,.status-badge) { font-size:13px; }
+.workspace :is(.sla-status-workspace,.sla-compare-workspace) td small { font-size:12px; line-height:1.5; }
+.workspace :is(.sla-status-workspace,.sla-compare-workspace) :is(.metric,.compare-kpi) { border-radius:14px; box-shadow:0 2px 8px #102a4305; }
+.workspace .sla-status-workspace>.metrics>.metric>span,.workspace .sla-compare-workspace .kpi-label { font-size:14px; font-weight:600; }
+.workspace .sla-status-workspace>.metrics>.metric>strong,.workspace .sla-compare-workspace .compare-kpi .kpi-val { font-size:34px; font-weight:700; letter-spacing:-.7px; font-variant-numeric:tabular-nums; }
+.workspace .sla-compare-workspace .kpi-tag { font-size:12px; }
+.workspace .sla-status-workspace .report-notes { margin:0; padding:16px 20px; border-radius:14px; font-size:14px; }
+.workspace .sla-status-workspace .report-notes summary { font-size:14px; font-weight:650; }
+.workspace .sla-status-workspace .report-notes .report-context { margin:10px 0; font-size:14px; line-height:1.65; }
+.workspace .sla-compare-workspace .section-subheading h3 { font-size:19px; }
+.orders-detail-dialog :is(td,td .text-button) { font-size:14px; }
+.orders-detail-dialog :is(th,.column-label) { font-size:13px; }
+@media(max-width:700px) {
+  .workspace :is(.sla-status-workspace,.sla-compare-workspace) td { padding:10px 12px; }
+  .workspace .sla-status-workspace>.metrics>.metric>strong,.workspace .sla-compare-workspace .compare-kpi .kpi-val { font-size:29px; }
+}
+/* Keep repeated-order context beside search on wide screens. */
+.sla-controls-bar:has(.sla-repeated-orders) { grid-template-columns:minmax(0,1fr); }
+.workspace .sla-controls-bar .sla-report-tools.has-repeated-orders { display:grid; grid-template-columns:minmax(0,1fr) minmax(280px,420px); grid-template-rows:auto; align-items:start; gap:20px; }
+.workspace .sla-controls-bar .has-repeated-orders>.sla-repeated-orders { grid-column:1; grid-row:1; min-width:0; }
+.workspace .sla-controls-bar .has-repeated-orders>.report-order-search { display:grid; grid-column:2; grid-row:1; grid-template-columns:minmax(0,1fr); }
+.workspace .sla-controls-bar .has-repeated-orders .report-order-search-label,.workspace .sla-controls-bar .has-repeated-orders .report-order-search>.search-input { grid-column:1; }
+@media(max-width:1000px) {
+  .workspace .sla-controls-bar .sla-report-tools.has-repeated-orders { grid-template-columns:minmax(0,1fr); }
+  .workspace .sla-controls-bar .has-repeated-orders>.report-order-search { grid-column:1; grid-row:2; }
+}

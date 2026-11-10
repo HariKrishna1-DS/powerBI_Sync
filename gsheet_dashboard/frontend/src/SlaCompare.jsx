@@ -191,6 +191,24 @@ export default function SlaCompare({state, reportMode}) {
   const [savingExpiration, setSavingExpiration] = useState(false);
   const fileInputRef = useRef(null);
   const ordersTableRef = useRef(null);
+  const reportStartRef = useRef(null);
+  const initialPositioned = useRef(false);
+  useEffect(() => { initialPositioned.current = false; }, [reportMode]);
+  useEffect(() => {
+    if (loading || !data?.has_production || initialPositioned.current) return;
+    const frame = requestAnimationFrame(() => {
+      const target = reportStartRef.current;
+      if (!target) return;
+      const main = target.closest('main');
+      if (main) {
+        const headerHeight = main.querySelector('.topbar')?.getBoundingClientRect().height || 0;
+        const top = main.scrollTop + target.getBoundingClientRect().top - main.getBoundingClientRect().top - headerHeight - 20;
+        main.scrollTo({top: Math.max(0, top), behavior: 'instant'});
+      } else target.scrollIntoView({block: 'start', behavior: 'instant'});
+      initialPositioned.current = true;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [loading, data, reportMode]);
 
   function startExpirationEdit(order) {
     setEditingExpiration(order.order_number);
@@ -647,6 +665,27 @@ export default function SlaCompare({state, reportMode}) {
   // 3. Attach Excel-style column filter controls
   const columnFilterControls = useColumnFilters(tableRecords, FILTER_COLUMNS);
   const activeColFilterCount = Object.keys(columnFilterControls.filters).length;
+  function excelDate(value) {
+    const text = String(value || '');
+    const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return iso ? `${Number(iso[2])}/${Number(iso[3])}/${iso[1]}` : text.split(/[ T]/)[0];
+  }
+  async function copyNewOrders() {
+    const rows = columnFilterControls.rows.map(record => record._raw).filter(order => order.match_type === 'sla_only');
+    const clean = value => String(value ?? '').replace(/[\t\r\n]+/g, ' ');
+    const text = rows.map(order => [
+      '', excelDate(order.arrival_date || order.in_time), order.order_number, order.traceq_id,
+      order.state, order.county, order.client, order.online_ground, order.product,
+      order.sla_status, excelDate(order.sla_expiration), order.queue_comments || 'New Orders',
+      order.assignee, order.searcher, order.typer
+    ].map(clean).join('\t')).join('\r\n');
+    try {
+      await navigator.clipboard.writeText(text);
+      setMessage(`${rows.length} new orders copied for Excel: No, Date, Order number, TraceQ id, State, County, Client, Online/Ground, Product, Status, SLA, Comments, Assignee, Searcher, Typer. Paste into the No column; row numbers are left blank.`);
+    } catch {
+      setError('Unable to copy. Allow clipboard access and try Copy New Orders for Excel again.');
+    }
+  }
   const isSearching = Boolean(search.trim());
 
   const metrics = data?.metrics || {};
@@ -835,7 +874,7 @@ export default function SlaCompare({state, reportMode}) {
       ) : (
         <>
           {/* Summary KPI Cards in Ordered Sequence (1: Matched in Both, 2: Identical, 3: Moved, 4: New Orders) */}
-          <div className="compare-kpis">
+          <div className="compare-kpis" ref={reportStartRef}>
             {/* Card 1: Matched in Both */}
             <button
               type="button"
@@ -1103,6 +1142,7 @@ export default function SlaCompare({state, reportMode}) {
           <span className="filtered-tally">
             Showing {columnFilterControls.rows.length} of {tableRecords.length} orders
           </span>
+          {filterType === 'sla_only' && <button type="button" className="secondary" onClick={copyNewOrders} disabled={!columnFilterControls.rows.some(record => record._raw.match_type === 'sla_only')} title="Copy rows without headers in production worksheet column order. Paste into the No column.">Copy New Orders for Excel</button>}
           <a
             className="secondary button-link"
             href={`/api/sla-compare/export?table=orders&filter_type=${encodeURIComponent(isSearching ? 'all' : matrixFilter ? 'summary' : filterType)}${!isSearching && matrixFilter?.status ? `&summary_status=${encodeURIComponent(matrixFilter.status)}` : ''}${!isSearching && matrixFilter?.category ? `&category=${encodeURIComponent(matrixFilter.category)}` : ''}${!isSearching && selectedSlaStatus ? `&sla_status=${encodeURIComponent(selectedSlaStatus)}` : ''}${!isSearching && selectedTransition ? `&from_status=${encodeURIComponent(selectedTransition.from_status)}&to_status=${encodeURIComponent(selectedTransition.to_status)}` : ''}${isSearching ? `&q=${encodeURIComponent(search.trim())}` : ''}`}
@@ -1314,7 +1354,7 @@ export default function SlaCompare({state, reportMode}) {
         <Dialog
           title={popModal.title}
           onClose={() => setPopModal(null)}
-          className="detail-dialog compare-pop-dialog"
+          className="detail-dialog compare-pop-dialog orders-detail-dialog"
         >
           <div className="dialog-content">
             <div className="pop-modal-toolbar">

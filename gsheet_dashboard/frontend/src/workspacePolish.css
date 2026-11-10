@@ -493,10 +493,10 @@ a.button-link { display: inline-flex; align-items: center; gap: 6px; text-decora
 .sla-status-workspace>.section-heading p,.sla-compare-workspace>.section-heading p { margin:3px 0 0; line-height:1.4; }
 .sla-status-workspace>.sla-preview-picker { margin:0; align-self:flex-start; }
 .sla-status-workspace .sla-report-tools { display:flex; flex-wrap:wrap; align-items:center; gap:10px; margin:0; }
-.sla-status-workspace .sla-report-tools>.report-order-search,.capacity-report>.report-order-search { display:grid; grid-template-columns:auto minmax(180px,300px); gap:8px; align-items:center; width:min(100%,440px); margin:0 0 0 auto; }
+.sla-status-workspace .sla-report-tools>.report-order-search,.capacity-report>.report-order-search { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,300px); gap:8px; align-items:center; width:100%; max-width:100%; min-width:0; margin:0; }
 .sla-status-workspace .report-order-search-label,.capacity-report>.report-order-search .report-order-search-label { grid-column:1; margin:0; font-size:11px; white-space:nowrap; }
 .sla-status-workspace .report-order-search>.search-input,.capacity-report>.report-order-search>.search-input { grid-column:2; margin:0; width:100%; }
-.sla-status-workspace .report-order-search>[aria-live],.capacity-report>.report-order-search>[aria-live] { grid-column:1/-1; }
+.sla-status-workspace .report-order-search>[aria-live],.capacity-report>.report-order-search>[aria-live] { grid-column:1/-1; min-width:0; max-width:100%; }
 .sla-status-workspace>.metrics { margin:0; padding:0; gap:12px; }
 .sla-status-workspace>.metrics>.metric { padding:12px 18px; min-height:82px; }
 .sla-status-workspace>.table-scroll,.capacity-report>.table-section { margin:0; }
