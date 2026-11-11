@@ -23,7 +23,7 @@ const puppeteer = require('../desktop/extractor/node_modules/puppeteer-core');
               <table><tr><td>Layout only</td></tr></table>
               <table><thead><tr><td>Arrival Time</td><td>Task Status</td><td>OPON</td><td>ETA Comments</td><td>Comment</td><td>Comments</td><td>Product</td><td>SLA Expiration*</td></tr></thead>
                 <tbody><tr><td>09/22/2026 01:00 PM</td><td>Available</td><td id="task" title="Open order overview">001</td>
-                  <td id="eta" title="${fullEta}">ETA: Order has been assigned to the abst.</td>
+                  <td id="eta" title="${fullEta.replace('assigned to the abstractor,','assigned to the abstractor,&lt;br&gt;')}">ETA: Order has been assigned to the abst.</td>
                   <td><span data-original-title="${fullComment}">Continue - Full review..</span></td>
                   <td title="Unrelated action label that must not become the comment"><span aria-describedby="comment-details">Additional comment..</span></td>
                   <td title="Product details are not a comment">ClientRev..</td>
@@ -36,7 +36,7 @@ const puppeteer = require('../desktop/extractor/node_modules/puppeteer-core');
               function advance(){
                 document.getElementById('task').textContent='002';
                 const eta=document.getElementById('eta');eta.removeAttribute('title');
-                const span=document.createElement('span');span.setAttribute('data-tooltip-content',window.nextEta);
+                const span=document.createElement('span');span.setAttribute('onmouseover','return Tip('+JSON.stringify(window.nextEta.split(String.fromCharCode(10)).join('<br>'))+')');
                 span.textContent='ETA: Hello, we apol..';eta.replaceChildren(span);
               }
             </script>`}));
@@ -60,7 +60,7 @@ const puppeteer = require('../desktop/extractor/node_modules/puppeteer-core');
         assert.equal(fakeProcess.exitCode, 0);
         assert.deepEqual(captured.map(row => row.OPON), ['001', '002']);
         assert.equal(captured[0]['Task Status'], 'Available');
-        assert.equal(captured[0]['ETA Comments'], fullEta);
+        assert.equal(captured[0]['ETA Comments'], fullEta.replace('abstractor, ', 'abstractor,\n'));
         assert.equal(captured[1]['ETA Comments'], nextEta);
         assert.ok(captured.every(row => row.Comment === fullComment));
         assert.ok(captured.every(row => row.Comments === describedComment));

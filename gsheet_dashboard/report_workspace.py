@@ -1126,6 +1126,9 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
                 pass
         return dict(build_sla_status(snapshot), sync_error=settings.get('sla_sync_error'))
 
+    from production_export import register_production_export
+    register_production_export(app, workspace, load_preview_sla_report)
+
     def publish_selected_sla(report):
         from sla_status import publish_preview_sla
         try:
@@ -1507,10 +1510,13 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
 
             clear_report = request.args.get('clear') in ('1', 'true') or (request.form.get('clear') in ('1', 'true') if request.form else False)
             if clear_report:
-                workspace.save(sla_comparison_report=None)
-                sla_comparison_cache['rows'] = None
+                # An explicit empty report suppresses imported-report fallback on
+                # subsequent reads and after restart, until the user uploads again.
+                workspace.save(sla_comparison_report={'rows': [], 'filename': None, 'cleared': True})
+                sla_comparison_cache['rows'] = []
                 sla_comparison_cache['filename'] = None
                 sla_comparison_cache['result'] = None
+                sla_comparison_cache['active_rows'] = []
 
             uploaded_files = request.files.getlist('files') or ([request.files['file']] if 'file' in request.files else [])
             use_sample = request.args.get('sample') in ('1', 'true') or (request.form.get('sample') in ('1', 'true'))
@@ -1543,7 +1549,7 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
                 sla_comparison_cache['filename'] = ', '.join(source_names) if source_names else 'Sample Report'
             elif sla_comparison_cache.get('rows') is not None:
                 prod_rows = sla_comparison_cache['rows']
-                source_names = [sla_comparison_cache.get('filename') or 'Uploaded Report']
+                source_names = [sla_comparison_cache.get('filename') or 'Uploaded Report'] if prod_rows else []
             elif workspace.read().get('imported') and not clear_report:
                 settings = workspace.read()
                 # Comparing an imported report must not replace its statuses with cloud values.

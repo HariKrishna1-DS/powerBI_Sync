@@ -61,3 +61,8 @@ DataTrace_Workspace.zip
 # OS generated files
 .DS_Store
 Thumbs.db
+
+# Local report exports and audit artifacts
+gsheet_dashboard/production-exports/
+gsheet_dashboard/output/
+output/

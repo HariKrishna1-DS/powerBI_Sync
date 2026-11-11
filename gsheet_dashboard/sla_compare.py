@@ -11,6 +11,7 @@ from tracker_sync import canonical_headers, key, text, STATUS_NAMES
 from sla_status import preview_snapshot, build_sla_status
 from import_identity import number_key
 from sla_manual import revision as sla_revision
+from new_order_report import NEW_ORDER_COLUMNS, production_record, comparison_record, plain_comment
 
 COMPARISON_CATEGORIES = ['Future SLA', 'Negative SLA', 'Today SLA']
 COMPARISON_COLUMNS = ['Status', *COMPARISON_CATEGORIES, 'Grand Total']
@@ -443,6 +444,7 @@ def compare_sla_with_production(sla_report, production_rows, preview_name=''):
                 'prod_sla': '',
                 'sla_expiration': sla_item.get('SLA Expiration') or sla_item.get('SLA Expiration*') or '',
                 'sla_revision': sla_revision(sla_item),
+                'eta_comments': plain_comment(sla_item.get('ETA Comments') or ''),
                 'searcher': prod_item.get('searcher') or '',
                 'typer': prod_item.get('typer') or '',
                 'comments': prod_item.get('comments') or '',
@@ -454,6 +456,7 @@ def compare_sla_with_production(sla_report, production_rows, preview_name=''):
             orders.append({
                 'order_number': order_no,
                 'match_type': 'sla_only',
+                'production_report': production_record(sla_item, sla_status_str or '(Blank)'),
                 'status_changed': False,
                 'sla_status': sla_status_str or '(Blank)',
                 'sla_category': sla_item.get('SLA Category') or 'Unknown SLA',
@@ -470,7 +473,8 @@ def compare_sla_with_production(sla_report, production_rows, preview_name=''):
                 'traceq_id': sla_item.get('TraceQ id') or sla_item.get('TraceQ ID') or '',
                 'online_ground': sla_item.get('Online/Ground') or '',
                 'assignee': sla_item.get('Assignee') or '',
-                'queue_comments': sla_item.get('Comments') or sla_item.get('Comment') or '',
+                'queue_comments': plain_comment(sla_item.get('ETA Comments') or sla_item.get('Comments') or sla_item.get('Comment') or ''),
+                'eta_comments': plain_comment(sla_item.get('ETA Comments') or ''),
                 'out_time': '',
                 'prod_sla': '',
                 'sla_expiration': sla_item.get('SLA Expiration') or sla_item.get('SLA Expiration*') or '',
@@ -729,6 +733,41 @@ def export_comparison_excel(result, table_scope='all', filter_type=None, sla_sta
             )]
         return res
 
+    # A paste-ready report, with headers on row 1 and no comparison-only fields.
+    if table_scope == 'orders' and (filter_type or '').strip().lower() in ('sla_only', 'new_orders', 'new'):
+        ws = wb.active
+        ws.title = 'New Orders'
+        ws.append(NEW_ORDER_COLUMNS)
+        for cell in ws[1]:
+            cell.fill = th_fill
+            cell.font = th_font
+        for order in filter_order_list(orders):
+            record = comparison_record(order)
+            ws.append([record.get(column, '') for column in NEW_ORDER_COLUMNS])
+            for cell in ws[ws.max_row]:
+                if isinstance(cell.value, str): cell.data_type = 's'
+                cell.font = body_font
+                cell.alignment = Alignment(vertical='top', wrap_text=NEW_ORDER_COLUMNS[cell.column-1]=='Comments')
+                if NEW_ORDER_COLUMNS[cell.column-1] in ('Date','ETA','Process date','In-Time','Out Time','SLA Expiration') and cell.value:
+                    parsed = None
+                    for fmt in ('%Y-%m-%dT%H:%M:%S','%Y-%m-%d %H:%M:%S','%Y-%m-%d %H:%M','%Y-%m-%d','%m/%d/%Y %I:%M:%S %p','%m/%d/%Y'):
+                        try:
+                            parsed = datetime.strptime(str(cell.value), fmt)
+                            break
+                        except ValueError:
+                            continue
+                    if parsed:
+                        cell.value = parsed
+                        cell.number_format = 'm/d/yyyy' if NEW_ORDER_COLUMNS[cell.column-1] in ('Date','ETA','Process date') else 'm/d/yyyy h:mm:ss AM/PM'
+        ws.freeze_panes = 'A2'
+        ws.auto_filter.ref = ws.dimensions
+        for index, column in enumerate(NEW_ORDER_COLUMNS, 1):
+            ws.column_dimensions[get_column_letter(index)].width = 24 if column in ('Order Number','In-Time','Out Time','SLA Expiration','Comments') else 18
+        stream = BytesIO()
+        wb.save(stream)
+        stream.seek(0)
+        return stream
+
     # 1. SCOPE: SLA SUMMARY ONLY
     if table_scope == 'sla_summary':
         ws = wb.active
@@ -837,7 +876,7 @@ def export_comparison_excel(result, table_scope='all', filter_type=None, sla_sta
             'Order Number', 'Match Type', 'Status Movement',
             'SLA Status (Queue)', 'SLA Category', 'Production Status', 'SLA Status Expiration',
             'Product', 'State', 'County', 'Client',
-            'In-Time / Received', 'Production Out-Time', 'Searcher', 'Typer'
+            'In-Time / Received', 'Production Out-Time', 'Searcher', 'Typer', 'ETA Comments'
         ]
         for c_idx, h in enumerate(headers, start=1):
             cell = ws.cell(row=4, column=c_idx, value=h)
@@ -868,7 +907,8 @@ def export_comparison_excel(result, table_scope='all', filter_type=None, sla_sta
                 o['in_time'],
                 o['out_time'],
                 o['searcher'],
-                o['typer']
+                o['typer'],
+                o.get('eta_comments', '')
             ]
             for c_idx, v in enumerate(vals, start=1):
                 c = ws.cell(row=cur_r, column=c_idx, value=v)
@@ -1019,6 +1059,7 @@ def export_comparison_excel(result, table_scope='all', filter_type=None, sla_sta
                 row_data['out_time'],
                 row_data['searcher'],
                 row_data['typer'],
+                row_data.get('eta_comments', ''),
             ]
             ws_det.append(row_vals)
             cur_row = ws_det[ws_det.max_row]

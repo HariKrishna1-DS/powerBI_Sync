@@ -1,3 +1,4 @@
+import {NEW_ORDER_COLUMNS, newOrderRecord, newOrdersTsv, plainComment} from './newOrderReport';
 import {LoadingScreen, useActivity} from './LoadingExperience';
 import React, {useState, useEffect, useMemo, useRef} from 'react';
 import {
@@ -153,6 +154,7 @@ const FILTER_COLUMNS = [
   'Client',
   'SLA Status',
   'SLA Category',
+  'ETA Comments',
   'Movement / Difference',
   'Production Status',
   'SLA Status Expiration',
@@ -179,6 +181,8 @@ export default function SlaCompare({state, reportMode}) {
   const [message, setMessage] = useState('');
   const [popModal, setPopModal] = useState(null);
   const [popSearch, setPopSearch] = useState('');
+  const [clearOpen, setClearOpen] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const [editingOrderNumber, setEditingOrderNumber] = useState(null);
   const [editStatusValue, setEditStatusValue] = useState('');
   const [isCustomStatus, setIsCustomStatus] = useState(false);
@@ -645,6 +649,7 @@ export default function SlaCompare({state, reportMode}) {
   // 2. Prepare structured records for Excel-like column filtering
   const tableRecords = useMemo(() => {
     return baseFilteredOrders.map((o, idx) => ({
+      ...newOrderRecord(o),
       _raw: o,
       _idx: idx,
       'Order Number': o.order_number,
@@ -654,6 +659,7 @@ export default function SlaCompare({state, reportMode}) {
       'Client': o.client,
       'SLA Status': o.sla_status,
       'SLA Category': o.sla_category,
+      'ETA Comments': plainComment(o.eta_comments||''),
       'Movement / Difference': o.change_label,
       'Production Status': o.prod_status,
       'SLA Status Expiration': o.sla_expiration,
@@ -663,25 +669,15 @@ export default function SlaCompare({state, reportMode}) {
   }, [baseFilteredOrders]);
 
   // 3. Attach Excel-style column filter controls
-  const columnFilterControls = useColumnFilters(tableRecords, FILTER_COLUMNS);
+  const newOrderMode=filterType==='sla_only'&&!search.trim()&&!matrixFilter;
+  const columnFilterControls = useColumnFilters(tableRecords, newOrderMode?NEW_ORDER_COLUMNS:FILTER_COLUMNS);
   const activeColFilterCount = Object.keys(columnFilterControls.filters).length;
-  function excelDate(value) {
-    const text = String(value || '');
-    const iso = text.match(/^(\d{4})-(\d{2})-(\d{2})/);
-    return iso ? `${Number(iso[2])}/${Number(iso[3])}/${iso[1]}` : text.split(/[ T]/)[0];
-  }
   async function copyNewOrders() {
     const rows = columnFilterControls.rows.map(record => record._raw).filter(order => order.match_type === 'sla_only');
-    const clean = value => String(value ?? '').replace(/[\t\r\n]+/g, ' ');
-    const text = rows.map(order => [
-      '', excelDate(order.arrival_date || order.in_time), order.order_number, order.traceq_id,
-      order.state, order.county, order.client, order.online_ground, order.product,
-      order.sla_status, excelDate(order.sla_expiration), order.queue_comments || 'New Orders',
-      order.assignee, order.searcher, order.typer
-    ].map(clean).join('\t')).join('\r\n');
+    const text = newOrdersTsv(rows);
     try {
       await navigator.clipboard.writeText(text);
-      setMessage(`${rows.length} new orders copied for Excel: No, Date, Order number, TraceQ id, State, County, Client, Online/Ground, Product, Status, SLA, Comments, Assignee, Searcher, Typer. Paste into the No column; row numbers are left blank.`);
+      setMessage(`${rows.length} new orders copied for Excel: 25 production-report columns, from No through review. Paste into the No column; row numbers are left blank.`);
     } catch {
       setError('Unable to copy. Allow clipboard access and try Copy New Orders for Excel again.');
     }
@@ -783,12 +779,8 @@ export default function SlaCompare({state, reportMode}) {
             <button
               type="button"
               className="secondary"
-              onClick={async () => {
-                if (window.confirm('Clear the current comparison and uploaded Production Report?')) {
-                  await api('/api/sla-compare?clear=1');
-                  loadComparison();
-                }
-              }}
+              disabled={loading || uploading || clearing}
+              onClick={() => setClearOpen(true)}
               title="Clear the uploaded Production Report"
             >
               <X size={15} />
@@ -1168,13 +1160,17 @@ export default function SlaCompare({state, reportMode}) {
       )}
 
       {/* Side-by-Side Dual Comparison Table with Excel Column Filters */}
+      {newOrderMode?<>
+        <p className="report-context">Production report format · 25 columns · Copy rows into column A. No is left blank for your worksheet numbering.</p>
+        <div className="table-scroll compare-table-wrap new-orders-report"><table className="side-by-side-table" aria-label="New Orders production report"><thead><tr>{NEW_ORDER_COLUMNS.map(column=><th key={column} scope="col"><div className="workspace-filter-heading"><span>{column}</span><ColumnFilterButton column={column} controls={columnFilterControls}/></div></th>)}</tr></thead><tbody>{columnFilterControls.rows.map(rec=><tr key={rec._raw.order_number}>{NEW_ORDER_COLUMNS.map(column=><td key={column} className={column==='Comments'?'eta-comment-cell':undefined}>{column==='SLA Expiration'?renderExpirationCell(rec._raw):String(newOrderRecord(rec._raw)[column])||'—'}</td>)}</tr>)}{!columnFilterControls.rows.length&&<tr><td colSpan={25} className="table-empty">No new orders match the current column filters.</td></tr>}</tbody></table></div>
+      </>:<>
       <div className="table-scroll compare-table-wrap">
         <table className="side-by-side-table" aria-label="SLA vs Production Orders Comparison">
           <thead>
             {/* Top Multi-Header: SLA vs Production */}
             <tr className="super-header">
               <th colSpan={4} className="group-col info-group">Order Identity & Location</th>
-              <th colSpan={2} className="group-col sla-group">◄ SLA Status (Active Queue)</th>
+              <th colSpan={3} className="group-col sla-group">◄ SLA Status (Active Queue)</th>
               <th className="group-col diff-group">Status Movement</th>
               <th colSpan={4} className="group-col prod-group">► Production Report (Uploaded)</th>
             </tr>
@@ -1216,6 +1212,7 @@ export default function SlaCompare({state, reportMode}) {
                   <ColumnFilterButton column="SLA Category" controls={columnFilterControls} />
                 </div>
               </th>
+              <th scope="col" className="eta-comment-heading"><div className="workspace-filter-heading"><span>ETA Comments</span><ColumnFilterButton column="ETA Comments" controls={columnFilterControls}/></div></th>
               <th scope="col" className="diff-head" style={{width: 240}}>
                 <div className="workspace-filter-heading">
                   <span>Movement / Difference</span>
@@ -1304,6 +1301,7 @@ export default function SlaCompare({state, reportMode}) {
                     )}
                   </td>
 
+                  <td className="eta-comment-cell">{plainComment(order.eta_comments)||'—'}</td>
                   {/* Middle: Movement Badge */}
                   <td className="diff-cell">
                     {isMoved ? (
@@ -1339,7 +1337,7 @@ export default function SlaCompare({state, reportMode}) {
             })}
             {!columnFilterControls.rows.length && (
               <tr>
-                <td colSpan={11} className="table-empty">
+                <td colSpan={12} className="table-empty">
                   {search || activeColFilterCount ? 'No orders match the current search or column filters.' : 'No orders found for this filter.'}
                 </td>
               </tr>
@@ -1347,7 +1345,30 @@ export default function SlaCompare({state, reportMode}) {
           </tbody>
         </table>
       </div>
+      </>}
       </>)}
+
+      {clearOpen && <Dialog title="Clear comparison report" onClose={() => {if (!clearing) setClearOpen(false);}}>
+        <div className="dialog-content"><p>Clear the uploaded report from SLA Compare? Saved previews, imported reports in other workspaces, and original Excel files are retained.</p>
+          {error && <p className="notice warning" role="alert">{error}</p>}
+          <div className="inline"><button type="button" className="secondary" disabled={clearing} onClick={() => setClearOpen(false)}>Cancel</button>
+            <button type="button" className="primary" disabled={clearing} onClick={async () => {
+              setClearing(true); setError('');
+              try {
+                const params = new URLSearchParams({clear:'1'});
+                if (selectedPreview) params.set('preview_id', selectedPreview);
+                const result = await api(`/api/sla-compare?${params}`, {method:'POST'});
+                setData(result); setSearch(''); setFilterType('matched'); setMatrixFilter(null);
+                setSelectedTransition(null); setSelectedSlaStatus(null); setPopModal(null);
+                columnFilterControls.clear(); setEditingOrderNumber(null); setEditingExpiration(null);
+                if (fileInputRef.current) fileInputRef.current.value = '';
+                setMessage('Comparison report cleared. Upload a production report to compare again.');
+                setClearOpen(false);
+              } catch (error) { setError(error.message || 'Could not clear the comparison report. Try again.'); }
+              finally { setClearing(false); }
+            }}>{clearing?'Clearing…':'Clear comparison'}</button></div>
+        </div>
+      </Dialog>}
 
       {/* Pop Table Modal for Matrix and Movements */}
       {popModal && (

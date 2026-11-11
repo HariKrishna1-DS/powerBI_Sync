@@ -143,3 +143,74 @@ test('popup expiration edits save date and time, and Sheets updating opens a lar
   await expect(dropzone.getByText('1 file selected', {exact: true})).toBeVisible();
   await expect(imports.getByRole('button', {name: 'Import and update reports', exact: true})).toBeEnabled();
 });
+
+test('New Orders uses all 25 production-report columns for table and clipboard',async({page})=>{
+  const fixture=workspaceFixture(3);
+  await page.addInitScript(()=>Object.defineProperty(navigator,'clipboard',{value:{writeText:async value=>{window.copiedNewOrders=value;}}}));
+  const row={eta_comments:'ETA: Hello Team.<br>Please be informed that we requested the abstractor for review.<br>We will complete this order ASAP.',order_number:'NEW-1',match_type:'sla_only',sla_status:'SearchFix',sla_category:'Today SLA',sla_expiration:'2026-11-11 14:30:00',product:'Update',state:'NJ',county:'Bergen',client:'TELSIX',production_report:{No:'',Date:'11/10/2026','Order Number':'NEW-1','TraceQ Id':'TRACE-1',State:'NJ',County:'Bergen',Client:'TELSIX','Online/Ground':'Online',Product:'Update',Status:'SearchFix',ETA:'11/12/2026',Comments:'Keep original comment',Assignee:'Owner',Searcher:'Searcher','Clarification Requested':'Yes',Shift:'Day','Process date':'',Typer:'Typer','Review/QC':'QC',Expense:0,'In-Time':'11/10/2026 12:30:00 PM','Out Time':'','SLA Expiration':'2026-11-11 14:30:00','Free site':'Yes',review:'Review'}};
+  await page.route('**/api/**',async route=>{
+    const name=new URL(route.request().url()).pathname;
+    let body=fixture.response(name);
+    if(name==='/api/sla-compare')body={has_production:true,previews:fixture.previews,orders:[row],metrics:{sla_only:1,total_sla:1,total_production:1,matched:0},transitions:[],sla_summary:{rows:[],totals:{}}};
+    await route.fulfill({json:body});
+  });
+  await page.goto('/');
+  await page.getByRole('button',{name:'SLA Compare',exact:true}).click();
+  await page.getByRole('button',{name:'✨ New Orders (1)',exact:true}).click();
+  const table=page.getByRole('table',{name:'New Orders production report',exact:true});
+  const headers=await table.locator('thead th span').allTextContents();
+  expect(headers).toEqual(['No','Date','Order Number','TraceQ Id','State','County','Client','Online/Ground','Product','Status','ETA','Comments','Assignee','Searcher','Clarification Requested','Shift','Process date','Typer','Review/QC','Expense','In-Time','Out Time','SLA Expiration','Free site','review']);
+  await expect(table.locator('tbody tr')).toHaveCount(1);
+  await expect(table.locator('.eta-comment-cell')).toHaveText('ETA: Hello Team.\nPlease be informed that we requested the abstractor for review.\nWe will complete this order ASAP.');
+  await expect(table.locator('thead th').first()).toHaveCSS('font-size','12.5px');
+  await expect(table.locator('tbody td').nth(19)).toHaveText('0');
+  await page.getByRole('button',{name:'Copy New Orders for Excel',exact:true}).click();
+  const copied=await page.evaluate(()=>window.copiedNewOrders);
+  const cells=copied.split('\t');
+  expect(cells).toHaveLength(25);
+  expect(cells[0]).toBe('');expect(cells[2]).toBe('NEW-1');expect(cells[10]).toBe('11/12/2026');
+  expect(cells[11]).toBe('ETA: Hello Team. Please be informed that we requested the abstractor for review. We will complete this order ASAP.');expect(cells[17]).toBe('Typer');expect(cells[22]).toBe('2026-11-11 14:30:00');
+  await expect(page.getByRole('link',{name:'Download Filtered Orders (Excel)',exact:true})).toHaveAttribute('href',/filter_type=sla_only/);
+  await table.locator('.eta-comment-cell').scrollIntoViewIfNeeded();
+  await page.screenshot({path:'test-results/new-orders-production-columns.png',animations:'disabled'});
+});
+
+test('Clear Report confirms, reports failures and stays cleared after reload', async ({page}) => {
+  const fixture=workspaceFixture(1);
+  let cleared=false, attempts=0;
+  const errors=[];page.on('pageerror',error=>errors.push(error.message));
+  await page.route('**/api/**',async route=>{
+    const url=new URL(route.request().url());
+    let body=fixture.response(url.pathname);
+    if(url.pathname==='/api/sla-compare'){
+      if(url.searchParams.get('clear')==='1'){
+        expect(route.request().method()).toBe('POST');attempts++;
+        if(attempts===1)return route.fulfill({status:500,json:{error:'Unable to clear test report'}});
+        cleared=true;
+      }
+      body={has_production:!cleared,orders:[],preview_name:'preview1',selected_preview_id:1,
+        previews:[{id:1,name:'preview1',row_count:1,created:'2026-11-10T10:00:00Z'}],
+        source_files:cleared?'':'production.xlsx',metrics:{total_sla:1,total_production:cleared?0:1},
+        transitions:[],sla_summary:{rows:[],totals:{}}};
+    }
+    await route.fulfill({json:body});
+  });
+  await page.goto('/');
+  await page.getByRole('button',{name:'SLA Compare',exact:true}).click();
+  await page.getByRole('button',{name:'Clear Report',exact:true}).click();
+  const dialog=page.getByRole('dialog',{name:'Clear comparison report'});
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button',{name:'Cancel',exact:true}).click();
+  expect(attempts).toBe(0);
+  await page.getByRole('button',{name:'Clear Report',exact:true}).click();
+  await dialog.getByRole('button',{name:'Clear comparison',exact:true}).click();
+  await expect(dialog.getByRole('alert')).toHaveText('Unable to clear test report');
+  await dialog.getByRole('button',{name:'Clear comparison',exact:true}).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole('button',{name:'Clear Report',exact:true})).toHaveCount(0);
+  await expect(page.getByRole('button',{name:'Upload Production Report (Excel)',exact:true})).toBeVisible();
+  await page.reload();
+  await page.getByRole('button',{name:'SLA Compare',exact:true}).click();
+  await expect(page.getByRole('button',{name:'Upload Production Report (Excel)',exact:true})).toBeVisible();
+  expect(attempts).toBe(2);expect(errors).toEqual([]);
+});

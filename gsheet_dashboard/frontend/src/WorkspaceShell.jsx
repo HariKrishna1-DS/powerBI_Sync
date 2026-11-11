@@ -4,7 +4,7 @@ import {Activity, ArrowLeftRight, CalendarDays, Check, Clock3, Database, Externa
 import {IconButton} from './workspaceUtils';
 import {useWorkspacePreference} from './useWorkspacePreference';
 
-const destinations=[['sla','SLA Status',Clock3],['slaCompare','SLA Compare',ArrowLeftRight],['capacity','Capacity Report',FileSpreadsheet],['daily','Daily Orders',CalendarDays],['monthly','Monthly Orders',FileSpreadsheet],['changes','Changes',ArrowLeftRight]];
+const destinations=[['sla','SLA Status',Clock3],['slaCompare','SLA Compare',ArrowLeftRight],['productionReport','Production Report',FileSpreadsheet],['capacity','Capacity Report',FileSpreadsheet],['daily','Daily Orders',CalendarDays],['monthly','Monthly Orders',FileSpreadsheet],['changes','Changes',ArrowLeftRight]];
 const dateLabel=value=>value?new Date(value).toLocaleDateString(undefined,{day:'numeric',month:'short'}):'Date unavailable';
 
 export function WorkspaceSidebar({state,selected,view,onNavigate,onSelect,onDelete,onBatchDelete,busy,snapshot,collapsed,onToggle,onRefresh,refreshing}) {

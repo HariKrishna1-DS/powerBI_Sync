@@ -204,6 +204,22 @@ class SlaCompareTests(unittest.TestCase):
             self.assertEqual(store.get(1)['rows'][0]['SLA Expiration'], '-2d')
             self.assertEqual(store.get(2)['rows'][0]['SLA Expiration'], '-2d')
             self.assertEqual(client.post('/api/sla-compare/expiration', json=edit).status_code, 409)
+            imported_before = workspace.read()['imported']
+            cleared = client.post('/api/sla-compare?clear=1&preview_id=1')
+            self.assertEqual(cleared.status_code, 200)
+            self.assertFalse(cleared.json['has_production'])
+            self.assertEqual(cleared.json['source_files'], '')
+            self.assertFalse(client.get('/api/sla-compare').json['has_production'])
+            self.assertEqual(workspace.read()['imported'], imported_before)
+            self.assertEqual(len(store.list()), 2)
+            after_clear = Flask('after_clear')
+            register_report_routes(after_clear, workspace, threading.Lock(), Mock(return_value={}),
+                                   Mock(side_effect=RuntimeError('offline')), lambda: None)
+            after_client = after_clear.test_client()
+            self.assertFalse(after_client.get('/api/sla-compare').json['has_production'])
+            reuploaded = after_client.post('/api/sla-compare', data={'file': (BytesIO(csv), 'replacement.csv')})
+            self.assertTrue(reuploaded.json['has_production'])
+            self.assertEqual(after_client.get('/api/sla-compare').json['source_files'], 'replacement.csv')
 
 
 if __name__ == '__main__':

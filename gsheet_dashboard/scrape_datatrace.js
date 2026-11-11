@@ -175,15 +175,33 @@ const outputPath = process.env.DATATRACE_OUTPUT_JSON || path.join(__dirname, 'qu
                 // Comment cells display a shortened label; native/custom tooltip
                 // attributes retain the original text. Other columns keep their
                 // displayed values so action labels never replace order IDs.
-                const clean = value => String(value || '').replace(/\r\n?/g, '\n').replace(/[^\S\n]+/g, ' ').trim();
+                const clean = value => {
+                    let text = String(value || '');
+                    // Tooltip attributes can hold HTML and entity-encoded HTML.
+                    for (let pass=0; pass<2 && /<\/?[a-z][^>]*>|&(?:#\d+|#x[0-9a-f]+|[a-z]+);/i.test(text); pass++) {
+                        const template=document.createElement('template');
+                        template.innerHTML=text;
+                        template.content.querySelectorAll('br').forEach(node=>node.replaceWith('\n'));
+                        template.content.querySelectorAll('p,div,li').forEach(node=>node.append('\n'));
+                        text=template.content.textContent;
+                    }
+                    return text.replace(/\r\n?/g, '\n').replace(/[^\S\n]+/g, ' ').split('\n').map(line=>line.trim()).join('\n').replace(/\n{3,}/g,'\n\n').trim();
+                };
                 const flat = value => value.replace(/\s+/g, ' ').trim();
                 const shown = clean(cell.innerText || cell.textContent);
                 const prefix = flat(shown).replace(/[.\u2026]+$/, '').trim().toLowerCase();
                 let full = shown;
                 const attributes = ['title', 'data-original-title', 'data-bs-original-title', 'data-tooltip', 'data-tooltip-content', 'aria-label'];
-                const selector = attributes.map(name => `[${name}]`).concat('[aria-describedby]').join(',');
+                const selector = attributes.map(name => `[${name}]`).concat('[aria-describedby]','[onmouseover]','[onmouseenter]').join(',');
                 for (const node of [cell, ...cell.querySelectorAll(selector)]) {
                     const candidates = attributes.map(name => node.getAttribute(name));
+                    // Read literal tooltip arguments without executing event handlers.
+                    for (const event of ['onmouseover','onmouseenter']) {
+                        const handler=node.getAttribute(event)||'';
+                        for (const literal of handler.matchAll(/(['"])((?:\\.|(?!\1).)*)\1/g)) {
+                            candidates.push(literal[2].replace(/\\n/g,'\n').replace(/\\r/g,'\n').replace(/\\(['"\\])/g,'$1'));
+                        }
+                    }
                     for (const id of (node.getAttribute('aria-describedby') || '').split(/\s+/).filter(Boolean)) {
                         candidates.push(document.getElementById(id)?.textContent);
                     }
