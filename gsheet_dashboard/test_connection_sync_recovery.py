@@ -32,14 +32,19 @@ class ConnectionSyncRecoveryTests(unittest.TestCase):
 
     def assert_resumes_saved_capture(self):
         with patch('server.target_worksheet', return_value=(Mock(), None)) as connection:
-            self.assertTrue(self.resume())
+            self.assertFalse(self.resume())
+            self.syncer.assert_not_called()
+            self.assertEqual(self.store.pending_count(), 1)
+            client=self.app.test_client()
+            client.post('/api/sheet-sync', json={'enabled': True})
+            self.assertEqual(client.post('/api/sync', json={'preview': client.get('/api/state').json['previews'][0]['id']}).status_code, 202)
         deadline = time.monotonic() + 5
         while self.app.test_client().get('/api/health').json['running'] and time.monotonic() < deadline:
             time.sleep(.02)
         self.assertEqual(self.store.pending_count(), 0)
         self.assertEqual(self.store.failed_syncs(), [])
         self.syncer.assert_called_once()
-        connection.assert_called_once()
+        connection.assert_called()
 
     def test_rejected_key_does_not_write_and_checks_are_throttled(self):
         self.store.mark_failed(1, 'Google Sheets authentication failed: Invalid JWT Signature.')

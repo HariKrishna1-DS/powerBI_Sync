@@ -130,6 +130,7 @@ class DesktopAlignmentTests(unittest.TestCase):
         state = self.wait_idle(client)
         syncer.assert_not_called()
         self.assertEqual(state['pending_sync'], 2)
+        client.post('/api/sheet-sync', json={'enabled': True})
         self.assertEqual(client.post('/api/sync', json={'preview': 2}).status_code, 202)
         self.wait_idle(client)
         self.assertEqual([call.args[0].attrs['preview_id'] for call in syncer.call_args_list], [1, 2])

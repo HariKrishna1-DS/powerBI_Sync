@@ -26,7 +26,113 @@ class ProductionExportTests(unittest.TestCase):
             {'Order Number':'new-co','Product':'Update','Status':'Assign to ABS','Comment':'=not a formula'},
             {'Order Number':'new-co','Product':'Update','Status':'Assign to ABS'}], 'excluded_rows':[]}
 
+    def test_status_changes_use_sla_compare_snapshot(self):
+        book=load_workbook(self.files['full']);book.active.cell(2,8).value='Assign to ABS';book.save(self.files['full']);book.close()
+        snapshot=[{'order_number':'full-old','status':'Assign to ABS','product':'Full Title'}]
+        info,result=plan(self.root,self.report,comparison_rows=snapshot)
+        full=next(r for r in result['reports'] if r['kind']=='full')
+        self.assertEqual(full['status_changed'],1)
+        self.assertEqual(full['changed_orders'][0]['PreviousStatus'],'Assign to ABS')
+        self.assertEqual(full['changed_orders'][0]['Status'],'SearchFix')
+        proceed(info,self.root/'changed-export')
+        book=load_workbook(self.files['full'])
+        self.assertEqual(book.active.cell(2,8).value,'SearchFix')
+        book.close()
+
+    def test_status_changes_exclude_production_only_labels(self):
+        self.report['summary']=[{'Status':'Assign to ABS'},{'Status':'Search In Progress'},
+                                {'Status':'Awaiting for Clarification'},{'Status':'SearchFix'}]
+        snapshot=[{'order_number':'full-old','status':'QC in Progress','product':'Full Title'}]
+        info,result=plan(self.root,self.report,comparison_rows=snapshot)
+        self.assertEqual(sum(file['status_changed'] for file in result['reports']),0)
+        proceed(info,self.root/'excluded-qc')
+        book=load_workbook(self.files['full'])
+        self.assertEqual(book.active.cell(2,8).value,'Completed and delivered')
+        book.close()
+
+    def test_status_changes_take_queue_value_for_shared_statuses_only(self):
+        book=load_workbook(self.files['full']);book.active.cell(2,8).value='Search In Progress';book.save(self.files['full']);book.close()
+        self.report['rows'][0]['Status']='Assign to ABS'
+        self.report['summary']=[{'Status':'Assign to ABS'},{'Status':'Search In Progress'}]
+        snapshot=[{'order_number':'full-old','status':'Search in Progress','product':'Full Title'}]
+        info,result=plan(self.root,self.report,comparison_rows=snapshot)
+        full=next(file for file in result['reports'] if file['kind']=='full')
+        self.assertEqual(full['status_changed'],1)
+        self.assertEqual(full['changed_orders'][0]['Status'],'Assign to ABS')
+        self.assertEqual(full['changed_orders'][0]['PreviousStatus'],'Search In Progress')
+        proceed(info,self.root/'shared-status')
+        book=load_workbook(self.files['full'])
+        self.assertEqual(book.active.cell(2,8).value,'Assign to ABS')
+        book.close()
+
+    def test_selected_summary_is_authoritative_over_excluded_statuses(self):
+        self.report['summary']=[{'Status':'Assign to ABS'},{'Status':'Search In Progress'}]
+        snapshot=[{'order_number':'full-old','status':'Assign to ABS','product':'Full Title'}]
+        _,result=plan(self.root,self.report,comparison_rows=snapshot)
+        # SearchFix is in raw rows, but not in this selected summary.
+        self.assertEqual(sum(file['status_changed'] for file in result['reports']),0)
+
     def tearDown(self): self.temp.cleanup()
+
+    def test_planned_status_selection_is_staged_and_applied_on_proceed(self):
+        book=load_workbook(self.files['full']);book.active.cell(2,8).value='Assign to ABS';book.save(self.files['full']);book.close()
+        original=self.files['full'].read_bytes()
+        snapshot=[{'order_number':'full-old','status':'Assign to ABS','product':'Full Title'}]
+        _,before=plan(self.root,self.report,comparison_rows=snapshot)
+        overrides={'full-old':'Awaiting for Clarification','new-co':'Typing in Progress'}
+        info,result=plan(self.root,self.report,comparison_rows=snapshot,status_overrides=overrides)
+        self.assertNotEqual(result['fingerprint'],before['fingerprint'])
+        self.assertEqual(self.files['full'].read_bytes(),original)
+        self.assertEqual(self.report['rows'][0]['Status'],'SearchFix')
+        self.assertEqual(info['full']['changes'][0]['Status'],'Awaiting for Clarification')
+        proceed(info,self.root/'status-selections')
+        book=load_workbook(self.files['full']);self.assertEqual(book.active.cell(2,8).value,'Awaiting for Clarification');book.close()
+        book=load_workbook(self.files['co']);self.assertEqual(book.active.cell(3,8).value,'Typing in Progress');book.close()
+
+    def test_override_cannot_reopen_protected_or_unlisted_order(self):
+        for overrides in ({'full-old':'Search In Progress'},{'not-listed':'SearchFix'},{'new-co':''},{'new-co':'x'*257}):
+            with self.subTest(overrides=overrides):
+                with self.assertRaises(ValueError):plan(self.root,self.report,status_overrides=overrides)
+
+    def test_completed_destination_is_protected_even_when_saved_comparison_is_active(self):
+        snapshot=[{'order_number':'full-old','status':'Assign to ABS','product':'Full Title'}]
+        for status in ('Completed and delivered',' COMPLETED AND DELIVERED ','Completed & Delivered','Completed'):
+            with self.subTest(status=status):
+                book=load_workbook(self.files['full']);book.active.cell(2,8).value=status;book.save(self.files['full']);book.close()
+                info,result=plan(self.root,self.report,comparison_rows=snapshot)
+                self.assertEqual(next(file for file in result['reports'] if file['kind']=='full')['changed_orders'],[])
+                self.assertEqual(info['full']['changes'],[])
+
+    def test_writer_never_overwrites_completed_destination_from_supplied_changes(self):
+        from production_export import append_rows
+        from io import BytesIO
+        book=load_workbook(self.files['full'])
+        # Duplicate order occurrences must not allow the completed row to reopen.
+        book.active.append([2,'11/1/2026','full-old','NJ','Ocean','Online','Full Title','Assign to ABS'])
+        book.save(self.files['full']);book.close()
+        stream=append_rows(self.files['full'],[],[{'Order Number':'full-old','Status':'Search In Progress'}])
+        book=load_workbook(BytesIO(stream))
+        self.assertEqual(book.active.cell(2,8).value,'Completed and delivered')
+        self.assertEqual(book.active.cell(3,8).value,'Assign to ABS')
+        book.close()
+
+    def test_need_to_assign_orders_are_excluded_from_status_change_plan(self):
+        snapshot=[{'order_number':'full-old','status':'Assign to ABS','product':'Full Title'}]
+        for status in ('Need to Assign','Need to assign ABS','  NEED TO ASSIGN ABS  '):
+            with self.subTest(status=status):
+                book=load_workbook(self.files['full']);book.active.cell(2,8).value=status;book.save(self.files['full']);book.close()
+                info,result=plan(self.root,self.report,comparison_rows=snapshot)
+                self.assertEqual(next(file for file in result['reports'] if file['kind']=='full')['status_changed'],0)
+                self.assertEqual(info['full']['changes'],[])
+
+    def test_writer_preserves_need_to_assign_even_with_explicit_update(self):
+        from production_export import append_rows
+        from io import BytesIO
+        book=load_workbook(self.files['full']);book.active.cell(2,8).value='Need to assign ABS';book.save(self.files['full']);book.close()
+        data=append_rows(self.files['full'],[],[{'Order Number':'full-old','Status':'Search In Progress'}])
+        book=load_workbook(BytesIO(data))
+        self.assertEqual(book.active.cell(2,8).value,'Need to assign ABS')
+        book.close()
 
     def test_routes_append_preserves_existing_and_is_idempotent(self):
         info,result=plan(self.root,self.report)
@@ -50,6 +156,7 @@ class ProductionExportTests(unittest.TestCase):
             w.close()
         _,again=plan(self.root,self.report)
         self.assertEqual(sum(r['missing'] for r in again['reports']),0)
+        self.assertEqual(sum(r['status_changed'] for r in again['reports']),0)
 
     def test_unfamiliar_products_require_explicit_route(self):
         self.report['rows'].append({'Order Number':'unknown','Product':'Custom Unmapped Product','Status':'SearchFix'})
@@ -60,7 +167,7 @@ class ProductionExportTests(unittest.TestCase):
         self.assertEqual(len(info['co']['additions']),2)
 
     def test_listed_products_default_to_co_including_truncated_and_full_labels(self):
-        products=['Attorney Appro..','Bulk Two Owner','ClientReview','Home Builder L..',
+        products=['Attorney Appro..','Bulk Two Owner','ClientReview','Home Builder L..','Home Builder U..','Home Builder Update',
             'New Owner','Quality Contro..','REO Full Title','Update Legal &..',
             'Attorney Approval','Home Builder Loan','Quality Control','Update Legal & Vesting']
         self.report['rows'] += [{'Order Number':f'co-extra-{index}','Product':product,'Status':'SearchFix'}
@@ -214,6 +321,7 @@ class ProductionExportTests(unittest.TestCase):
         app=Flask(__name__)
         register_production_export(app,workspace,lambda preview_id:self.report)
         client=app.test_client()
+        originals={kind:path.read_bytes() for kind,path in self.files.items()}
         body={'folder':str(self.root),'preview_id':1}
         self.assertEqual(client.post('/api/production-report/proceed',json=body).status_code,409)
         check=client.post('/api/production-report/check',json=body)
@@ -229,6 +337,62 @@ class ProductionExportTests(unittest.TestCase):
             response.close()
         again=client.post('/api/production-report/proceed',json=body)
         self.assertEqual(again.status_code,409)
+        restore=result.json['revert']
+        self.assertTrue(restore['token'])
+        # The checkpoint is discovered from durable backups after a fresh config read.
+        self.assertEqual(client.get('/api/production-report').json['revert']['token'],restore['token'])
+        reverted=client.post('/api/production-report/revert',json={'folder':str(self.root),'token':restore['token']})
+        self.assertEqual(reverted.status_code,200,reverted.json)
+        for kind,path in self.files.items():self.assertEqual(path.read_bytes(),originals[kind])
+        self.assertIsNone(client.get('/api/production-report').json['revert'])
+        self.assertEqual(client.post('/api/production-report/revert',json={'folder':str(self.root),'token':restore['token']}).status_code,409)
+
+    def checkpoint(self):
+        from production_export import revert_checkpoint
+        import json
+        info,_=plan(self.root,self.report)
+        output=self.root/'exports'/('a'*32)
+        proceed(info,output)
+        (output/'files.json').write_text(json.dumps({kind:path.name for kind,path in self.files.items()}))
+        return revert_checkpoint(self.root,self.root/'exports')
+
+    def test_revert_blocks_later_manual_edits(self):
+        from production_export import revert_excel
+        checkpoint=self.checkpoint()
+        original=self.files['full'].read_bytes()
+        with self.files['co'].open('ab') as file:file.write(b'manual edit')
+        changed=self.files['co'].read_bytes()
+        with self.assertRaisesRegex(ValueError,'changed after Proceed'):revert_excel(checkpoint)
+        self.assertEqual(self.files['full'].read_bytes(),original)
+        self.assertEqual(self.files['co'].read_bytes(),changed)
+
+    def test_failed_revert_restores_both_updated_files(self):
+        from production_export import revert_excel
+        import os
+        checkpoint=self.checkpoint()
+        updated={kind:path.read_bytes() for kind,path in self.files.items()}
+        real=os.replace
+        calls=[]
+        def fail_second(source,target):
+            calls.append(target)
+            if len(calls)==2:raise PermissionError('locked')
+            return real(source,target)
+        with patch('production_export.os.replace',side_effect=fail_second):
+            with self.assertRaises(PermissionError):revert_excel(checkpoint)
+        for kind,path in self.files.items():self.assertEqual(path.read_bytes(),updated[kind])
+
+    def test_revert_restores_status_changes_and_removes_added_orders(self):
+        from production_export import revert_excel
+        import json
+        book=load_workbook(self.files['full']);book.active.cell(2,8).value='Assign to ABS';book.save(self.files['full']);book.close()
+        originals={kind:path.read_bytes() for kind,path in self.files.items()}
+        info,_=plan(self.root,self.report,comparison_rows=[{'order_number':'full-old','status':'Assign to ABS','product':'Full Title'}])
+        output=self.root/'exports'/('b'*32)
+        proceed(info,output)
+        (output/'files.json').write_text(json.dumps({kind:path.name for kind,path in self.files.items()}))
+        from production_export import revert_checkpoint
+        revert_excel(revert_checkpoint(self.root,self.root/'exports'))
+        for kind,path in self.files.items():self.assertEqual(path.read_bytes(),originals[kind])
 
 
 if __name__=='__main__':unittest.main()

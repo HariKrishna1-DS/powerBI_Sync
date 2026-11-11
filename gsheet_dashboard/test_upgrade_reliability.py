@@ -233,6 +233,7 @@ class UpgradeReliabilityTests(unittest.TestCase):
             store.commit_sync_report(1, 'fixture-digest')
             return ['Production']
         client = create_app(store.root, syncer=syncer, time_source=Mock(snapshot=lambda:{}, now=lambda:None)).test_client()
+        client.post('/api/sheet-sync', json={'enabled': True})
         self.assertEqual(client.post('/api/sync',json={'preview':1}).status_code,202)
         for _ in range(100):
             state = client.get('/api/state').json

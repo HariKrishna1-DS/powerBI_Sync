@@ -1,4 +1,11 @@
 /* SLA Compare: source controls and report onboarding. */
+:is(.sla-compare-workspace,.compare-pop-dialog) td:has(.status-edit-container){min-width:440px;max-width:none;overflow:visible;white-space:normal}
+:is(.sla-compare-workspace,.compare-pop-dialog) .status-edit-container{display:block;width:440px;max-width:none}
+:is(.sla-compare-workspace,.compare-pop-dialog) .status-edit-container>.inline{display:grid;grid-template-columns:minmax(0,1fr) 36px 36px;gap:8px!important;flex-wrap:nowrap}
+:is(.sla-compare-workspace,.compare-pop-dialog) :is(.status-edit-select,.status-edit-input){width:100%;min-width:0;max-width:none;min-height:44px;padding:9px 12px;font-size:14px;line-height:1.5;border-radius:8px;background:var(--surface);color:var(--ink)}
+:is(.sla-compare-workspace,.compare-pop-dialog) .status-edit-select option{font-size:14px;color:var(--ink);background:var(--surface)}
+:is(.sla-compare-workspace,.compare-pop-dialog) .status-edit-container .icon-button{width:36px;height:40px;flex-shrink:0}
+.workspace .sla-compare-workspace .sla-summary-section .sla-matrix-wrap{height:auto;max-height:none;flex:none;overflow-y:visible}
 .workspace .sla-compare-workspace{gap:18px}
 .workspace .sla-compare-workspace>.compare-page-header{display:flex;align-items:center;justify-content:space-between;gap:20px;flex-wrap:wrap;padding:4px 0 8px;margin:0;border:0;background:transparent}
 .compare-eyebrow{display:block;font-size:10px;letter-spacing:1.5px;font-weight:700;color:var(--accent);line-height:1.5}

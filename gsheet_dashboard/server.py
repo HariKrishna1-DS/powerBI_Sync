@@ -137,6 +137,22 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
     report_workspace = ReportWorkspace(store)
     journal = OperationJournal(store)
     cancel_capture = threading.Event()
+    sheet_sync_enabled = False
+
+    @app.route('/api/sheet-sync', methods=['GET', 'POST'])
+    def sheet_sync_setting():
+        nonlocal sheet_sync_enabled
+        from flask import request, jsonify
+        if request.method == 'POST':
+            sheet_sync_enabled = (request.get_json(silent=True) or {}).get('enabled') is True
+        return jsonify(enabled=sheet_sync_enabled)
+
+    @app.before_request
+    def enforce_manual_sheet_sync():
+        from flask import request, jsonify
+        if request.method == 'POST' and request.path in ('/api/sync', '/api/report-publish') and not sheet_sync_enabled:
+            return jsonify(error='Turn Sheet_sync On before manually syncing.'), 409
+
     runner = runner or (lambda on_progress: run_sync(on_progress=on_progress, auto_sync=False, cancel_event=cancel_capture))
     syncer = syncer or sync_workbook
     indian_clock = time_source or IndianClock()
@@ -509,6 +525,8 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
         return frame, selected_preview, completed_orders, previous_id
 
     def begin_sync(trigger='manual', preview_id=None, previous_id=None, keys=None, ignore=None, remaining_products=None):
+        if trigger != 'manual' or not sheet_sync_enabled:
+            return False
         nonlocal worker_active
         preview_id = int(preview_id) if preview_id is not None else None
 
@@ -652,20 +670,8 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
                     raise RuntimeError('Extraction did not save a new preview; Google Sheets were not changed.')
                 saved_preview = store.get(preview_id)
                 invalidate_snapshot()
-                frame, preview, completed, previous_id = prepare_sync(preview_id)
                 with state_lock:
-                    if cancel_capture.is_set():
-                        raise CaptureCancelled()
-                    state.update(action='sync', stage=f"Syncing {preview['name']} to Google Sheets")
-                drain_earlier_previews(frame.attrs['preview_id'])
-                worksheets = upload_sync(frame)
-                with state_lock:
-                    state.update(stage='Finished', result={
-                        'action': 'sync', 'trigger': 'schedule', 'error': None,
-                        'google_sheet': 'success', 'preview_id': preview['id'],
-                        'preview_name': preview['name'], 'rows': len(frame),
-                        'worksheets': worksheets, 'pass_report': frame.attrs.get('pass_report'), 'completed_orders': len(completed),
-                        'previous_id': previous_id})
+                    state.update(stage='Finished', result=dict(result, action='extract', saved_locally=True, google_sheet='manual'))
             except CaptureCancelled:
                 with state_lock:
                     state.update(stage='Extraction cancelled', result={'cancelled': True, 'error': None,
@@ -1085,16 +1091,8 @@ def create_app(root=None, runner=None, syncer=None, start_scheduler=False, time_
                     raise RuntimeError('Extraction did not save a new preview; existing data was retained.')
                 saved = store.get(preview_id)
                 invalidate_snapshot()
-                frame, saved, _, _ = prepare_sync(preview_id)
                 with state_lock:
-                    if cancel_capture.is_set():
-                        raise CaptureCancelled()
-                    state.update(action='sync', stage=f"Syncing {saved['name']} to Google Sheets")
-                drain_earlier_previews(frame.attrs['preview_id'])
-                worksheets = upload_sync(frame)
-                with state_lock:
-                    state.update(result=dict(result, action='sync', google_sheet='success', worksheets=worksheets,
-                                             pass_report=frame.attrs.get('pass_report')), stage='Finished')
+                    state.update(stage='Finished', result=dict(result, action='extract', saved_locally=True, google_sheet='manual'))
             except CaptureCancelled:
                 with state_lock:
                     state.update(stage='Extraction cancelled', result={'cancelled': True, 'error': None,

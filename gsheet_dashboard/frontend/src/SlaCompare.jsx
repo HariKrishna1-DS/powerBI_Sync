@@ -131,7 +131,7 @@ function recomputeSlaComparison(orders) {
 
   return {
     sla_summary: {
-      columns: ['Status', ...comparisonCategories, 'Grand Total'],
+      columns: ['Status', ...comparisonCategories, ...(totals['Unknown SLA']?['Unknown SLA']:[]), 'Grand Total'],
       rows,
       totals
     },
@@ -393,7 +393,7 @@ export default function SlaCompare({state, reportMode}) {
           {!isCustomStatus ? (
             <div className="inline" style={{gap: 4, alignItems: 'center'}}>
               <select
-                className="status-edit-select"
+                className="status-edit-select" aria-label={`Production status for ${order.order_number}`} title={editStatusValue} disabled={savingStatus}
                 value={editStatusValue}
                 autoFocus
                 onChange={(e) => {
@@ -686,6 +686,7 @@ export default function SlaCompare({state, reportMode}) {
 
   const metrics = data?.metrics || {};
   const slaSummary = data?.sla_summary || {rows: [], totals: {}};
+  const visibleComparisonCategories = [...comparisonCategories, ...(slaSummary.totals?.['Unknown SLA']?['Unknown SLA']:[])];
 
   // Helper to open Pop Table modal for matrix cells (based on Production Report status)
   const openMatrixPop = (status, category) => {
@@ -971,7 +972,7 @@ export default function SlaCompare({state, reportMode}) {
               <thead>
                 <tr>
                   <th scope="col" style={{width: 260}}>Production Status</th>
-                  {[...comparisonCategories, 'Grand Total'].map(category => (
+                  {[...visibleComparisonCategories, 'Grand Total'].map(category => (
                     <th key={category} scope="col" className="col-num">{category}</th>
                   ))}
                 </tr>
@@ -991,7 +992,7 @@ export default function SlaCompare({state, reportMode}) {
                           {row.Status}
                         </button>
                       </th>
-                      {[...comparisonCategories, 'Grand Total'].map(category => (
+                      {[...visibleComparisonCategories, 'Grand Total'].map(category => (
                         <td key={category} className={`col-num ${category === 'Grand Total' ? 'col-grand' : ''}`}>
                           <button type="button" className="num-click-btn"
                             onClick={() => openMatrixPop(row.Status, category)}
@@ -1016,7 +1017,7 @@ export default function SlaCompare({state, reportMode}) {
                         Grand Total
                       </button>
                     </th>
-                    {[...comparisonCategories, 'Grand Total'].map(category => (
+                    {[...visibleComparisonCategories, 'Grand Total'].map(category => (
                       <td key={category} className={`col-num ${category === 'Grand Total' ? 'col-grand' : ''}`}>
                         <button type="button" className="num-click-btn bold"
                           onClick={() => openMatrixPop(null, category)}

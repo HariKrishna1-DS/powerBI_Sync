@@ -300,7 +300,7 @@ class AutomaticApiTests(unittest.TestCase):
             time.sleep(.02)
         self.fail('Automatic sync did not complete')
 
-    def test_import_syncs_without_click_and_waits_behind_another_sync(self):
+    def test_imports_remain_local_until_manual_sync_drains_them_in_order(self):
         from io import BytesIO
         from server import create_app
         entered, release = threading.Event(), threading.Event()
@@ -315,14 +315,15 @@ class AutomaticApiTests(unittest.TestCase):
         for name in ('A', 'B'):
             response = client.post('/api/import', data={'file': (BytesIO(f'Order Number,Product\n{name},Full Title\n'.encode()), 'queue.csv')})
             self.assertEqual(response.status_code, 201)
-            if name == 'A':
-                self.assertTrue(entered.wait(5))
+            self.assertEqual(calls, [])
         release.set()
+        client.post('/api/sheet-sync', json={'enabled': True})
+        self.assertEqual(client.post('/api/sync', json={'preview': client.get('/api/state').json['previews'][0]['id']}).status_code, 202)
         self.wait_synced(2)
         self.assertEqual(calls, [1, 2])
         self.assertEqual(len(self.store.list()), 2)
 
-    def test_manual_extraction_also_syncs_automatically(self):
+    def test_manual_extraction_waits_for_explicit_sheet_sync(self):
         from server import create_app
         calls = []
         def runner(on_progress):
@@ -330,6 +331,12 @@ class AutomaticApiTests(unittest.TestCase):
             return {'preview_id': preview['id'], 'preview_name': preview['name'], 'error': None}
         client = create_app(root=self.root, runner=runner, syncer=lambda frame: calls.append(frame.attrs['preview_id']) or [FULL]).test_client()
         self.assertEqual(client.post('/api/extract').status_code, 202)
+        for _ in range(400):
+            if not client.get('/api/health').json['running']: break
+            time.sleep(.01)
+        self.assertEqual(calls, [])
+        client.post('/api/sheet-sync', json={'enabled': True})
+        self.assertEqual(client.post('/api/sync', json={'preview': client.get('/api/state').json['previews'][0]['id']}).status_code, 202)
         self.wait_synced(1)
         for _ in range(400):
             if not client.get('/api/health').json['running']:

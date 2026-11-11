@@ -56,6 +56,33 @@ class SlaCompareTests(unittest.TestCase):
         self.assertFalse(any(row['Status'] == 'Completed and Delivered' for row in result['sla_summary']['rows']))
         self.assertEqual(self.production[0]['status'], 'Completed and Delivered')
 
+    def test_assignment_pending_excel_status_is_preserved_and_not_moved(self):
+        from sla_compare import read_production_file, recalculate_summary
+        for status in ('Need to assign ABS','Need to Assign',' NEED TO ASSIGN ABS '):
+            with self.subTest(status=status):
+                parsed=read_production_file(('Order Number,Product,Status\nNEG-1,Full Title,'+status+'\n').encode(),filename='pending.csv')
+                self.assertEqual(parsed[0]['status'],status.strip())
+                result=compare_sla_with_production(self.report,parsed)
+                order=next(row for row in result['orders'] if row['order_number']=='NEG-1')
+                self.assertEqual(order['prod_status'],status.strip())
+                self.assertFalse(order['status_changed'])
+                self.assertEqual(order['match_type'],'same_status')
+                self.assertTrue(any(row['Status']==status.strip() for row in result['sla_summary']['rows']))
+                recalculate_summary(result)
+                self.assertEqual(order['prod_status'],status.strip())
+                self.assertFalse(order['status_changed'])
+
+    def test_unknown_sla_is_visible_and_summary_and_excel_totals_reconcile(self):
+        self.report['rows'][0]['SLA Category']='Unknown SLA'
+        result=compare_sla_with_production(self.report,self.production)
+        summary=result['sla_summary']
+        self.assertIn('Unknown SLA',summary['columns'])
+        for row in [*summary['rows'],summary['totals']]:
+            self.assertEqual(sum(row.get(c,0) for c in summary['columns'][1:-1]),row['Grand Total'])
+        book=load_workbook(export_comparison_excel(result,table_scope='sla_summary'))
+        self.assertIn('Unknown SLA',[cell.value for cell in book.active[4]])
+        book.close()
+
     def test_summary_keeps_the_original_queue_scope_and_columns(self):
         self.production[0]['status'] = 'Typing in Progress'
         self.production[-1]['status'] = 'Typing in Progress'

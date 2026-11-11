@@ -41,7 +41,7 @@ class ScheduledCaptureTests(unittest.TestCase):
             time.sleep(.02)
         self.fail('Worker did not finish')
 
-    def test_ist_extract_then_sync_saved_preview_and_once_per_day(self):
+    def test_ist_capture_is_local_then_manual_sync_and_once_per_day(self):
         release = threading.Event()
         self.addCleanup(release.set)
         def runner(on_progress):
@@ -59,6 +59,10 @@ class ScheduledCaptureTests(unittest.TestCase):
         release.set()
         job = self.wait_finished(client)
         self.assertIsNone(job['result']['error'])
+        syncer.assert_not_called()
+        client.post('/api/sheet-sync', json={'enabled': True})
+        self.assertEqual(client.post('/api/sync', json={'preview': client.get('/api/state').json['previews'][0]['id']}).status_code, 202)
+        self.wait_finished(client)
         self.assertEqual(syncer.call_args.args[0].attrs['preview_name'], 'preview1')
         self.assertFalse(tick(datetime(2026, 9, 30, 8, 0, tzinfo=timezone.utc)))
         syncer.assert_called_once()
@@ -103,7 +107,11 @@ class ScheduledCaptureTests(unittest.TestCase):
         app = create_app(self.store.root, runner=runner, syncer=Mock(side_effect=RuntimeError('Sync unavailable')))
         app.extensions['schedule_tick'](datetime(2026,9,30,7,30,tzinfo=timezone.utc))
         result = self.wait_finished(app.test_client())['result']
-        self.assertEqual(result['preview_name'], 'preview1')
+        client=app.test_client()
+        client.post('/api/sheet-sync', json={'enabled': True})
+        self.assertEqual(client.post('/api/sync', json={'preview': client.get('/api/state').json['previews'][0]['id']}).status_code, 202)
+        result=self.wait_finished(client)['result']
+        self.assertEqual(self.store.get(1)['name'], 'preview1')
         self.assertIn('Sync unavailable', result['error'])
 
     def test_busy_run_does_not_consume_due_schedule(self):

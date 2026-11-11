@@ -19,7 +19,21 @@ export function OfflineNotice({snapshot}) {
 
 export function Dialog({title, children, onClose, className='', initialFocus=''}) {
   const ref=useRef();
-  useLayoutEffect(()=>{const dialog=ref.current;dialog.showModal();if(initialFocus)dialog.querySelector(initialFocus)?.focus();return()=>dialog.close();},[]);
+  useLayoutEffect(()=>{
+    const dialog=ref.current;
+    const previousFocus=document.activeElement;
+    const containers=[document.scrollingElement,...document.querySelectorAll('main,.table-scroll')].filter(Boolean);
+    const positions=containers.map(element=>({element,top:element.scrollTop,left:element.scrollLeft}));
+    const restorePosition=()=>positions.forEach(({element,top,left})=>{element.scrollTop=top;element.scrollLeft=left;});
+    dialog.showModal();
+    if(initialFocus)dialog.querySelector(initialFocus)?.focus({preventScroll:true});
+    restorePosition();
+    return()=>{
+      dialog.close();
+      if(previousFocus?.isConnected)previousFocus.focus({preventScroll:true});
+      restorePosition();
+    };
+  },[]);
   return <dialog ref={ref} aria-label={title} className={`studio-dialog ${className}`} onCancel={event=>{event.preventDefault();onClose();}} onClick={event=>{if(event.target===event.currentTarget)onClose();}}><div className="studio-dialog-heading"><div><span className="eyebrow">TV TRACKER</span><h2>{title}</h2></div><button className="icon-button" aria-label="Close dialog" onClick={onClose}><X size={20}/></button></div>{children}</dialog>;
 }
 

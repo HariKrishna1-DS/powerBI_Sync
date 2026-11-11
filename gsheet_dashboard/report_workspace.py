@@ -777,18 +777,7 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
                 gate.release()
 
     def queue_publication(daily_only=False):
-        nonlocal worker
-        with workspace.lock:
-            workspace.save(publication_state='pending', sync_error=None, enabled=True)
-            if not daily_only:
-                full_requested.set()
-            requested.set()
-        with worker_lock:
-            if worker is None or not worker.is_alive():
-                worker = threading.Thread(target=publication_worker, daemon=True, name='report-publication')
-                worker.start()
-        return {'synced': False, 'queued': True}
-
+        return {'synced': False, 'queued': False, 'manual_only': True}
     app.extensions['queue_report_publication'] = queue_publication
 
     last_cloud_check = float('-inf')
@@ -913,7 +902,7 @@ def register_report_routes(app, workspace, gate, load_snapshot, get_book, invali
 
     @app.post('/api/report-publish')
     def publish_current_reports():
-        return jsonify(**queue_publication())
+        return jsonify(**publish())
 
     @app.post('/api/report-date')
     def choose_report_date():

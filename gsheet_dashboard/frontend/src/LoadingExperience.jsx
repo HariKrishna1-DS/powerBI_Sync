@@ -33,7 +33,7 @@ export function LoadingScreen({title='Loading workspace…'}) {
   </div>;
 }
 
-const EXTRACTION_STEPS=['Connect to TitleVision','Sign in and open queue','Extract queue orders','Save capture locally','Sync to Google Sheets'];
+const EXTRACTION_STEPS=['Connect to TitleVision','Sign in and open queue','Extract queue orders','Save capture locally'];
 function extractionStep(job){
   const stage=String(job.stage||'').toLowerCase();
   if(/waiting for the current sheets/.test(stage))return 0;

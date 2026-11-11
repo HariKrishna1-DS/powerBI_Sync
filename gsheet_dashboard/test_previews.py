@@ -106,12 +106,24 @@ class PreviewTests(unittest.TestCase):
         upload.assert_not_called()
         self.assertEqual(self.store.get(2)['rows'][0]['Task Status'], 'Completed')
 
+    def test_sheet_sync_switch_blocks_writes_until_enabled(self):
+        syncer=Mock()
+        client=create_app(self.root/'sync-switch',syncer=syncer).test_client()
+        self.assertEqual(client.get('/api/sheet-sync').json,{'enabled':False})
+        self.assertEqual(client.post('/api/sync',json={'preview':1}).status_code,409)
+        self.assertEqual(client.post('/api/report-publish').status_code,409)
+        self.assertEqual(client.post('/api/sheet-sync',json={'enabled':True}).json,{'enabled':True})
+        self.assertEqual(client.get('/api/sheet-sync').json,{'enabled':True})
+        self.assertEqual(client.post('/api/sheet-sync',json={'enabled':False}).json,{'enabled':False})
+        syncer.assert_not_called()
+
     def test_manual_google_sync_and_daily_schedule(self):
         syncer = Mock(return_value=['Full Title'])
         from datetime import datetime
         from server import IST
         clock = Mock(now=lambda: datetime(2026, 9, 30, 8, tzinfo=IST), snapshot=lambda: {})
         client = create_app(self.root / 'manual-sync', syncer=syncer, time_source=clock).test_client()
+        client.post('/api/sheet-sync', json={'enabled': True})
         self.assertEqual(client.post('/api/sync').status_code, 422)
         imported = client.post('/api/import', data={'file': (BytesIO(self.frame().to_csv(index=False).encode()), 'queue.csv')})
         self.assertEqual(imported.status_code, 201)
@@ -120,9 +132,17 @@ class PreviewTests(unittest.TestCase):
             if not state['job']['running']:
                 break
             time.sleep(.01)
-        self.assertEqual(state['job']['result']['trigger'], 'import')
+        syncer.assert_not_called()
+        client.post('/api/sheet-sync', json={'enabled': True})
+        self.assertEqual(client.post('/api/sync', json={'preview': client.get('/api/state').json['previews'][0]['id']}).status_code, 202)
+        for _ in range(200):
+            state=client.get('/api/state').json
+            if not state['job']['running']: break
+            time.sleep(.01)
+        self.assertEqual(state['job']['result']['trigger'], 'manual')
         self.assertEqual(syncer.call_count, 1)
         self.assertEqual(syncer.call_args.args[0].iloc[0]['Task Status'], 'Available')
+        client.post('/api/sheet-sync', json={'enabled': True})
         self.assertEqual(client.post('/api/sync', json={'preview': imported.json['id']}).status_code, 202)
         for _ in range(200):
             if not client.get('/api/state').json['job']['running']:

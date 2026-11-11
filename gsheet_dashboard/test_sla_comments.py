@@ -102,6 +102,7 @@ class SlaCommentsTests(unittest.TestCase):
             release.wait(3)
             return []
         client = create_app(self.store.root, syncer=syncer).test_client()
+        client.post('/api/sheet-sync', json={'enabled': True})
         client.post('/api/sync', json={'preview': p['id']})
         self.assertTrue(entered.wait(2))
         self.assertEqual(client.post('/api/sla-comments', json={'order_number':'001','completion_date':'2026-09-30','status':'On Time','expected_status':'Missed'}).status_code, 409)

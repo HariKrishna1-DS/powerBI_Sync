@@ -37,7 +37,7 @@ def default_product_destination(product):
     value = norm(product)
     if value in {'bulktwoowner', 'clientreview', 'newowner', 'reofulltitle'}:
         return 'co'
-    if value.startswith(('attorneyappro', 'homebuilderl', 'qualitycontro', 'updatelegal')):
+    if value.startswith(('attorneyappro', 'homebuilderl', 'homebuilderu', 'qualitycontro', 'updatelegal')):
         return 'co'
     return None
 
@@ -45,6 +45,14 @@ def default_product_destination(product):
 def number(value):
     # Preserve punctuation: hyphens and slashes can distinguish real orders.
     return str(value or '').strip().casefold()
+
+
+def completed_status(value):
+    return norm(str(value or '').replace('&','and')) in ('completed','completedanddelivered')
+
+
+def protected_status(value):
+    return completed_status(value) or norm(value).startswith('needtoassign')
 
 
 def get(row, *keys):
@@ -112,16 +120,37 @@ def template(path):
     return book, sheet, header_row, headers, existing, products
 
 
-def plan(folder, report, routes=None):
+def plan(folder, report, routes=None, comparison_rows=None, status_overrides=None):
     files = discover(folder)
     info, known = {}, {}
     for kind, path in files.items():
         book, sheet, hr, headers, existing, products = template(path)
+        order_index=next(i for i,h in enumerate(headers) if norm(h)=='ordernumber')
+        status_index=next(i for i,h in enumerate(headers) if norm(h)=='status')
+        protected={number(row[order_index]) for row in sheet.iter_rows(min_row=hr+1,values_only=True)
+                   if row[order_index] and protected_status(row[status_index])}
         info[kind] = dict(path=path, sheet=sheet.title, headers=headers, existing=existing,
-                          sha256=digest(path), additions=[], skipped=0)
+                          sha256=digest(path), additions=[], changes=[], skipped=0, statuses={number(row[next(i for i,h in enumerate(headers) if norm(h)=='ordernumber')]):str(row[next(i for i,h in enumerate(headers) if norm(h)=='status')] or '') for row in sheet.iter_rows(min_row=hr+1,values_only=True) if row[next(i for i,h in enumerate(headers) if norm(h)=='ordernumber')]})
+        info[kind]['protected']=protected
         for product in products:
             known.setdefault(norm(product), set()).add(kind)
         book.close()
+    # Use the same saved comparison and classification as SLA Compare.
+    from sla_compare import compare_sla_with_production, normalize_status
+    if comparison_rows is None:
+        from sla_compare import read_production_file
+        comparison_rows = [row for path in files.values() for row in read_production_file(path)]
+    comparison = compare_sla_with_production(report, comparison_rows, report.get('preview_name', ''))
+    # Only statuses shared with the selected SLA Status report are eligible.
+    # A production-only label (for example QC in Progress) must not create a
+    # Production Report status change. The applied value remains the queue status.
+    status_rows = report.get('summary') if 'summary' in report else report.get('rows', [])
+    allowed_statuses = {norm(normalize_status(row.get('Status', ''))) for row in (status_rows or [])
+                        if row.get('Status') and norm(row['Status']) != 'grandtotal'}
+    moved = {number(row['order_number']):row for row in comparison['orders']
+             if row['match_type']=='status_moved'
+             and norm(normalize_status(row.get('sla_status'))) in allowed_statuses
+             and norm(normalize_status(row.get('prod_status'))) in allowed_statuses}
     seen, unresolved, counts = set(), set(), Counter()
     preview = []
     for raw in report.get('rows', []) + report.get('excluded_rows', []):
@@ -140,6 +169,10 @@ def plan(folder, report, routes=None):
         present=next((kind for kind,item in info.items() if key in item['existing']),None)
         if present:
             info[present]['skipped'] += 1
+            old = info[present]['statuses'].get(key, '')
+            if key in moved and not any(key in item['protected'] for item in info.values()):
+                change = moved[key]
+                info[present]['changes'].append(dict(row, PreviousStatus=change['imported_prod_status'], Status=change['sla_status']))
             preview.append(dict(row,Destination=files[present].name))
             continue
         kind = explicit if explicit in files else default_product_destination(product)
@@ -151,15 +184,29 @@ def plan(folder, report, routes=None):
         # An existing order in either report is retained and never duplicated.
         info[kind]['additions'].append(row)
         preview.append(dict(row, Destination=files[kind].name))
+    if status_overrides is not None and not isinstance(status_overrides,dict):
+        raise ValueError('Invalid planned status selections.')
+    eligible={number(row['Order Number']):row for item in info.values() for row in item['additions']+item['changes']}
+    for identity,status in (status_overrides or {}).items():
+        if not isinstance(status,str) or not status.strip() or len(status)>256:
+            raise ValueError('Choose a nonblank status of at most 256 characters.')
+        target=eligible.get(number(identity))
+        if target is None:
+            raise ValueError('This order is no longer eligible for an update. Check the folder again.')
+        target['Status']=status.strip()
+        if norm(status)=='searchinprogress':target['Comments']='New Orders'
+        for row in preview:
+            if number(row['Order Number'])==number(identity):row['Status']=status.strip()
     payload = {'preview_id': report.get('preview_id'), 'rows': preview,
-               'files': {k: v['sha256'] for k,v in info.items()}, 'routes': routes or {}}
+               'files': {k: v['sha256'] for k,v in info.items()}, 'routes': routes or {},
+               'changes': {k:v['changes'] for k,v in info.items()}, 'status_overrides':status_overrides or {}}
     fingerprint = sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
     return info, dict(fingerprint=fingerprint, preview_id=report.get('preview_id'),
         preview_name=report.get('preview_name'), columns=GOOGLE_COLUMNS,
         rows=preview, unresolved=sorted(unresolved), products=dict(counts),
         reports=[{'kind':k, 'name':v['path'].name, 'sheet':v['sheet'],
             'existing':len(v['existing']), 'missing':len(v['additions']), 'skipped':v['skipped'],
-            'orders':v['additions']} for k,v in info.items()])
+            'orders':v['additions'], 'status_changed':len(v['changes']), 'changed_orders':v['changes']} for k,v in info.items()])
 
 
 def cell_value(header, source, occurrence=0):
@@ -199,9 +246,19 @@ def extend_status_formatting(sheet, header_row, headers, end_row):
     sheet.conditional_formatting=updated
 
 
-def append_rows(path, rows):
+def append_rows(path, rows, changes=None):
     book, sheet, hr, headers, _, _ = template(path)
+    status_col = next(i+1 for i,h in enumerate(headers) if norm(h)=='status')
+    updates = {number(row['Order Number']):row['Status'] for row in (changes or [])}
     order_col = next(i+1 for i,h in enumerate(headers) if norm(h)=='ordernumber')
+    # Recheck the actual workbook at write time, independently of the saved comparison.
+    protected={number(sheet.cell(r,order_col).value) for r in range(hr+1,sheet.max_row+1)
+               if protected_status(sheet.cell(r,status_col).value)}
+    for existing_row in range(hr+1, sheet.max_row+1):
+        key = number(sheet.cell(existing_row,order_col).value)
+        if key in updates and key not in protected:
+            sheet.cell(existing_row,status_col).value = updates[key]
+            sheet.cell(existing_row,status_col).data_type = 's'
     last = max([hr] + [r for r in range(hr+1,sheet.max_row+1) if sheet.cell(r,order_col).value])
     # Never overwrite preformatted totals, notes, or non-order cells beneath the data.
     start = max([last] + [r for r in range(last+1,sheet.max_row+1)
@@ -272,9 +329,9 @@ def proceed(info, output):
             path=item['path']
             if path.with_name('~$'+path.name).exists():
                 raise ValueError(f'Close {path.name} in Excel before proceeding.')
-            data=append_rows(path,item['additions']) if item['additions'] else path.read_bytes()
+            data=append_rows(path,item['additions'],item.get('changes')) if item['additions'] or item.get('changes') else path.read_bytes()
             (output/path.name).write_bytes(data)
-            if item['additions']:
+            if item['additions'] or item.get('changes'):
                 temporary=path.with_name('.tv-tracker-'+uuid4().hex+'.xlsx')
                 temporary.write_bytes(data)
                 staged[kind]=temporary
@@ -299,6 +356,61 @@ def proceed(info, output):
     return {k:str(p) for k,p in backups.items()}
 
 
+def revert_checkpoint(folder, exports):
+    """Find the latest successful Proceed, including backups from older app versions."""
+    if not folder: return None
+    files=discover(folder)
+    backup_root=next(iter(files.values())).parent/'.tv-tracker-backups'
+    if not backup_root.is_dir(): return None
+    for directory in sorted(backup_root.iterdir(),key=lambda p:p.stat().st_mtime_ns,reverse=True):
+        if not directory.is_dir() or not re.fullmatch('[a-f0-9]{32}',directory.name): continue
+        output=exports/directory.name
+        if not (output/'files.json').is_file(): continue
+        # Never offer a second rollback into an older transaction automatically.
+        if (output/'reverted.json').exists(): return None
+        names=json.loads((output/'files.json').read_text())
+        if any(names.get(kind)!=path.name for kind,path in files.items()): continue
+        changed={kind:path for kind,path in files.items() if (directory/path.name).is_file()}
+        if not changed: continue
+        return dict(token=directory.name,files=files,changed=changed,backup=directory,output=output)
+    return None
+
+
+def revert_available(folder, exports):
+    try: checkpoint=revert_checkpoint(folder,exports)
+    except (OSError,ValueError): return None
+    if not checkpoint: return None
+    return {'token':checkpoint['token'],'files':[path.name for path in checkpoint['changed'].values()]}
+
+
+def revert_excel(checkpoint):
+    """Restore exact original bytes; roll back the restore if either replacement fails."""
+    output=checkpoint['output']
+    files=checkpoint['files']
+    for path in files.values():
+        if path.with_name('~$'+path.name).exists(): raise ValueError(f'Close {path.name} in Excel before reverting.')
+        if digest(path)!=digest(output/path.name):
+            raise ValueError(f'{path.name} changed after Proceed. Revert was stopped to preserve your later edits.')
+    staged, current, replaced = {}, {}, []
+    try:
+        for kind,path in checkpoint['changed'].items():
+            current[kind]=path.read_bytes()
+            temp=path.with_name('.tv-tracker-revert-'+uuid4().hex+'.xlsx')
+            temp.write_bytes((checkpoint['backup']/path.name).read_bytes())
+            staged[kind]=temp
+        # Recheck after staging, before replacing either workbook.
+        if any(digest(path)!=digest(output/path.name) for path in files.values()):
+            raise ValueError('A workbook changed while preparing Revert. No restore was applied.')
+        for kind,temp in staged.items():
+            os.replace(temp,files[kind]);replaced.append(kind)
+        (output/'reverted.json').write_text(json.dumps({'reverted_at':datetime.now().isoformat()}))
+    except Exception:
+        for kind in replaced: files[kind].write_bytes(current[kind])
+        raise
+    finally:
+        for temp in staged.values(): temp.unlink(missing_ok=True)
+
+
 def register_production_export(app, workspace, load_report):
     from flask import request, jsonify, send_file
     exports = workspace.store.root.parent/'production-exports'
@@ -307,20 +419,28 @@ def register_production_export(app, workspace, load_report):
     def production_config():
         settings=workspace.read()
         return jsonify(folder=settings.get('production_report_folder',''), previews=workspace.store.list(),
-                       selected_preview_id=settings.get('sla_preview_id'))
+                       selected_preview_id=settings.get('sla_preview_id'),
+                       revert=revert_available(settings.get('production_report_folder',''),exports))
 
     @app.post('/api/production-report/<action>')
     def production_action(action):
-        if action not in ('check','proceed'): return jsonify(error='Unknown action'),404
+        if action not in ('check','proceed','revert'): return jsonify(error='Unknown action'),404
         body=request.get_json(silent=True) or {}
         try:
             if not isinstance(body.get('routes',{}),dict): raise ValueError('Invalid product destinations.')
             with LOCK:
+                if action=='revert':
+                    checkpoint=revert_checkpoint(body.get('folder',''),exports)
+                    if not checkpoint or body.get('token')!=checkpoint['token']:
+                        return jsonify(error='The restore point changed or is unavailable. Check the folder again.'),409
+                    revert_excel(checkpoint)
+                    return jsonify(reverted=True,revert=None,message='Excel files restored to their exact state before the latest Proceed. Added rows and status changes from that action were undone.')
                 previews=workspace.store.list()
                 preview_id=body.get('preview_id') or workspace.read().get('sla_preview_id') or (previews[0]['id'] if previews else None)
                 if type(preview_id) is not int or preview_id<1: raise ValueError('Extract or choose a saved preview first.')
                 report=load_report(preview_id)
-                info,result=plan(body.get('folder',''),report,body.get('routes'))
+                saved_comparison=workspace.read().get('sla_comparison_report') or {}
+                info,result=plan(body.get('folder',''),report,body.get('routes'), saved_comparison.get('rows') or None, body.get('status_overrides'))
                 if action=='proceed':
                     if result['unresolved']: raise ValueError('Choose destinations for all unfamiliar products, then check again.')
                     if body.get('fingerprint')!=result['fingerprint']:
@@ -330,6 +450,7 @@ def register_production_export(app, workspace, load_report):
                     result.update(completed=True,backups=backups,downloads=[{'name':v['path'].name,
                         'url':f'/api/production-report/download/{token}/{kind}'} for kind,v in info.items()])
                     (exports/token/'files.json').write_text(json.dumps({k:v['path'].name for k,v in info.items()}))
+                result['revert']=revert_available(body.get('folder',''),exports)
                 workspace.save(production_report_folder=str(next(iter(info.values()))['path'].parent))
                 return jsonify(result)
         except (ValueError,KeyError,PermissionError,OSError) as exc:

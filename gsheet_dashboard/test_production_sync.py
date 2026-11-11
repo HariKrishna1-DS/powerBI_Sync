@@ -201,12 +201,14 @@ class AtomicSyncTests(unittest.TestCase):
                 self.assertNotEqual(update['start']['columnIndex'], TRACKER_COLUMNS.index('Searcher'))
                 self.assertNotEqual(update['start']['columnIndex'], TRACKER_COLUMNS.index('Review/QC'))
 
-    def test_import_automatically_syncs_and_failure_retains_preview(self):
+    def test_import_saves_locally_then_manual_sync_succeeds(self):
         syncer = Mock(return_value=['Full Title'])
         app = create_app(self.root / 'previews', syncer=syncer)
         client = app.test_client()
         result = client.post('/api/import', data={'file': (BytesIO(b'Order Number,Product,Task Status\nA,Full Title,Available\n'), 'new.csv')})
         self.assertEqual(result.status_code, 201)
+        client.post('/api/sheet-sync', json={'enabled': True})
+        self.assertEqual(client.post('/api/sync', json={'preview': client.get('/api/state').json['previews'][0]['id']}).status_code, 202)
         for _ in range(100):
             if not client.get('/api/state').json['job']['running']:
                 break
@@ -240,6 +242,8 @@ class AtomicSyncTests(unittest.TestCase):
         client = app.test_client()
         response = client.post('/api/import', data={'file': (BytesIO(b'Order Number,Product\nA,Full Title\n'), 'new.csv')})
         self.assertEqual(response.status_code, 201)
+        client.post('/api/sheet-sync', json={'enabled': True})
+        self.assertEqual(client.post('/api/sync', json={'preview': client.get('/api/state').json['previews'][0]['id']}).status_code, 202)
         for _ in range(600):
             job = client.get('/api/state').json['job']
             if not job['running']:
@@ -248,7 +252,7 @@ class AtomicSyncTests(unittest.TestCase):
         self.assertIn('Offline', job['result']['error'])
         self.assertEqual(len(PreviewStore(self.root / 'previews').pending()), 1)
 
-    def test_manual_extraction_automatically_syncs_new_capture(self):
+    def test_manual_extraction_saves_locally_until_manual_sync(self):
         store = PreviewStore(self.root / 'previews')
         def runner(on_progress):
             saved = store.save(pd.DataFrame([raw('A')]))
@@ -260,6 +264,14 @@ class AtomicSyncTests(unittest.TestCase):
             job = client.get('/api/state').json['job']
             if not job['running']:
                 break
+            time.sleep(.01)
+        self.assertEqual(job['result']['google_sheet'], 'manual')
+        syncer.assert_not_called()
+        client.post('/api/sheet-sync', json={'enabled': True})
+        self.assertEqual(client.post('/api/sync', json={'preview': client.get('/api/state').json['previews'][0]['id']}).status_code, 202)
+        for _ in range(200):
+            job=client.get('/api/state').json['job']
+            if not job['running']: break
             time.sleep(.01)
         self.assertEqual(job['result']['google_sheet'], 'success')
         syncer.assert_called_once()

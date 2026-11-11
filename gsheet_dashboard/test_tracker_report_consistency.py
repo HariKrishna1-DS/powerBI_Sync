@@ -144,6 +144,7 @@ class TrackerReportConsistencyTests(unittest.TestCase):
                 publish = Mock()
                 app.extensions['publish_active_reports'] = publish
                 client = app.test_client()
+                client.post('/api/sheet-sync', json={'enabled': True})
                 response = client.post('/api/sync', json={'preview': 1})
                 self.assertEqual(response.status_code, 202, response.json)
                 until = time.monotonic() + 10
@@ -187,6 +188,7 @@ class TrackerReportConsistencyTests(unittest.TestCase):
                 publish = Mock(return_value={'synced': True})
                 app.extensions['publish_active_reports'] = publish
                 client = app.test_client()
+                client.post('/api/sheet-sync', json={'enabled': True})
                 response = client.post('/api/sync', json={'preview': 7, 'previous': 6})
                 self.assertEqual(response.status_code, 202)
                 until = time.monotonic() + 10

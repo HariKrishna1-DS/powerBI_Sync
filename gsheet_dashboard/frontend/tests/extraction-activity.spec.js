@@ -31,16 +31,16 @@ test('panel follows extraction through stages, navigation and Sheets sync',async
   await panel.locator('.activity-toggle').click();
   await page.getByRole('button',{name:'Captures',exact:true}).click();
   await expect(panel.locator('.activity-toggle')).toHaveAttribute('aria-expanded','false');
-  await update({action:'sync',stage:'Syncing preview33 to Google Sheets',result:{rows:3,preview_name:'preview33'}});
-  await expect(panel.locator('.activity-summary')).toContainText('Syncing preview33');
+  await update({action:'extract',stage:'Saving preview33 to local storage',result:{rows:3,preview_name:'preview33'}});
+  await expect(panel.locator('.activity-summary')).toContainText('Saving preview33');
   await panel.locator('.activity-toggle').click();
-  await expect(panel.locator('[aria-current="step"]')).toContainText('Sync to Google Sheets');
+  await expect(panel.locator('[aria-current="step"]')).toContainText('Save capture locally');
   await expect(panel.getByText('3 rows extracted · preview33')).toBeVisible();
   await page.screenshot({path:'test-results/queue-extraction-panel.png',animations:'disabled'});
-  await update({running:false,stage:'Finished',result:{rows:3,preview_name:'preview33',google_sheet:'success'}});
+  await update({running:false,stage:'Finished',result:{rows:3,preview_name:'preview33',google_sheet:'manual'}});
   await expect(panel.locator('.activity-summary')).toContainText('Queue extraction complete');
-  await expect(panel).toContainText('preview33 saved · 3 rows · Google Sheets updated');
-  await expect(panel.locator('.is-complete')).toHaveCount(5);
+  await expect(panel).toContainText('preview33 saved · 3 rows · Saved locally');
+  await expect(panel.locator('.is-complete')).toHaveCount(4);
   await expect(panel.locator('.activity-progress')).toHaveCount(0);
 });
 

@@ -79,6 +79,9 @@ def normalize_status(val):
     compact = ' '.join(raw.casefold().split())
     if compact == '(blank)':
         return ''
+    # These are intentional Excel workflow labels, not aliases for queue statuses.
+    if clean_key(compact).startswith('needtoassign'):
+        return raw
     # Handle known aliases
     aliases = {
         'completed': 'Completed and Delivered',
@@ -102,6 +105,10 @@ def normalize_status(val):
         'site down': 'Site Down',
     }
     return aliases.get(compact, STATUS_NAMES.get(compact, raw.strip()))
+
+
+def assignment_pending(value):
+    return clean_key(value).startswith('needtoassign')
 
 def read_production_file(content_or_path, filename=''):
     """Parse XLSX, XLS, or CSV production reports into a list of standardized order dicts.
@@ -411,7 +418,7 @@ def compare_sla_with_production(sla_report, production_rows, preview_name=''):
                 prod_status_str = sla_status_str
 
             # Check if statuses differ
-            is_changed = (sla_status_str.casefold() != prod_status_str.casefold()) and bool(sla_status_str and prod_status_str)
+            is_changed = (sla_status_str.casefold() != prod_status_str.casefold()) and bool(sla_status_str and prod_status_str) and not assignment_pending(prod_status_str)
 
             if is_changed:
                 moved_count += 1
@@ -564,7 +571,7 @@ def recalculate_summary(result):
             matched_count += 1
             sla_st = normalize_status(o.get('sla_status', ''))
             prod_st = normalize_status(o.get('prod_status', ''))
-            is_changed = (sla_st.casefold() != prod_st.casefold()) and bool(sla_st and prod_st and prod_st != 'Not in Production Report')
+            is_changed = (sla_st.casefold() != prod_st.casefold()) and bool(sla_st and prod_st and prod_st != 'Not in Production Report') and not assignment_pending(prod_st)
             o['status_changed'] = is_changed
             if is_changed:
                 o['match_type'] = 'status_moved'
@@ -573,7 +580,7 @@ def recalculate_summary(result):
                 transitions[(sla_st, prod_st)] += 1
             else:
                 o['match_type'] = 'same_status'
-                o['change_label'] = 'Unchanged'
+                o['change_label'] = 'Unchanged (protected Excel status)' if assignment_pending(prod_st) else 'Unchanged'
                 same_count += 1
         elif mtype == 'sla_only':
             sla_only_count += 1
@@ -628,7 +635,7 @@ def recalculate_summary(result):
     result['metrics']['prod_only'] = prod_only_count
     result['transitions'] = all_transitions
     result['sla_summary'] = {
-        'columns': COMPARISON_COLUMNS,
+        'columns': ['Status', *COMPARISON_CATEGORIES, *(['Unknown SLA'] if sla_summary_totals['Unknown SLA'] else []), 'Grand Total'],
         'rows': sla_summary_rows,
         'totals': sla_summary_totals,
     }
@@ -667,6 +674,8 @@ def export_comparison_excel(result, table_scope='all', filter_type=None, sla_sta
     """Generate clean, styled Excel workbooks for the SLA comparison.
     Supports table_scope in ('all', 'sla_summary', 'movements', 'orders').
     """
+    export_categories = [*COMPARISON_CATEGORIES, *(['Unknown SLA'] if result.get('sla_summary', {}).get('totals', {}).get('Unknown SLA') else [])]
+    export_columns = ['Status', *export_categories, 'Grand Total']
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
 
@@ -779,7 +788,7 @@ def export_comparison_excel(result, table_scope='all', filter_type=None, sla_sta
         ws['A2'] = f"Preview: {preview_name} | SLA Orders: {result.get('metrics', {}).get('total_sla', 0)} | As of: {as_of} | Exported: {now_str}"
         ws['A2'].font = sub_font
 
-        headers = ['Production Status', *COMPARISON_CATEGORIES, 'Grand Total']
+        headers = ['Production Status', *export_categories, 'Grand Total']
         for c_idx, h in enumerate(headers, start=1):
             cell = ws.cell(row=4, column=c_idx, value=h)
             cell.font = matrix_hdr_font
@@ -789,7 +798,7 @@ def export_comparison_excel(result, table_scope='all', filter_type=None, sla_sta
         cur_r = 5
         for r in sla_sum.get('rows', []):
             ws.cell(row=cur_r, column=1, value=r['Status']).font = bold_font
-            for c_idx, col_name in enumerate([*COMPARISON_CATEGORIES, 'Grand Total'], start=2):
+            for c_idx, col_name in enumerate([*export_categories, 'Grand Total'], start=2):
                 val_cell = ws.cell(row=cur_r, column=c_idx, value=r.get(col_name, 0))
                 val_cell.alignment = Alignment(horizontal='right')
                 if col_name == 'Grand Total':
@@ -799,11 +808,11 @@ def export_comparison_excel(result, table_scope='all', filter_type=None, sla_sta
         tot = sla_sum.get('totals', {})
         if tot:
             ws.cell(row=cur_r, column=1, value='Grand Total').font = bold_font
-            for c_idx, col_name in enumerate([*COMPARISON_CATEGORIES, 'Grand Total'], start=2):
+            for c_idx, col_name in enumerate([*export_categories, 'Grand Total'], start=2):
                 tot_cell = ws.cell(row=cur_r, column=c_idx, value=tot.get(col_name, 0))
                 tot_cell.font = bold_font
                 tot_cell.alignment = Alignment(horizontal='right')
-            for c_idx in range(1, len(COMPARISON_COLUMNS) + 1):
+            for c_idx in range(1, len(export_columns) + 1):
                 ws.cell(row=cur_r, column=c_idx).fill = tot_fill
 
         for col in ws.columns:
@@ -991,7 +1000,7 @@ def export_comparison_excel(result, table_scope='all', filter_type=None, sla_sta
         ws_sum[f'A{sum_start}'] = 'SLA Status Summary Matrix (SLA Status categories)'
         ws_sum[f'A{sum_start}'].font = Font(name='Calibri', size=12, bold=True, color='1F2937')
 
-        sla_headers = ['Production Status', *COMPARISON_CATEGORIES, 'Grand Total']
+        sla_headers = ['Production Status', *export_categories, 'Grand Total']
         for c_idx, h_name in enumerate(sla_headers, start=1):
             cell = ws_sum.cell(row=sum_start + 1, column=c_idx, value=h_name)
             cell.font = matrix_hdr_font
@@ -1001,7 +1010,7 @@ def export_comparison_excel(result, table_scope='all', filter_type=None, sla_sta
         cur_r = sum_start + 2
         for r_data in sla_sum.get('rows', []):
             ws_sum.cell(row=cur_r, column=1, value=r_data['Status']).font = bold_font
-            for c_idx, col_name in enumerate([*COMPARISON_CATEGORIES, 'Grand Total'], start=2):
+            for c_idx, col_name in enumerate([*export_categories, 'Grand Total'], start=2):
                 val_cell = ws_sum.cell(row=cur_r, column=c_idx, value=r_data.get(col_name, 0))
                 val_cell.alignment = Alignment(horizontal='right')
                 if col_name == 'Grand Total':
@@ -1012,11 +1021,11 @@ def export_comparison_excel(result, table_scope='all', filter_type=None, sla_sta
         tot = sla_sum.get('totals', {})
         if tot:
             ws_sum.cell(row=cur_r, column=1, value='Grand Total').font = bold_font
-            for c_idx, col_name in enumerate([*COMPARISON_CATEGORIES, 'Grand Total'], start=2):
+            for c_idx, col_name in enumerate([*export_categories, 'Grand Total'], start=2):
                 tot_c = ws_sum.cell(row=cur_r, column=c_idx, value=tot.get(col_name, 0))
                 tot_c.font = bold_font
                 tot_c.alignment = Alignment(horizontal='right')
-            for c_idx in range(1, len(COMPARISON_COLUMNS) + 1):
+            for c_idx in range(1, len(export_columns) + 1):
                 ws_sum.cell(row=cur_r, column=c_idx).fill = tot_fill
 
         # Sheet 2: Side-by-Side Orders

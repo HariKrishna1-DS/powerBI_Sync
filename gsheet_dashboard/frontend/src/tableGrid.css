@@ -1,0 +1,7 @@
+/* Consistent worksheet-style cell lines in reports and order dialogs. */
+:is(.workspace,.studio-dialog){--table-grid:color-mix(in srgb,var(--line) 78%,var(--ink) 22%)}
+:is(.workspace,.studio-dialog) table{border-collapse:separate;border-spacing:0;border:1px solid var(--table-grid)}
+:is(.workspace,.studio-dialog) table :is(th,td){border-right:1px solid var(--table-grid);border-bottom:1px solid var(--table-grid)}
+:is(.workspace,.studio-dialog) table tr>:last-child{border-right:0}
+:is(.workspace,.studio-dialog) table>tbody:last-child>tr:last-child>:is(th,td),
+:is(.workspace,.studio-dialog) table>tfoot:last-child>tr:last-child>:is(th,td){border-bottom:0}

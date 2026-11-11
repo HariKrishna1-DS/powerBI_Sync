@@ -57,6 +57,7 @@ class SyncPerformanceTests(unittest.TestCase):
         responses = []
 
         def submit():
+            client.post('/api/sheet-sync', json={'enabled': True})
             responses.append(client.post('/api/sync', json={'preview': self.saved['id']}))
             returned.set()
 
@@ -67,6 +68,7 @@ class SyncPerformanceTests(unittest.TestCase):
                 self.assertTrue(returned.wait(1), 'Sync waited for preparation before returning.')
                 self.assertEqual(responses[0].status_code, 202)
                 self.assertTrue(entered.wait(1))
+                client.post('/api/sheet-sync', json={'enabled': True})
                 self.assertEqual(client.post('/api/sync', json={'preview': self.saved['id']}).status_code, 409)
                 syncer.assert_not_called()
             finally:
@@ -83,6 +85,7 @@ class SyncPerformanceTests(unittest.TestCase):
 
     def test_preparation_failure_releases_job_lock(self):
         client = create_app(self.root, syncer=Mock(return_value=['Sheet1'])).test_client()
+        client.post('/api/sheet-sync', json={'enabled': True})
         self.assertEqual(client.post('/api/sync', json={'preview': 999}).status_code, 202)
         for _ in range(100):
             job = client.get('/api/state').json['job']
@@ -90,6 +93,7 @@ class SyncPerformanceTests(unittest.TestCase):
                 break
             time.sleep(.01)
         self.assertEqual(job['result']['google_sheet'], 'failed')
+        client.post('/api/sheet-sync', json={'enabled': True})
         self.assertEqual(client.post('/api/sync', json={'preview': self.saved['id']}).status_code, 202)
         for _ in range(100):
             job = client.get('/api/state').json['job']
