@@ -5,3 +5,19 @@
 :is(.workspace,.studio-dialog) table tr>:last-child{border-right:0}
 :is(.workspace,.studio-dialog) table>tbody:last-child>tr:last-child>:is(th,td),
 :is(.workspace,.studio-dialog) table>tfoot:last-child>tr:last-child>:is(th,td){border-bottom:0}
+
+/* Shared readable typography for report tables, matrices and order dialogs. */
+:is(.workspace,.studio-dialog) table{font-family:"Segoe UI Variable Text","Segoe UI",sans-serif;font-size:15px;line-height:1.6}
+:is(.workspace,.studio-dialog) table :is(th,td){padding:14px 16px;vertical-align:middle;font-size:15px;line-height:1.6}
+:is(.workspace,.studio-dialog) table th{font-weight:650;letter-spacing:.1px;text-align:left;background:var(--surface-subtle);color:var(--ink)}
+:is(.workspace,.studio-dialog) table :is(.column-label,.workspace-filter-heading){font-size:15px;font-weight:650;line-height:1.5;gap:10px}
+:is(.workspace,.studio-dialog) table th button{font-size:inherit}
+:is(.workspace,.studio-dialog) table td{font-variant-numeric:tabular-nums}
+:is(.workspace,.studio-dialog) table tbody tr:hover>td{background:color-mix(in srgb,var(--accent) 6%,var(--surface))}
+:is(.workspace,.studio-dialog) .table-scroll{border-radius:12px}
+:is(.workspace,.studio-dialog) .sla-matrix-table :is(th,td),
+:is(.workspace,.studio-dialog) .side-by-side-table :is(th,td){font-size:15px;padding:14px 16px;line-height:1.6}
+:is(.workspace,.studio-dialog) .sla-matrix-table th{white-space:normal}
+:is(.workspace,.studio-dialog) .sla-matrix-table th:not(:first-child){text-align:right}
+:is(.workspace,.studio-dialog) .table-footer{font-size:14px;padding:14px 16px}
+@media(max-width:700px){:is(.workspace,.studio-dialog) table :is(th,td){padding:12px 14px}}

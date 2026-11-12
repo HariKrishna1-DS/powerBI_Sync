@@ -777,7 +777,7 @@ def export_comparison_excel(result, table_scope='all', filter_type=None, sla_sta
         stream.seek(0)
         return stream
 
-    # 1. SCOPE: SLA SUMMARY ONLY
+    # 1. Summary and the exact orders counted in its matrix.
     if table_scope == 'sla_summary':
         ws = wb.active
         ws.title = 'SLA Status Summary'
@@ -819,6 +819,35 @@ def export_comparison_excel(result, table_scope='all', filter_type=None, sla_sta
             col_letter = get_column_letter(col[0].column)
             max_len = max(len(str(c.value or '')) for c in col)
             ws.column_dimensions[col_letter].width = max(14, min(36, max_len + 3))
+
+        ws.freeze_panes = 'B5'
+        ws.auto_filter.ref = f'A4:{get_column_letter(len(headers))}{cur_r-1}'
+        details = wb.create_sheet('Related Orders')
+        fields = [('Order Number','order_number'), ('Production Status',None),
+                  ('SLA Category','sla_category'), ('SLA Status (Queue)','sla_status'),
+                  ('Imported Production Status','imported_prod_status'),
+                  ('Status Movement','change_label'), ('Product','product'), ('State','state'),
+                  ('County','county'), ('Client','client'), ('SLA Expiration','sla_expiration'),
+                  ('In-Time / Received','in_time'), ('Production Out-Time','out_time'),
+                  ('Searcher','searcher'), ('Typer','typer'), ('ETA Comments','eta_comments')]
+        details.append([label for label,key in fields])
+        for cell in details[1]:
+            cell.font = matrix_hdr_font
+            cell.fill = matrix_hdr_fill
+            cell.alignment = Alignment(vertical='center',wrap_text=True)
+        for order in orders:
+            status = comparison_summary_status(order)
+            if status is None: continue
+            details.append([status if key is None else order.get(key,'') for label,key in fields])
+            for cell in details[details.max_row]:
+                if isinstance(cell.value,str): cell.data_type = 's'
+                cell.font = body_font
+                cell.alignment = Alignment(vertical='top',wrap_text=True)
+        details.freeze_panes = 'C2'
+        details.auto_filter.ref = details.dimensions
+        details.row_dimensions[1].height = 32
+        for index,(label,key) in enumerate(fields,1):
+            details.column_dimensions[get_column_letter(index)].width = 38 if key=='eta_comments' else 26
 
     # 2. SCOPE: MOVEMENTS ONLY
     elif table_scope == 'movements':

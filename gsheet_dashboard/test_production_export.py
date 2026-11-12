@@ -5,7 +5,8 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 from openpyxl import Workbook, load_workbook
-from production_export import plan, proceed, discover, google_row
+from production_export import plan, proceed, discover, google_row, read_completion_report
+from io import BytesIO
 
 
 class ProductionExportTests(unittest.TestCase):
@@ -73,6 +74,42 @@ class ProductionExportTests(unittest.TestCase):
         self.assertEqual(sum(file['status_changed'] for file in result['reports']),0)
 
     def tearDown(self): self.temp.cleanup()
+
+    def test_completion_upload_duplicates_and_invalid_times(self):
+        book=Workbook();sheet=book.active
+        sheet.append(['Order Number','Completed Time (hours)'])
+        for row in [('A','11/11/2026 6:19:29 AM'),('A','11/11/2026 6:19:29 AM'),
+                    ('B','11/11/2026 6:00 AM'),('B','11/12/2026 6:00 AM'),('C',3.98),('D','invalid')]:sheet.append(row)
+        stream=BytesIO();book.save(stream);book.close()
+        times,conflicts=read_completion_report(stream.getvalue())
+        self.assertEqual(times,{'a':'2026-11-11T06:19:29'})
+        self.assertEqual(conflicts,1)
+
+    def test_completion_times_fill_only_blank_completed_rows_and_revert(self):
+        from production_export import revert_checkpoint,revert_excel
+        for kind,path in self.files.items():
+            book=load_workbook(path);sheet=book.active
+            sheet.cell(1,14,'Out Time')
+            if kind=='co':sheet.cell(2,14,'12-11-2026')
+            sheet.append([2,None,'active',None,None,None,'Full Title','Search In Progress'])
+            book.save(path);book.close()
+        before={kind:path.read_bytes() for kind,path in self.files.items()}
+        times={'full-old':'2026-11-11T06:19:29','co-old':'2026-11-11T06:19:29','active':'2026-11-11T06:19:29'}
+        info,result=plan(self.root,self.report,completion_times=times)
+        self.assertEqual(info['full']['completion_updates'][0]['Order Number'],'full-old')
+        self.assertEqual(info['co']['completion_kept'],1)
+        _,without=plan(self.root,self.report)
+        self.assertNotEqual(result['fingerprint'],without['fingerprint'])
+        output=self.root/'exports'/('a'*32)
+        proceed(info,output)
+        for kind,path in self.files.items():
+            book=load_workbook(path);sheet=book.active
+            self.assertEqual(sheet.cell(2,14).value,datetime(2026,11,11,6,19,29) if kind=='full' else '12-11-2026')
+            self.assertIsNone(sheet.cell(3,14).value)
+            book.close()
+        (output/'files.json').write_text(__import__('json').dumps({k:p.name for k,p in self.files.items()}))
+        revert_excel(revert_checkpoint(self.root,self.root/'exports'))
+        self.assertEqual({kind:path.read_bytes() for kind,path in self.files.items()},before)
 
     def test_planned_status_selection_is_staged_and_applied_on_proceed(self):
         book=load_workbook(self.files['full']);book.active.cell(2,8).value='Assign to ABS';book.save(self.files['full']);book.close()

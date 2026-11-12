@@ -120,7 +120,38 @@ def template(path):
     return book, sheet, header_row, headers, existing, products
 
 
-def plan(folder, report, routes=None, comparison_rows=None, status_overrides=None):
+def read_completion_report(data):
+    """Read absolute completion timestamps; conflicting duplicates are excluded."""
+    book = load_workbook(BytesIO(data), read_only=True, data_only=True)
+    values, conflicts, found = {}, set(), False
+    try:
+        for sheet in book:
+            rows = sheet.iter_rows(values_only=True)
+            for index, row in enumerate(rows):
+                headers = [norm(value) for value in row]
+                if 'ordernumber' in headers and 'completedtimehours' in headers:
+                    oi, ti = headers.index('ordernumber'), headers.index('completedtimehours')
+                    found = True
+                    break
+                if index >= 14: break
+            else: continue
+            if not ('ordernumber' in headers and 'completedtimehours' in headers): continue
+            for row in rows:
+                key = number(row[oi])
+                raw = row[ti]
+                # Numeric hours are durations, not an absolute Out Time.
+                value = capture_time(raw) if isinstance(raw, (str, datetime)) else None
+                if not key or value is None: continue
+                value = value.isoformat()
+                if key in values and values[key] != value: conflicts.add(key)
+                values[key] = value
+        if not found: raise ValueError('Upload an ExcelReport with Order Number and Completed Time (hours) columns.')
+        return {key:value for key,value in values.items() if key not in conflicts}, len(conflicts)
+    finally:
+        book.close()
+
+
+def plan(folder, report, routes=None, comparison_rows=None, status_overrides=None, completion_times=None):
     files = discover(folder)
     info, known = {}, {}
     for kind, path in files.items():
@@ -132,6 +163,20 @@ def plan(folder, report, routes=None, comparison_rows=None, status_overrides=Non
         info[kind] = dict(path=path, sheet=sheet.title, headers=headers, existing=existing,
                           sha256=digest(path), additions=[], changes=[], skipped=0, statuses={number(row[next(i for i,h in enumerate(headers) if norm(h)=='ordernumber')]):str(row[next(i for i,h in enumerate(headers) if norm(h)=='status')] or '') for row in sheet.iter_rows(min_row=hr+1,values_only=True) if row[next(i for i,h in enumerate(headers) if norm(h)=='ordernumber')]})
         info[kind]['protected']=protected
+        times, kept, unmatched = [], 0, 0
+        out_index = next((i for i,h in enumerate(headers) if norm(h)=='outtime'), None)
+        if completion_times is not None:
+            if out_index is None: raise ValueError(f'{path.name}: Out Time column is required for completion updates.')
+            for r in range(hr+1, sheet.max_row+1):
+                identity = sheet.cell(r,order_index+1).value
+                if not identity or not completed_status(sheet.cell(r,status_index+1).value): continue
+                current = sheet.cell(r,out_index+1).value
+                if current is not None and str(current).strip():
+                    kept += 1
+                elif number(identity) in completion_times:
+                    times.append({'row':r,'Order Number':str(identity),'Out Time':completion_times[number(identity)]})
+                else: unmatched += 1
+        info[kind].update(completion_updates=times, completion_kept=kept, completion_unmatched=unmatched)
         for product in products:
             known.setdefault(norm(product), set()).add(kind)
         book.close()
@@ -199,14 +244,17 @@ def plan(folder, report, routes=None, comparison_rows=None, status_overrides=Non
             if number(row['Order Number'])==number(identity):row['Status']=status.strip()
     payload = {'preview_id': report.get('preview_id'), 'rows': preview,
                'files': {k: v['sha256'] for k,v in info.items()}, 'routes': routes or {},
-               'changes': {k:v['changes'] for k,v in info.items()}, 'status_overrides':status_overrides or {}}
+               'changes': {k:v['changes'] for k,v in info.items()}, 'status_overrides':status_overrides or {},
+               'completion_updates':{k:v['completion_updates'] for k,v in info.items()}}
     fingerprint = sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
     return info, dict(fingerprint=fingerprint, preview_id=report.get('preview_id'),
         preview_name=report.get('preview_name'), columns=GOOGLE_COLUMNS,
         rows=preview, unresolved=sorted(unresolved), products=dict(counts),
         reports=[{'kind':k, 'name':v['path'].name, 'sheet':v['sheet'],
             'existing':len(v['existing']), 'missing':len(v['additions']), 'skipped':v['skipped'],
-            'orders':v['additions'], 'status_changed':len(v['changes']), 'changed_orders':v['changes']} for k,v in info.items()])
+            'orders':v['additions'], 'status_changed':len(v['changes']), 'changed_orders':v['changes'],
+            'completion_count':len(v['completion_updates']), 'completion_orders':v['completion_updates'],
+            'completion_kept':v['completion_kept'], 'completion_unmatched':v['completion_unmatched']} for k,v in info.items()])
 
 
 def cell_value(header, source, occurrence=0):
@@ -246,11 +294,21 @@ def extend_status_formatting(sheet, header_row, headers, end_row):
     sheet.conditional_formatting=updated
 
 
-def append_rows(path, rows, changes=None):
+def append_rows(path, rows, changes=None, completion_updates=None):
     book, sheet, hr, headers, _, _ = template(path)
     status_col = next(i+1 for i,h in enumerate(headers) if norm(h)=='status')
     updates = {number(row['Order Number']):row['Status'] for row in (changes or [])}
     order_col = next(i+1 for i,h in enumerate(headers) if norm(h)=='ordernumber')
+    out_col = next((i+1 for i,h in enumerate(headers) if norm(h)=='outtime'), None)
+    for update in completion_updates or []:
+        r = update['row']
+        cell = sheet.cell(r,out_col)
+        if number(sheet.cell(r,order_col).value) != number(update['Order Number']) or not completed_status(sheet.cell(r,status_col).value):
+            raise ValueError('A completed order changed. Check the folder again.')
+        if cell.value is not None and str(cell.value).strip():
+            raise ValueError('An Out Time was filled since checking. Check the folder again.')
+        cell.value = datetime.fromisoformat(update['Out Time'])
+        if not is_date_format(cell.number_format): cell.number_format = 'mm/dd/yyyy hh:mm:ss AM/PM'
     # Recheck the actual workbook at write time, independently of the saved comparison.
     protected={number(sheet.cell(r,order_col).value) for r in range(hr+1,sheet.max_row+1)
                if protected_status(sheet.cell(r,status_col).value)}
@@ -329,9 +387,10 @@ def proceed(info, output):
             path=item['path']
             if path.with_name('~$'+path.name).exists():
                 raise ValueError(f'Close {path.name} in Excel before proceeding.')
-            data=append_rows(path,item['additions'],item.get('changes')) if item['additions'] or item.get('changes') else path.read_bytes()
+            changed = item['additions'] or item.get('changes') or item.get('completion_updates')
+            data=append_rows(path,item['additions'],item.get('changes'),item.get('completion_updates')) if changed else path.read_bytes()
             (output/path.name).write_bytes(data)
-            if item['additions'] or item.get('changes'):
+            if changed:
                 temporary=path.with_name('.tv-tracker-'+uuid4().hex+'.xlsx')
                 temporary.write_bytes(data)
                 staged[kind]=temporary
@@ -415,6 +474,23 @@ def register_production_export(app, workspace, load_report):
     from flask import request, jsonify, send_file
     exports = workspace.store.root.parent/'production-exports'
 
+    @app.post('/api/production-report/completion-upload')
+    def completion_upload():
+        upload = request.files.get('file')
+        if not upload or not upload.filename.lower().endswith('.xlsx'):
+            return jsonify(error='Choose an ExcelReport .xlsx file.'),400
+        try:
+            data = upload.read(20*1024*1024+1)
+            if len(data)>20*1024*1024: raise ValueError('The completion report must be at most 20 MB.')
+            times, conflicts = read_completion_report(data)
+            token = uuid4().hex
+            directory = exports/'completion-uploads'
+            directory.mkdir(parents=True,exist_ok=True)
+            (directory/(token+'.json')).write_text(json.dumps(times))
+            return jsonify(token=token,name=Path(upload.filename).name,orders=len(times),conflicts=conflicts)
+        except Exception:
+            return jsonify(error='Could not read the completion report. Use a valid .xlsx file with Order Number and Completed Time (hours) columns.'),400
+
     @app.get('/api/production-report')
     def production_config():
         settings=workspace.read()
@@ -440,7 +516,15 @@ def register_production_export(app, workspace, load_report):
                 if type(preview_id) is not int or preview_id<1: raise ValueError('Extract or choose a saved preview first.')
                 report=load_report(preview_id)
                 saved_comparison=workspace.read().get('sla_comparison_report') or {}
-                info,result=plan(body.get('folder',''),report,body.get('routes'), saved_comparison.get('rows') or None, body.get('status_overrides'))
+                completion_times = None
+                if body.get('completion_token'):
+                    token = body['completion_token']
+                    if not isinstance(token,str) or not re.fullmatch('[a-f0-9]{32}',token):
+                        raise ValueError('Upload the completion report again.')
+                    source = exports/'completion-uploads'/(token+'.json')
+                    if not source.is_file(): raise ValueError('Upload the completion report again.')
+                    completion_times = json.loads(source.read_text())
+                info,result=plan(body.get('folder',''),report,body.get('routes'), saved_comparison.get('rows') or None, body.get('status_overrides'), completion_times)
                 if action=='proceed':
                     if result['unresolved']: raise ValueError('Choose destinations for all unfamiliar products, then check again.')
                     if body.get('fingerprint')!=result['fingerprint']:

@@ -114,3 +114,42 @@
 :root[data-theme='dark'] .production-revert-warning{background:#3c2b12;border-color:#b17e21;color:#ffe1a0}
 :root[data-theme='dark'] .production-revert-warning-icon{background:#634214;color:#ffd46f}
 .production-proceed-warning{margin:0}
+
+.production-completion-upload{display:flex;flex-direction:column;align-items:center;gap:14px;text-align:center;padding:28px 24px;margin:6px auto;width:100%;box-sizing:border-box;border:1px dashed var(--line);border-radius:16px;background:var(--surface-subtle);color:var(--accent)}
+.production-completion-upload h3{margin:0;color:var(--ink);font-size:19px}
+.production-completion-upload>p{max-width:760px;font-size:14px;color:var(--muted)}
+.workspace .production-report-controls .production-upload-button{position:relative;display:inline-flex;flex-direction:row;align-items:center;justify-content:center;gap:10px;overflow:hidden;padding:13px 24px;border-radius:10px;background:var(--accent);color:var(--surface);cursor:pointer;font-size:15px;min-height:46px;box-sizing:border-box}
+.workspace .production-report-controls .production-upload-button input{position:absolute;inset:0;opacity:0;width:100%;height:100%;min-height:0;padding:0;cursor:pointer}
+.production-upload-button:focus-within{outline:3px solid var(--focus);outline-offset:3px}
+.production-upload-button:has(input:disabled){opacity:.5;cursor:wait}
+.production-upload-summary{display:flex;flex-direction:column;align-items:center;gap:12px;max-width:100%;color:var(--ink);overflow-wrap:anywhere}
+.production-upload-summary .secondary{font-size:13px;padding:8px 14px}
+.production-report-files .production-order-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:20px 0}
+.production-report-files .production-order-actions .production-order-count{min-width:0;display:flex;flex-direction:column;align-items:flex-start;justify-content:flex-start;gap:8px;padding:18px 14px;min-height:146px;box-sizing:border-box;border:1px solid var(--line);border-radius:12px;text-align:left}
+.workspace .production-report-files .production-order-count strong{font-size:32px;line-height:1.1;font-variant-numeric:tabular-nums}
+.production-report-files .production-order-count .production-metric-label{font-size:13px;line-height:1.5;font-weight:650;color:var(--ink)}
+.production-report-files .production-order-count>span:last-child{margin-top:auto;font-size:12px}
+.production-report-files article>p{font-size:13px;line-height:1.65;color:var(--muted);margin:6px 0}
+@media(min-width:701px) and (max-width:1100px){.production-report-files{grid-template-columns:1fr}}
+@media(max-width:480px){.production-completion-upload{padding:22px 14px}.production-report-files .production-order-actions{grid-template-columns:1fr}.production-report-files .production-order-actions .production-order-count{min-height:112px}.workspace .production-report-files article{padding:18px}}
+
+/* Readable workbook cards with a consistent type hierarchy. */
+.workspace .production-report .table-section table tbody td{font-size:17px;line-height:1.65;padding:16px 18px;color:var(--ink)}
+.workspace .production-report .table-section table thead th,
+.workspace .production-report .table-section table .column-label{font-size:16px;line-height:1.5}
+.workspace .production-report .table-section table thead th{padding:16px 18px}
+.workspace .production-report .table-section table td :is(button,span){font-size:inherit}
+.production-report-files{font-family:"Segoe UI Variable Text","Segoe UI",sans-serif;gap:20px}
+.workspace .production-report-files article{padding:28px;border-radius:20px;box-shadow:0 4px 18px #102a4307}
+.workspace .production-report-files h3{font-size:26px;line-height:1.35;letter-spacing:-.35px}
+.production-report-files article>p{font-size:15px;line-height:1.7;margin:9px 0}
+.production-report-files article>h3+p{color:var(--ink);font-weight:500}
+.production-report-files .production-order-actions{gap:12px;margin:24px 0}
+.production-report-files .production-order-actions .production-order-count{padding:22px 18px;min-height:190px;gap:12px;border-radius:15px;transition:box-shadow .15s,border-color .15s}
+.workspace .production-report-files .production-order-count strong{font-size:42px;font-weight:750;letter-spacing:-1px;line-height:1.1}
+.production-report-files .production-order-count .production-metric-label{font-size:18px;font-weight:650;line-height:1.45;letter-spacing:0}
+.production-report-files .production-order-count>span:last-child{font-size:14px;font-weight:600;padding-top:8px}
+.production-report-files .production-order-count:hover:not(:disabled){box-shadow:0 5px 16px #102a4310;border-color:var(--accent)}
+.production-report-files .production-order-count:focus-visible{outline:3px solid var(--focus);outline-offset:3px}
+@media(min-width:1101px) and (max-width:1400px){.production-report-files .production-order-actions{grid-template-columns:repeat(2,minmax(0,1fr))}.production-report-files .production-order-count:last-child{grid-column:1/-1}}
+@media(max-width:600px){.workspace .production-report-files article{padding:20px}.workspace .production-report-files h3{font-size:23px}.production-report-files .production-order-actions{grid-template-columns:1fr}.production-report-files .production-order-actions .production-order-count{min-height:158px}.production-report-files .production-order-count .production-metric-label{font-size:18px}}

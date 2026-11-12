@@ -16,6 +16,26 @@ from sla_compare import (compare_sla_with_production, export_comparison_excel,
 
 
 class SlaCompareTests(unittest.TestCase):
+    def test_summary_download_details_reconcile_with_every_matrix_cell(self):
+        from collections import Counter
+        self.report['rows'][0]['SLA Category']='Unknown SLA'
+        result=compare_sla_with_production(self.report,self.production)
+        book=load_workbook(export_comparison_excel(result,table_scope='sla_summary'))
+        self.assertEqual(book.sheetnames,['SLA Status Summary','Related Orders'])
+        sheet=book['Related Orders']
+        rows=list(sheet.values)
+        records=[dict(zip(rows[0],row)) for row in rows[1:]]
+        counts=Counter((row['Production Status'],row['SLA Category']) for row in records)
+        self.assertEqual(len(records),result['sla_summary']['totals']['Grand Total'])
+        for row in result['sla_summary']['rows']:
+            for category in ('Future SLA','Negative SLA','Today SLA','Unknown SLA'):
+                self.assertEqual(counts[(row['Status'],category)],row.get(category,0))
+        self.assertNotIn('PROD-ONLY',{row['Order Number'] for row in records})
+        self.assertNotIn('NEG-2',{row['Order Number'] for row in records})
+        self.assertEqual(sheet.freeze_panes,'C2')
+        self.assertTrue(sheet.auto_filter.ref)
+        book.close()
+
     def setUp(self):
         self.report = {'as_of': '2026-10-14', 'rows': [
             {'Order Number': number, 'Status': 'Search In Progress',

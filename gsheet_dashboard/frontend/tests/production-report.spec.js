@@ -1,6 +1,32 @@
 import {test,expect} from '@playwright/test';
 import {workspaceFixture} from './workspace-fixture.js';
 
+test('completion upload is included in checks and shows completion counts and details',async({page})=>{
+  const fixture=workspaceFixture(3);
+  let token;
+  await page.route('**/api/**',async route=>{
+    const name=new URL(route.request().url()).pathname;
+    let body=fixture.response(name);
+    if(name==='/api/production-report')body={folder:'C:\\Reports',previews:fixture.previews,selected_preview_id:32};
+    if(name.endsWith('/completion-upload'))body={token:'test-token',name:'ExcelReport.xlsx',orders:1,conflicts:0};
+    if(name.endsWith('/check')){
+      token=route.request().postDataJSON().completion_token;
+      body={preview_name:'preview32',fingerprint:'checked',columns:['Order Number','Out Time'],rows:[],unresolved:[],reports:[{kind:'full',name:'Full Search.xlsx',sheet:'TV Orders',missing:0,existing:2,skipped:0,orders:[],completion_count:1,completion_kept:1,completion_unmatched:0,completion_orders:[{'Order Number':'DONE-1','Out Time':'2026-11-11T06:19:29'}]}]};
+    }
+    await route.fulfill({json:body});
+  });
+  await page.goto('/');
+  await page.getByRole('button',{name:'Production Report',exact:true}).click();
+  await page.getByLabel('Upload completed ExcelReport',{exact:true}).setInputFiles({name:'ExcelReport.xlsx',mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',buffer:Buffer.from('mock upload')});
+  await expect(page.getByText('ExcelReport.xlsx · 1 orders with completion times · 0 conflicting orders excluded')).toBeVisible();
+  await page.getByRole('button',{name:'Check folder & orders',exact:true}).click();
+  await page.getByRole('button',{name:'1 Completion times to fill View orders',exact:true}).click();
+  const dialog=page.getByRole('dialog',{name:'Full Search — completion times'});
+  await expect(dialog.getByRole('cell',{name:'DONE-1',exact:true})).toBeVisible();
+  await expect(dialog.getByRole('cell',{name:'2026-11-11T06:19:29',exact:true})).toBeVisible();
+  expect(token).toBe('test-token');
+});
+
 test('report titles and counts open only their missing orders in a popup',async({page})=>{
   const fixture=workspaceFixture(3);
   const full={'Order Number':'FULL-NEW',Product:'Full Title',Status:'Search In Progress'};
