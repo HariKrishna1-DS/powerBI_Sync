@@ -320,6 +320,11 @@ class AutomaticApiTests(unittest.TestCase):
         client.post('/api/sheet-sync', json={'enabled': True})
         self.assertEqual(client.post('/api/sync', json={'preview': client.get('/api/state').json['previews'][0]['id']}).status_code, 202)
         self.wait_synced(2)
+        # A sync receipt precedes the final journal write; wait before cleanup.
+        deadline = time.monotonic() + 5
+        while client.get('/api/health').json['running'] and time.monotonic() < deadline:
+            time.sleep(.01)
+        self.assertFalse(client.get('/api/health').json['running'])
         self.assertEqual(calls, [1, 2])
         self.assertEqual(len(self.store.list()), 2)
 
