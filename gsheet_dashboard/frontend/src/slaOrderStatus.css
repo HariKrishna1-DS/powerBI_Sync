@@ -1,0 +1,19 @@
+.sla-target-status { position:relative; width:100%; max-width:480px; min-width:0; }
+.sla-status-control { position:relative; margin-top:6px; }
+:is(.studio-dialog,.status-edit-form) .sla-status-control input { width:100%; box-sizing:border-box; padding-right:44px; }
+.sla-status-control .sla-status-toggle {
+  position:absolute; right:1px; top:1px; bottom:1px; width:38px;
+  display:grid; place-items:center; padding:0; border:0; border-radius:8px;
+  background:transparent; color:var(--muted); cursor:pointer;
+}
+.sla-status-control .sla-status-toggle:hover { color:var(--accent); background:var(--accent-soft); }
+.sla-status-toggle:focus-visible { outline:2px solid var(--accent); outline-offset:-3px; }
+.sla-status-options {
+  position:relative;
+  box-sizing:border-box; width:100%; max-height:min(240px,35dvh); overflow-y:auto; margin-top:6px; padding:5px;
+  border:1px solid var(--line); border-radius:10px;
+  background:var(--surface); color:var(--ink); box-shadow:0 8px 24px #0002;
+}
+.sla-status-options [role='option'] { padding:9px 12px; border-radius:6px; cursor:pointer; overflow-wrap:anywhere; }
+.sla-status-options [role='option']:is(:hover,.is-active,[aria-selected='true']) { background:var(--accent-soft); color:var(--accent); }
+.studio-dialog.sla-status-name-dialog { width:min(560px,calc(100vw - 32px)); }

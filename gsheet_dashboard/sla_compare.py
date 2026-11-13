@@ -543,6 +543,7 @@ def compare_sla_with_production(sla_report, production_rows, preview_name=''):
         },
         'orders': orders,
     }
+    result['custom_statuses'] = list(sla_report.get('custom_statuses') or [])
     return recalculate_summary(result)
 
 def comparison_summary_status(order):
@@ -615,6 +616,11 @@ def recalculate_summary(result):
             summary_by_status[st]['Unknown SLA'] += 1
         summary_by_status[st]['Grand Total'] += 1
 
+    for status in result.get('custom_statuses', []):
+        if status and status not in summary_by_status:
+            summary_by_status[status] = dict.fromkeys(
+                ['Future SLA', 'Negative SLA', 'Today SLA', 'Unknown SLA', 'Not in SLA Queue', 'Grand Total'], 0)
+            summary_by_status[status]['Status'] = status
     sla_summary_rows = sorted(summary_by_status.values(), key=lambda x: str(x['Status']).casefold())
     sla_summary_totals = {
         'Status': 'Grand Total',

@@ -16,6 +16,19 @@ from sla_compare import (compare_sla_with_production, export_comparison_excel,
 
 
 class SlaCompareTests(unittest.TestCase):
+    def test_custom_status_is_retained_with_zero_counts_in_summary_and_download(self):
+        from sla_compare import recalculate_summary
+        self.report['custom_statuses']=['Manual review']
+        result=compare_sla_with_production(self.report,self.production)
+        recalculate_summary(result)
+        custom=next(row for row in result['sla_summary']['rows'] if row['Status']=='Manual review')
+        self.assertEqual(custom['Grand Total'],0)
+        self.assertEqual(result['sla_summary']['totals']['Grand Total'],3)
+        book=load_workbook(export_comparison_excel(result,table_scope='sla_summary'))
+        exported=next(row for row in book.active.iter_rows(min_row=5,values_only=True) if row[0]=='Manual review')
+        self.assertEqual(exported[-1],0)
+        book.close()
+
     def test_summary_download_details_reconcile_with_every_matrix_cell(self):
         from collections import Counter
         self.report['rows'][0]['SLA Category']='Unknown SLA'

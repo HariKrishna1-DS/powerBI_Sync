@@ -22,13 +22,13 @@ export function useSidebarState(){
 }
 
 export function WorkspaceContext({production,view,preview,snapshot,reportMode,running,stage,pending,selected,sheetUrl,onRefresh,refreshing}) {
-  const report=['daily','monthly','capacity','sla','slaCompare'].includes(view);
+  const report=['daily','monthly','capacity','sla','slaCompare','productionReport'].includes(view);
   const updated=report||view==='audit'||view==='importChanges'?null:production?snapshot?.updated_at:preview?.created;
   let productionUrl;
   try{const url=new URL(sheetUrl);if(url.protocol==='https:'&&url.hostname==='docs.google.com'&&url.pathname.startsWith('/spreadsheets/d/')&&!url.username&&!url.password)productionUrl=url.href;}catch{}
   return <div className="workspace-context" aria-label="Workspace context">
     <a className="context-source source-link" href={productionUrl||'https://docs.google.com/spreadsheets/'} target="_blank" rel="noopener noreferrer" title={productionUrl?'Open the production Google Sheet in your browser':'Open Google Sheets (no production spreadsheet configured)'}><Database size={14}/>Google Sheet<ExternalLink size={12}/></a>
-    <span className="context-preview"><FileSpreadsheet size={14}/>{view==='importChanges'?'Imported order edits':(production||report)&&reportMode==='excel'?'Excel report':selected?(preview.name||`preview${selected}`):'No capture selected'}</span>
+    <span className="context-preview"><FileSpreadsheet size={14}/>{view==='importChanges'?'Imported order edits':(production||report)&&reportMode==='excel'?'Excel report':selected?(preview?.name||`preview${selected}`):'No capture selected'}</span>
     <span className="context-freshness"><Clock3 size={14}/>{updated?`${production?'Refreshed':'Captured'} ${new Date(updated).toLocaleString(undefined,{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'})}`:report?'Reporting period below':['audit','importChanges'].includes(view)?'Saved on this computer':'Freshness unavailable'}</span>
     <button className="text-button context-refresh" onClick={onRefresh} disabled={refreshing||running} aria-label="Refresh production data"><RefreshCw size={14} className={refreshing?'spin':''}/>{refreshing?'Refreshing…':'Refresh'}</button>
     <span className={`context-job ${running?'is-running':''}`} role="status">{running?<i className="job-pulse"/>:<Check size={14}/>}<span>{running?stage||'Working…':pending?`${pending} awaiting sync`:'Ready'}</span></span>

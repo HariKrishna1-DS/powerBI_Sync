@@ -12,6 +12,7 @@ import './workspaceSystem.css';
 import './slaCompareDesign.css';
 import './slaTypography.css';
 import './tableGrid.css';
+import './workspaceContext.css';
 import {OrdersWorkspace, ProductionOverview, OperationActivity, ThemeControl, VIEW_TITLES} from './StudioWorkspace';
 import ReportControls from './ReportControls';
 const CapacityReport = React.lazy(() => import('./CapacityReport'));

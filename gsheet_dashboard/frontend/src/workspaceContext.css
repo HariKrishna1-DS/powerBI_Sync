@@ -1,0 +1,64 @@
+/* Shared source and sync bar for every workspace section. */
+.workspace .workspace-context {
+  display:flex;
+  align-items:center;
+  flex-wrap:wrap;
+  gap:12px 20px;
+  min-height:62px;
+  margin-bottom:24px;
+  padding:12px 16px;
+  border:1px solid var(--line);
+  border-left:3px solid var(--accent);
+  border-radius:16px;
+  background:linear-gradient(110deg,var(--accent-soft),var(--surface) 45%);
+  box-shadow:none;
+  font-size:11px;
+  line-height:1.5;
+}
+.workspace .workspace-context > :is(a,button,span) {
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  min-width:0;
+  font-size:inherit;
+}
+.workspace .workspace-context svg { flex-shrink:0; }
+.workspace .workspace-context :is(.context-source,.context-refresh) {
+  min-height:34px;
+  padding:8px 11px;
+  border:1px solid var(--line);
+  border-radius:5px;
+  background:var(--surface);
+  color:var(--accent);
+  font-weight:500;
+  line-height:1.5;
+  text-decoration:none;
+  white-space:nowrap;
+}
+.workspace .workspace-context :is(.context-source,.context-refresh):hover:not(:disabled) {
+  border-color:var(--accent);
+  background:var(--accent-soft);
+  text-decoration:none;
+}
+.workspace .workspace-context :is(a,button):focus-visible {
+  outline:2px solid var(--accent);
+  outline-offset:3px;
+}
+.workspace .workspace-context .context-preview { color:var(--ink); font-weight:500; max-width:280px; overflow-wrap:anywhere; }
+.workspace .workspace-context .context-freshness { color:var(--muted); }
+.workspace .workspace-context .context-refresh { margin-left:auto; }
+.workspace .workspace-context .context-refresh:disabled { opacity:.6; cursor:wait; }
+.workspace .workspace-context .context-job { margin-left:0; color:var(--positive); }
+.workspace .workspace-context .context-job.is-running { color:var(--accent); }
+.workspace .workspace-context .context-job span { max-width:280px; white-space:normal; overflow-wrap:anywhere; }
+@media(max-width:900px) {
+  .workspace .workspace-context { gap:12px 16px; }
+  .workspace .workspace-context .context-freshness { display:inline-flex!important; }
+}
+@media(max-width:600px) {
+  .workspace .workspace-context { gap:12px; padding:12px; }
+  .workspace .workspace-context .context-preview { flex:1; max-width:none; }
+  .workspace .workspace-context .context-freshness { flex-basis:100%; }
+  .workspace .workspace-context .context-refresh { margin-left:0; }
+  .workspace .workspace-context .context-job { flex:1; justify-content:flex-end; }
+}

@@ -72,8 +72,35 @@ test('extracted SLA does not offer or accept a completed status',async({page})=>
   await form.getByRole('button',{name:'Cancel',exact:true}).click();
   await page.getByRole('button',{name:'Add order to status Typing in Progress',exact:true}).click();
   const dialog=page.getByRole('dialog',{name:'Add SLA order'});
-  await expect(dialog.locator('#sla-order-statuses option[value="Completed and Delivered"]')).toHaveCount(0);
+  await dialog.getByRole('button',{name:'Choose SLA order status'}).click();
+  await expect(dialog.getByRole('option',{name:'Completed and Delivered',exact:true})).toHaveCount(0);
   await expect(page.getByRole('button',{name:'Grand Total 2',exact:true})).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('status dropdown shows alternatives for a populated value and supports selection and custom typing',async({page})=>{
+  const {errors,saves}=await setup(page);
+  await page.getByRole('button',{name:'Add order to status Typing in Progress',exact:true}).click();
+  const dialog=page.getByRole('dialog',{name:'Add SLA order'});
+  const status=dialog.getByRole('combobox',{name:'SLA order status'});
+  await expect(status).toHaveValue('Typing in Progress');
+  await dialog.getByRole('button',{name:'Choose SLA order status'}).click();
+  await expect(dialog.getByRole('option',{name:'Typing in Progress',exact:true})).toBeVisible();
+  await dialog.getByRole('option',{name:'Search In Progress',exact:true}).click();
+  await expect(status).toHaveValue('Search In Progress');
+  await expect(dialog.getByRole('listbox')).toHaveCount(0);
+  await status.press('ArrowDown');
+  await expect(dialog.getByRole('listbox')).toBeVisible();
+  await status.press('Escape');
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('listbox')).toHaveCount(0);
+  await status.fill('Custom queue');
+  await dialog.getByLabel('SLA Order Number',{exact:true}).fill('003');
+  await dialog.getByRole('button',{name:'Look up order',exact:true}).click();
+  await dialog.getByLabel('SLA Expiration',{exact:true}).fill('2026-10-20T17:00');
+  await dialog.getByRole('button',{name:'Add order',exact:true}).click();
+  await expect(dialog).toHaveCount(0);
+  expect(saves.at(-1).status).toBe('Custom queue');
   expect(errors).toEqual([]);
 });
 

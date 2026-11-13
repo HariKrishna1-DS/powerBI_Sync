@@ -25,6 +25,7 @@ import {
 import {api} from './workspaceUtils';
 import {ColumnFilterButton, useColumnFilters} from './ColumnFilters';
 import {Dialog} from './DesktopExperience';
+import useComparisonEditing from './useComparisonEditing';
 
 const STANDARD_PROD_STATUSES = [
   'Assign to ABS',
@@ -197,6 +198,16 @@ export default function SlaCompare({state, reportMode}) {
   const ordersTableRef = useRef(null);
   const reportStartRef = useRef(null);
   const initialPositioned = useRef(false);
+  const comparisonEditing = useComparisonEditing({
+    previewId: data?.selected_preview_id,
+    orders: data?.orders || [],
+    summaryStatus: comparisonSummaryStatus,
+    onRefresh: async () => {
+      const updated = await api(`/api/sla-compare?preview_id=${encodeURIComponent(data.selected_preview_id)}`);
+      setData(updated);
+      setPopModal(null);
+    }
+  });
   useEffect(() => { initialPositioned.current = false; }, [reportMode]);
   useEffect(() => {
     if (loading || !data?.has_production || initialPositioned.current) return;
@@ -686,6 +697,9 @@ export default function SlaCompare({state, reportMode}) {
 
   const metrics = data?.metrics || {};
   const slaSummary = data?.sla_summary || {rows: [], totals: {}};
+  const summaryRows = [...slaSummary.rows, ...comparisonEditing.customStatuses
+    .filter(status => !slaSummary.rows.some(row => row.Status === status))
+    .map(Status => ({Status, 'Grand Total': 0}))];
   const visibleComparisonCategories = [...comparisonCategories, ...(slaSummary.totals?.['Unknown SLA']?['Unknown SLA']:[])];
 
   // Helper to open Pop Table modal for matrix cells (based on Production Report status)
@@ -938,6 +952,9 @@ export default function SlaCompare({state, reportMode}) {
             <span className="subheading-tag">Grouped by Production Status for the selected SLA Status preview.</span>
           </div>
           <div className="subheading-right inline">
+            <button type="button" className="primary compare-add-status" disabled={!comparisonEditing.ready || comparisonEditing.saving} onClick={comparisonEditing.openAddStatus}>
+              <Plus size={17} />Add status
+            </button>
             {selectedSlaStatus && (
               <span className="active-sla-filter-chip">
                 Filtered by: <strong>{selectedSlaStatus}</strong>
@@ -971,18 +988,19 @@ export default function SlaCompare({state, reportMode}) {
             <table className="sla-matrix-table" aria-label="SLA Status Summary Table">
               <thead>
                 <tr>
-                  <th scope="col" style={{width: 260}}>Production Status</th>
+                  <th scope="col" style={{width: 300}}><span className="sla-status-heading">Production Status {comparisonEditing.addStatusButton}</span></th>
                   {[...visibleComparisonCategories, 'Grand Total'].map(category => (
                     <th key={category} scope="col" className="col-num">{category}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {slaSummary.rows.map((row) => {
+                {summaryRows.map((row) => {
                   const isSelected = selectedSlaStatus === row.Status;
                   return (
                     <tr key={row.Status} className={isSelected ? 'matrix-row-selected' : ''}>
                       <th scope="row">
+                        <div className="sla-status-label">
                         <button
                           type="button"
                           className="status-click-btn"
@@ -991,6 +1009,7 @@ export default function SlaCompare({state, reportMode}) {
                         >
                           {row.Status}
                         </button>
+                        {comparisonEditing.statusActions(row.Status)}</div>
                       </th>
                       {[...visibleComparisonCategories, 'Grand Total'].map(category => (
                         <td key={category} className={`col-num ${category === 'Grand Total' ? 'col-grand' : ''}`}>
@@ -1265,7 +1284,7 @@ export default function SlaCompare({state, reportMode}) {
                   {/* Order Identity */}
                   <td>
                     <div className="order-num-cell">
-                      <strong>{order.order_number}</strong>
+                      {order.match_type !== 'prod_only' ? <button type="button" className="text-button" disabled={!comparisonEditing.ready} aria-label={`Edit SLA order ${order.order_number}`} onClick={() => comparisonEditing.openOrder(order)}><strong>{order.order_number}</strong></button> : <strong>{order.order_number}</strong>}
                       {isMoved && <span className="mini-badge badge-moved">MOVED</span>}
                       {isSame && <span className="mini-badge badge-same">MATCHED</span>}
                       {isSlaOnly && <span className="mini-badge badge-new">NEW ORDER</span>}
@@ -1386,6 +1405,7 @@ export default function SlaCompare({state, reportMode}) {
                 </p>
               </div>
               <div className="pop-modal-actions inline" style={{gap: 8}}>
+                <button type="button" className="secondary" disabled={!comparisonEditing.ready} onClick={() => comparisonEditing.addOrder(popModal.summary_status || popModal.status)}><Plus size={16}/>Add order</button>
                 <div className="search-input">
                   <Search size={14} />
                   <input
@@ -1446,6 +1466,7 @@ export default function SlaCompare({state, reportMode}) {
               <table className="side-by-side-table pop-orders-table">
                 <thead>
                   <tr>
+                    <th>Actions</th>
                     <th>Order Number</th>
                     <th>Product</th>
                     <th>State / County</th>
@@ -1460,7 +1481,8 @@ export default function SlaCompare({state, reportMode}) {
                 <tbody>
                   {popModalOrders.map((o, idx) => (
                     <tr key={`${o.order_number}-${idx}`} className={o.match_type === 'status_moved' ? 'row-status-moved' : ''}>
-                      <td><strong>{o.order_number}</strong></td>
+                      <td>{comparisonEditing.rowActions(o)}</td>
+                      <td>{o.match_type !== 'prod_only' ? <button type="button" className="text-button" disabled={!comparisonEditing.ready} onClick={() => comparisonEditing.openOrder(o)}><strong>{o.order_number}</strong></button> : <strong>{o.order_number}</strong>}</td>
                       <td>{o.product || '—'}</td>
                       <td>{[o.state, o.county].filter(Boolean).join(' / ') || '—'}</td>
                       <td>{o.client || '—'}</td>
@@ -1481,7 +1503,7 @@ export default function SlaCompare({state, reportMode}) {
                   ))}
                   {!popModalOrders.length && (
                     <tr>
-                      <td colSpan={9} className="table-empty">
+                      <td colSpan={10} className="table-empty">
                         No orders match the current search in this group.
                       </td>
                     </tr>
@@ -1492,6 +1514,7 @@ export default function SlaCompare({state, reportMode}) {
           </div>
         </Dialog>
       )}
+      {comparisonEditing.dialogs}
     </section>
   );
 }

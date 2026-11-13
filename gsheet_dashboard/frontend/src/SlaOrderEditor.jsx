@@ -1,5 +1,6 @@
-import React,{useEffect,useLayoutEffect,useRef,useState} from 'react';
-import {Copy,Search} from 'lucide-react';
+import React,{useEffect,useId,useLayoutEffect,useRef,useState} from 'react';
+import {ChevronDown,Copy,Search} from 'lucide-react';
+import './slaOrderStatus.css';
 import {Dialog} from './DesktopExperience';
 import {api} from './workspaceUtils';
 
@@ -20,6 +21,21 @@ function FullComment({name,value,onChange}){
     observer.observe(node);fit();return()=>observer.disconnect();
   },[value]);
   return <textarea ref={input} aria-label={name} rows={4} value={value} maxLength={10000} onChange={onChange}/>;
+}
+export function StatusPicker({value,onChange,options,disabled,label='Status',inputLabel='SLA order status',autoFocus=false}){
+  const [open,setOpen]=useState(false),[active,setActive]=useState(-1);
+  const input=useRef(null),list=useRef(null),pickerId=useId();
+  useEffect(()=>{if(open&&active>=0)list.current?.children[active]?.scrollIntoView({block:'nearest'});},[open,active]);
+  function choose(status){onChange(status);setOpen(false);setActive(-1);input.current?.focus();}
+  return <div className="sla-target-status" onBlur={event=>{if(!event.currentTarget.contains(event.relatedTarget))setOpen(false);}}>
+    <label htmlFor={`${pickerId}-input`}>{label}</label>
+    <div className="sla-status-control"><input id={`${pickerId}-input`} ref={input} aria-label={inputLabel} autoFocus={autoFocus} role="combobox" aria-autocomplete="none" aria-expanded={open} aria-controls={`${pickerId}-options`} aria-activedescendant={open&&active>=0?`${pickerId}-option-${active}`:undefined} value={value} required maxLength={1000} disabled={disabled} onChange={event=>{onChange(event.target.value);setActive(-1);}} onKeyDown={event=>{
+      if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();setOpen(true);setActive(index=>event.key==='ArrowDown'?Math.min(index+1,options.length-1):Math.max(index-1,0));}
+      else if(event.key==='Enter'&&open){event.preventDefault();if(active>=0)choose(options[active]);else setOpen(false);}
+      else if(event.key==='Escape'&&open){event.preventDefault();event.stopPropagation();setOpen(false);}
+    }}/><button type="button" className="sla-status-toggle" aria-label="Choose SLA order status" aria-expanded={open} aria-controls={`${pickerId}-options`} disabled={disabled} onClick={()=>{setOpen(!open);setActive(-1);input.current?.focus();}}><ChevronDown size={17}/></button></div>
+    {open&&<div id={`${pickerId}-options`} ref={list} role="listbox" aria-label="Available SLA statuses" className="sla-status-options">{options.map((status,index)=><div key={status} id={`${pickerId}-option-${index}`} role="option" aria-selected={value===status} className={index===active?'is-active':''} onMouseDown={event=>event.preventDefault()} onClick={()=>choose(status)}>{status}</div>)}</div>}
+  </div>;
 }
 export default function SlaOrderEditor({report,entry,onClose,onSaved}){
   const editing=!!entry.row&&!entry.copy;
@@ -61,8 +77,7 @@ export default function SlaOrderEditor({report,entry,onClose,onSaved}){
       {imported&&<label>Workbook<select aria-label="SLA source workbook" value={source} disabled={editing||saving||busy} onChange={event=>{requestId.current++;setSource(event.target.value);setLookup(null);setBusy(false);setError('');}}><option value="">Find across imported workbooks</option>{[...new Set([...(report.source_workbooks||[]),'Manual SLA orders'])].map(name=><option key={name} value={name}>{name}</option>)}</select></label>}
       <div className="sla-order-lookup"><label>Order Number<input aria-label="SLA Order Number" value={number} readOnly={editing} disabled={saving} required maxLength={1000} onChange={event=>{requestId.current++;setBusy(false);setNumber(event.target.value);setLookup(null);setError('');}} onKeyDown={event=>{if(event.key==='Enter'){event.preventDefault();if(!busy&&!saving)check();}}} autoFocus={!editing}/></label><button type="button" className="secondary" onClick={()=>check()} disabled={!number.trim()||busy||saving}><Search size={16}/>{busy?'Looking up…':'Look up order'}</button></div>
       {checked&&<p className="notice success" role="status">{lookup.exists?`Order found${lookup.row?.['Queue Presence']==='Manual addition'?' in manual additions':` in ${imported?lookup.row?.['Source workbook']||contextLabel:report.preview_name}`}. Its details are loaded.${lookup.row?.Status&&lookup.row.Status!==status?` Saving moves it from ${lookup.row.Status} to ${status}.`:''}`:'New order. Enter its details and SLA expiration to add it.'}</p>}
-      <label className="sla-target-status">Status<input aria-label="SLA order status" value={status} list="sla-order-statuses" required maxLength={1000} disabled={saving} onChange={event=>setStatus(event.target.value)}/></label>
-      <datalist id="sla-order-statuses">{[...new Set([...report.summary.map(row=>row.Status),'Typing in Progress',...(imported?['Completed and Delivered']:[])])].filter(name=>imported||name!=='Completed and Delivered').map(name=><option key={name} value={name}/>)}</datalist>
+      <StatusPicker value={status} onChange={setStatus} disabled={saving} options={[...new Set([status,...report.summary.map(row=>row.Status),'Typing in Progress',...(imported?['Completed and Delivered']:[])])].filter(name=>name&&(imported||name!=='Completed and Delivered'))}/>
       {checked&&lookup.exists&&lookup.row?.['Status Reason']&&<div className="sla-rule-result" role="region" aria-label="Current SLA result"><strong>Current status: {lookup.row.Status}</strong><p>{lookup.row['Status Reason']}</p></div>}
       <fieldset disabled={!checked||saving||busy} className="sla-order-fields"><legend>Order details</legend><div className="form-grid">{editableNames.map(name=><label key={name} className={name==='Comment'||name==='ETA Comments'?'sla-comment-field':undefined}>{name}{name==='SLA Expiration'?<><input aria-label={name} type="datetime-local" required value={(fields[name]||'').replace(' ','T').slice(0,16)} onChange={event=>setFields({...fields,[name]:event.target.value})}/><small>Source time · compared with the report’s Arrival Time date.</small></>:name==='Comment'||name==='ETA Comments'?<FullComment name={name} value={fields[name]} onChange={event=>setFields({...fields,[name]:event.target.value})}/>:<input aria-label={name} value={fields[name]} maxLength={10000} onChange={event=>setFields({...fields,[name]:event.target.value})}/>}</label>)}</div></fieldset>
       {error&&<p className="notice warning" role="alert">{error}</p>}

@@ -98,7 +98,10 @@ test('Excel report shows Add status and moves/edits the chosen workbook order wi
   expect(rows.find(row=>row['Source workbook']==='full.xlsx'&&row['Order Number']==='001').Borrower).toBe('Edited from SLA');
   expect(rows.find(row=>row['Source workbook']==='remaining.xlsx').Status).toBe('Search In Progress');
   await page.getByRole('button',{name:'Edit status Manual review',exact:true}).click();
-  await page.getByLabel('New order status',{exact:true}).fill('QC in Progress');
+  const statusEditor=page.getByRole('form',{name:'Edit order status'});
+  await statusEditor.getByRole('button',{name:'Choose SLA order status'}).click();
+  await statusEditor.getByRole('option',{name:'QC in Progress',exact:true}).click();
+  await expect(page.getByLabel('New order status',{exact:true})).toHaveValue('QC in Progress');
   await page.getByRole('button',{name:'Save status',exact:true}).click();
   await expect(page.getByRole('button',{name:'QC in Progress, Grand Total: 1 orders',exact:true})).toBeVisible();
   await page.screenshot({path:'test-results/excel-sla-status-controls.png',fullPage:true});
