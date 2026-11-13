@@ -87,6 +87,8 @@ class ScheduledCaptureTests(unittest.TestCase):
             self.assertEqual(client.get('/api/state').json['schedule']['triggered_today'], ['13:00'])
             paused = client.post('/api/sync-schedule', json={'enabled':False,'times':saved['times']}).json
             resumed = client.post('/api/sync-schedule', json={'enabled':True,'times':paused['times']}).json
+            # A due slot starts a worker; finish SQLite writes before cleanup.
+            self.wait_finished(client)
         self.assertEqual(resumed['times'], ['13:00','14:00'])
         self.assertEqual(resumed['triggered_today'], ['13:00'])
 
