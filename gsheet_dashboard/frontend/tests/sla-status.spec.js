@@ -70,7 +70,8 @@ test('SLA status edit renames long labels and merges into an existing QC status'
   expect(saves[0].order_numbers).toEqual([sla.rows[2]['Order Number']]);
   await page.getByRole('button',{name:'Edit status Cancelled',exact:true}).click();
   await form.getByLabel('New order status',{exact:true}).fill('QC in Progress');
-  await expect(page.locator('#sla-existing-statuses option[value="QC in Progress"]')).toHaveCount(1);
+  await form.getByRole('button',{name:'Choose SLA order status',exact:true}).click();
+  await form.getByRole('option',{name:'QC in Progress',exact:true}).click();
   await form.getByRole('button',{name:'Save status',exact:true}).click();
   await expect(table.getByRole('button',{name:'Cancelled',exact:true})).toHaveCount(0);
   await expect(table.getByRole('button',{name:'QC in Progress',exact:true})).toHaveCount(1);
